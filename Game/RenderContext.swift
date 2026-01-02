@@ -30,12 +30,12 @@ final class RenderContext {
         self.allocators = (0...maxFramesInFlight).map { _ in device.makeCommandAllocator()! }
 
         let vDesc = MTL4ArgumentTableDescriptor()
-        vDesc.maxBufferBindCount = 4
+        vDesc.maxBufferBindCount = 8
         self.vertexTable = try! device.makeArgumentTable(descriptor: vDesc)
 
         let fDesc = MTL4ArgumentTableDescriptor()
-        fDesc.maxBufferBindCount = 4
-        fDesc.maxTextureBindCount = 4
+        fDesc.maxBufferBindCount = 8
+        fDesc.maxTextureBindCount = 8
         self.fragmentTable = try! device.makeArgumentTable(descriptor: fDesc)
     }
 
