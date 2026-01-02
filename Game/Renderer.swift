@@ -115,7 +115,7 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         frameSync.waitIfNeeded(timeoutMS: 10)
 
-        // ✅ 改动 1：每帧开始，拿 frameSlot 选 allocator，并 beginCommandBuffer
+        // ✅ 每帧开始：拿 frameSlot 选 allocator，并 beginCommandBuffer
         let frameSlot = uniformRing.beginFrame()
         let allocator = context.allocators[frameSlot]
         allocator.reset()
@@ -132,17 +132,15 @@ final class Renderer: NSObject, MTKViewDelegate {
         enc.setArgumentTable(context.vertexTable, stages: .vertex)
         enc.setArgumentTable(context.fragmentTable, stages: .fragment)
 
-        // camera projection updates happen on resize (see mtkView below)
-        // camera view updates in scene.update(dt:)
-        let cam = (scene as? DemoScene)?.camera  // minimal: or expose camera in protocol later
-        let projection = cam?.projection ?? matrix_identity_float4x4
-        let viewM = cam?.view ?? matrix_identity_float4x4
+        // ✅ 纯 protocol：不再特判 DemoScene
+        let projection = scene.camera.projection
+        let viewM = scene.camera.view
 
         for item in items {
             enc.setCullMode(item.material.cullMode)
             enc.setFrontFacing(item.material.frontFacing)
 
-            // ✅ 改动 2：每个 draw call 单独 allocate 一份 uniforms
+            // ✅ 每个 draw call 单独 allocate 一份 uniforms
             let u = uniformRing.allocate()
 
             writeUniforms(u.pointer, projection: projection, view: viewM, model: item.modelMatrix)
@@ -179,10 +177,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
-        // Let scene camera update projection (cleanest).
-        // For minimal changes: DemoScene has camera; call it when available.
-        if let demo = scene as? DemoScene {
-            demo.camera.updateProjection(width: Float(size.width), height: Float(size.height))
-        }
+        // ✅ 纯 protocol：不再特判 DemoScene
+        scene?.camera.updateProjection(width: Float(size.width), height: Float(size.height))
     }
 }

@@ -8,6 +8,9 @@
 import Foundation
 
 public protocol RenderScene: AnyObject {
+    /// Scene-owned camera (Renderer should not assume concrete scene types)
+    var camera: Camera { get }
+
     /// Called once after Renderer is created (device is ready).
     func build(context: SceneContext)
 
