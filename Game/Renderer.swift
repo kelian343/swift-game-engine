@@ -59,7 +59,11 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard let ds = PipelineBuilder.makeDepthState(device: device) else { return nil }
         self.depthState = ds
 
-        self.fallbackWhite = TextureResource(device: device, source: .solid(width: 1, height: 1, r: 255, g: 255, b: 255, a: 255), label: "FallbackWhite")
+        self.fallbackWhite = TextureResource(
+            device: device,
+            source: .solid(width: 1, height: 1, r: 255, g: 255, b: 255, a: 255),
+            label: "FallbackWhite"
+        )
 
         super.init()
     }
@@ -78,9 +82,11 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         let meshes = items.map { $0.mesh }
         let textures = items.compactMap { $0.material.baseColorTexture?.texture }
-        context.prepareResidency(meshes: meshes,
-                                textures: textures + [fallbackWhite.texture],
-                                uniforms: uniformRing.buffer)
+        context.prepareResidency(
+            meshes: meshes,
+            textures: textures + [fallbackWhite.texture],
+            uniforms: uniformRing.buffer
+        )
     }
 
     private func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
@@ -109,8 +115,9 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         frameSync.waitIfNeeded(timeoutMS: 10)
 
-        let u = uniformRing.next()
-        let allocator = context.allocators[u.index]
+        // ✅ 改动 1：每帧开始，拿 frameSlot 选 allocator，并 beginCommandBuffer
+        let frameSlot = uniformRing.beginFrame()
+        let allocator = context.allocators[frameSlot]
         allocator.reset()
         context.commandBuffer.beginCommandBuffer(allocator: allocator)
 
@@ -134,6 +141,9 @@ final class Renderer: NSObject, MTKViewDelegate {
         for item in items {
             enc.setCullMode(item.material.cullMode)
             enc.setFrontFacing(item.material.frontFacing)
+
+            // ✅ 改动 2：每个 draw call 单独 allocate 一份 uniforms
+            let u = uniformRing.allocate()
 
             writeUniforms(u.pointer, projection: projection, view: viewM, model: item.modelMatrix)
 

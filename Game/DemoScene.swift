@@ -14,36 +14,52 @@ public final class DemoScene: RenderScene {
 
     public let camera = Camera()
 
-    private var angle: Float = 0
+    // ECS
+    private let world = World()
+    private let spinSystem = SpinSystem()
+    private let extractSystem = RenderExtractSystem()
 
     public init() {}
 
     public func build(context: SceneContext) {
         let device = context.device
 
-        let mesh = GPUMesh(device: device, data: ProceduralMeshes.box(size: 4), label: "SceneBox")
-        let tex = TextureResource(device: device, source: ProceduralTextures.checkerboard(), label: "SceneChecker")
+        // Resources (still created here; registry/handles later)
+        let mesh = GPUMesh(device: device, data: ProceduralMeshes.box(size: 4), label: "ECSBox")
+        let tex = TextureResource(device: device, source: ProceduralTextures.checkerboard(), label: "ECSChecker")
         let mat = Material(baseColorTexture: tex)
 
-        let item = RenderItem(mesh: mesh, material: mat, modelMatrix: matrix_identity_float4x4)
-        renderItems = [item]
+        // Create multiple entities (but Renderer/Scene interface unchanged)
+        for n in 0..<3 {
+            let e = world.createEntity()
 
+            // TRS: place them apart; no matrix drift
+            var t = TransformComponent()
+            t.translation = SIMD3<Float>(Float(n) * 5.0 - 5.0, 0, 0) // -5, 0, +5
+            t.scale = SIMD3<Float>(repeating: 1)
+
+            world.add(e, t)
+            world.add(e, RenderComponent(mesh: mesh, material: mat))
+
+            // Slightly different spin speeds
+            world.add(e, SpinComponent(speed: 0.8 + Float(n) * 0.3, axis: SIMD3<Float>(1, 1, 0)))
+        }
+
+        // First extraction
+        renderItems = extractSystem.extract(world: world)
+
+        // Resources changed (new mesh/texture/material) -> bump revision once
         revision &+= 1
     }
 
     public func update(dt: Float) {
-        angle += dt * 1.0  // rad/s feel free adjust
-
-        // Update model matrix (rotate)
-        let axis = SIMD3<Float>(1, 1, 0)
-        let rot = matrix4x4_rotation(radians: angle, axis: axis)
-
-        if !renderItems.isEmpty {
-            renderItems[0].modelMatrix = rot
-            // renderItems changed (model matrix) does NOT require residency rebuild.
-            // So we do NOT bump revision here.
-        }
-
+        // Update camera (your existing behavior)
         camera.updateView()
+
+        // ECS simulation step
+        spinSystem.update(world: world, dt: dt)
+
+        // Render extraction
+        renderItems = extractSystem.extract(world: world)
     }
 }
