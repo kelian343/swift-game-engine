@@ -9,7 +9,6 @@
 
 import Metal
 import MetalKit
-import ModelIO
 import simd
 
 final class Renderer: NSObject, MTKViewDelegate {
@@ -20,42 +19,38 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let frameSync: FrameSync
     private let uniformRing: UniformRingBuffer
 
-    private var pipelineState: MTLRenderPipelineState
-    private var depthState: MTLDepthStencilState
-
-    private var colorMap: MTLTexture
-    private var mesh: MTKMesh
+    private let pipelineState: MTLRenderPipelineState
+    private let depthState: MTLDepthStencilState
 
     private var projectionMatrix: matrix_float4x4 = matrix_float4x4()
     private var rotation: Float = 0
+
+    // Scene / draw calls
+    private var items: [RenderItem] = []
+
+    // Fallback texture if material has no texture
+    private let fallbackWhite: TextureResource
 
     @MainActor
     init?(metalKitView: MTKView) {
         guard let device = metalKitView.device else { return nil }
         self.device = device
 
-        // View formats (keep original)
         metalKitView.depthStencilPixelFormat = .depth32Float_stencil8
         metalKitView.colorPixelFormat = .bgra8Unorm_srgb
         metalKitView.sampleCount = 1
 
-        // Context: Metal4 command infra + arg tables
         guard let ctx = RenderContext(view: metalKitView, maxFramesInFlight: maxBuffersInFlight) else { return nil }
         self.context = ctx
 
-        // Sync: SharedEvent
         self.frameSync = FrameSync(device: device, maxFramesInFlight: maxBuffersInFlight)
 
-        // Uniform ring buffer
         guard let ring = UniformRingBuffer(device: device, maxFramesInFlight: maxBuffersInFlight) else { return nil }
         self.uniformRing = ring
 
-        // Pipeline + depth
-        let mtlVertexDescriptor = PipelineBuilder.makeMetalVertexDescriptor()
+        let vDesc = PipelineBuilder.makeMetalVertexDescriptor()
         do {
-            self.pipelineState = try PipelineBuilder.makeRenderPipeline(device: device,
-                                                                        view: metalKitView,
-                                                                        vertexDescriptor: mtlVertexDescriptor)
+            self.pipelineState = try PipelineBuilder.makeRenderPipeline(device: device, view: metalKitView, vertexDescriptor: vDesc)
         } catch {
             print("Unable to compile render pipeline state. Error info: \(error)")
             return nil
@@ -64,119 +59,114 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard let ds = PipelineBuilder.makeDepthState(device: device) else { return nil }
         self.depthState = ds
 
-        // Mesh
-        do {
-            self.mesh = try MeshFactory.makeBox(device: device, vertexDescriptor: mtlVertexDescriptor)
-        } catch {
-            print("Unable to build MetalKit Mesh. Error info: \(error)")
-            return nil
-        }
-
-        // Texture
-        do {
-            self.colorMap = try TextureLoader.load(device: device, name: "ColorMap")
-        } catch {
-            print("Unable to load texture. Error info: \(error)")
-            return nil
-        }
-
-        // Residency
-        context.prepareResidency(mesh: mesh, colorMap: colorMap, uniforms: uniformRing.buffer)
+        // Fallback: 1x1 white
+        self.fallbackWhite = TextureResource(device: device, source: .solid(width: 1, height: 1, r: 255, g: 255, b: 255, a: 255), label: "FallbackWhite")
 
         super.init()
+
+        // Default demo scene (procedural mesh + procedural texture)
+        let demoMesh = GPUMesh(device: device, data: ProceduralMeshes.box(size: 4), label: "DemoBox")
+        let demoTex = TextureResource(device: device, source: ProceduralTextures.checkerboard(), label: "Checkerboard")
+        let demoMat = Material(baseColorTexture: demoTex)
+        let demoItem = RenderItem(mesh: demoMesh, material: demoMat, modelMatrix: matrix_identity_float4x4)
+        self.items = [demoItem]
+
+        // Residency: include current meshes/textures/uniform ring
+        rebuildResidency()
     }
 
-    // MARK: - Per-frame update
+    /// External API: set draw calls (your scene/system will call this)
+    func setItems(_ newItems: [RenderItem]) {
+        self.items = newItems
+        rebuildResidency()
+    }
 
-    private func updateGameState(uniforms: UnsafeMutablePointer<Uniforms>) {
-        uniforms[0].projectionMatrix = projectionMatrix
+    private func rebuildResidency() {
+        let meshes = items.map { $0.mesh }
+        let textures = items.compactMap { $0.material.baseColorTexture?.texture }
+        context.prepareResidency(meshes: meshes,
+                                textures: textures + [fallbackWhite.texture],
+                                uniforms: uniformRing.buffer)
+    }
 
-        let rotationAxis = SIMD3<Float>(1, 1, 0)
-        let modelMatrix = matrix4x4_rotation(radians: rotation, axis: rotationAxis)
+    private func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>, modelMatrix: matrix_float4x4) {
+        ptr[0].projectionMatrix = projectionMatrix
+
         let viewMatrix = matrix4x4_translation(0.0, 0.0, -8.0)
-        uniforms[0].modelViewMatrix = simd_mul(viewMatrix, modelMatrix)
-
-        rotation += 0.01
+        ptr[0].modelViewMatrix = simd_mul(viewMatrix, modelMatrix)
     }
 
     // MARK: - MTKViewDelegate
 
     func draw(in view: MTKView) {
         guard let drawable = view.currentDrawable else { return }
-        guard let renderPassDescriptor = context.currentRenderPassDescriptor(from: view) else { return }
+        guard let rpd = context.currentRenderPassDescriptor(from: view) else { return }
 
-        // Wait for in-flight frame budget
         frameSync.waitIfNeeded(timeoutMS: 10)
 
-        // Allocate command recording space
-        let uniformAllocation = uniformRing.next()
-        let allocator = context.allocators[uniformAllocation.index]
+        let u = uniformRing.next()
+        let allocator = context.allocators[u.index]
         allocator.reset()
 
-        // Begin command buffer using allocator (Metal4 pattern)
         context.commandBuffer.beginCommandBuffer(allocator: allocator)
 
-        // Update CPU-side uniform data
-        updateGameState(uniforms: uniformAllocation.pointer)
-
-        // Create encoder
-        guard let renderEncoder = context.commandBuffer.makeRenderCommandEncoder(descriptor: renderPassDescriptor) else {
+        guard let enc = context.commandBuffer.makeRenderCommandEncoder(descriptor: rpd) else {
             fatalError("Failed to create render command encoder")
         }
 
-        renderEncoder.label = "Primary Render Encoder"
-        renderEncoder.pushDebugGroup("Draw Box")
+        enc.label = "Primary Render Encoder"
+        enc.setRenderPipelineState(pipelineState)
+        enc.setDepthStencilState(depthState)
 
-        renderEncoder.setCullMode(.back)
-        renderEncoder.setFrontFacing(.counterClockwise)
-        renderEncoder.setRenderPipelineState(pipelineState)
-        renderEncoder.setDepthStencilState(depthState)
+        // Bind argument tables once
+        enc.setArgumentTable(context.vertexTable, stages: .vertex)
+        enc.setArgumentTable(context.fragmentTable, stages: .fragment)
 
-        // Bind argument tables
-        renderEncoder.setArgumentTable(context.vertexTable, stages: .vertex)
-        renderEncoder.setArgumentTable(context.fragmentTable, stages: .fragment)
+        // Per-frame: rotate demo / (you can move this logic outside later)
+        rotation += 0.01
 
-        // Uniforms address
-        let uniformGPUAddress = uniformAllocation.buffer.gpuAddress + UInt64(uniformAllocation.offset)
-        context.vertexTable.setAddress(uniformGPUAddress, index: BufferIndex.uniforms.rawValue)
-        context.fragmentTable.setAddress(uniformGPUAddress, index: BufferIndex.uniforms.rawValue)
+        for item in items {
+            // Material state (culling, winding)
+            enc.setCullMode(item.material.cullMode)
+            enc.setFrontFacing(item.material.frontFacing)
 
-        // Mesh vertex buffers -> argument table addresses
-        for (index, element) in mesh.vertexDescriptor.layouts.enumerated() {
-            guard let layout = element as? MDLVertexBufferLayout else { return }
-            if layout.stride != 0 {
-                let vb = mesh.vertexBuffers[index]
-                context.vertexTable.setAddress(vb.buffer.gpuAddress + UInt64(vb.offset), index: index)
-            }
-        }
+            // Per-item uniforms
+            let rotAxis = SIMD3<Float>(1, 1, 0)
+            let rotM = matrix4x4_rotation(radians: rotation, axis: rotAxis)
+            let model = simd_mul(item.modelMatrix, rotM)
 
-        // Texture -> fragment table
-        context.fragmentTable.setTexture(colorMap.gpuResourceID, index: TextureIndex.color.rawValue)
+            writeUniforms(u.pointer, modelMatrix: model)
 
-        // Draw submeshes
-        for submesh in mesh.submeshes {
-            renderEncoder.drawIndexedPrimitives(
-                primitiveType: submesh.primitiveType,
-                indexCount: submesh.indexCount,
-                indexType: submesh.indexType,
-                indexBuffer: submesh.indexBuffer.buffer.gpuAddress + UInt64(submesh.indexBuffer.offset),
-                indexBufferLength: submesh.indexBuffer.buffer.length
+            let uAddr = u.buffer.gpuAddress + UInt64(u.offset)
+            context.vertexTable.setAddress(uAddr, index: BufferIndex.uniforms.rawValue)
+            context.fragmentTable.setAddress(uAddr, index: BufferIndex.uniforms.rawValue)
+
+            // Mesh buffers (single vertex buffer layout)
+            context.vertexTable.setAddress(item.mesh.vertexBuffer.gpuAddress, index: BufferIndex.meshVertices.rawValue)
+
+            // Texture
+            let tex = item.material.baseColorTexture?.texture ?? fallbackWhite.texture
+            context.fragmentTable.setTexture(tex.gpuResourceID, index: TextureIndex.baseColor.rawValue)
+
+            // Draw
+            enc.drawIndexedPrimitives(
+                primitiveType: .triangle,
+                indexCount: item.mesh.indexCount,
+                indexType: item.mesh.indexType,
+                indexBuffer: item.mesh.indexBuffer.gpuAddress,
+                indexBufferLength: item.mesh.indexBuffer.length
             )
         }
 
-        renderEncoder.popDebugGroup()
-        renderEncoder.endEncoding()
+        enc.endEncoding()
 
-        // Match original residency usage + end command buffer
         context.useViewResidencySetIfAvailable(for: view)
         context.commandBuffer.endCommandBuffer()
 
-        // Present/submit (original sequence)
         context.commandQueue.waitForDrawable(drawable)
         context.commandQueue.commit([context.commandBuffer])
         context.commandQueue.signalDrawable(drawable)
 
-        // Signal end-of-frame event
         frameSync.signalNextFrame(on: context.commandQueue)
 
         drawable.present()

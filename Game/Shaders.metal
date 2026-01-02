@@ -9,8 +9,6 @@
 
 #include <metal_stdlib>
 #include <simd/simd.h>
-
-// Including header shared between this Metal shader code and Swift/C code executing Metal API commands
 #import "ShaderTypes.h"
 
 using namespace metal;
@@ -18,36 +16,33 @@ using namespace metal;
 typedef struct
 {
     float3 position [[attribute(VertexAttributePosition)]];
-    float2 texCoord [[attribute(VertexAttributeTexcoord)]];
-} Vertex;
+    float3 normal   [[attribute(VertexAttributeNormal)]];
+    float2 uv       [[attribute(VertexAttributeTexcoord)]];
+} VertexIn;
 
 typedef struct
 {
     float4 position [[position]];
-    float2 texCoord;
-} ColorInOut;
+    float3 normal;
+    float2 uv;
+} Varyings;
 
-vertex ColorInOut vertexShader(Vertex in [[stage_in]],
-                               constant Uniforms & uniforms [[ buffer(BufferIndexUniforms) ]])
+vertex Varyings vertexShader(VertexIn in                 [[stage_in]],
+                             constant Uniforms& uniforms [[buffer(BufferIndexUniforms)]])
 {
-    ColorInOut out;
-
-    float4 position = float4(in.position, 1.0);
-    out.position = uniforms.projectionMatrix * uniforms.modelViewMatrix * position;
-    out.texCoord = in.texCoord;
-
+    Varyings out;
+    float4 pos = float4(in.position, 1.0);
+    out.position = uniforms.projectionMatrix * uniforms.modelViewMatrix * pos;
+    out.normal = in.normal;
+    out.uv = in.uv;
     return out;
 }
 
-fragment float4 fragmentShader(ColorInOut in [[stage_in]],
-                               constant Uniforms & uniforms [[ buffer(BufferIndexUniforms) ]],
-                               texture2d<half> colorMap     [[ texture(TextureIndexColor) ]])
+fragment float4 fragmentShader(Varyings in                 [[stage_in]],
+                               constant Uniforms& uniforms [[buffer(BufferIndexUniforms)]],
+                               texture2d<half> baseColor   [[texture(TextureIndexBaseColor)]])
 {
-    constexpr sampler colorSampler(mip_filter::linear,
-                                   mag_filter::linear,
-                                   min_filter::linear);
-
-    half4 colorSample   = colorMap.sample(colorSampler, in.texCoord.xy);
-
-    return float4(colorSample);
+    constexpr sampler s(mip_filter::linear, mag_filter::linear, min_filter::linear);
+    half4 c = baseColor.sample(s, in.uv);
+    return float4(c);
 }

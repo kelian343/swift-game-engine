@@ -11,25 +11,7 @@ import MetalKit
 enum PipelineBuilder {
 
     static func makeMetalVertexDescriptor() -> MTLVertexDescriptor {
-        let mtlVertexDescriptor = MTLVertexDescriptor()
-
-        mtlVertexDescriptor.attributes[VertexAttribute.position.rawValue].format = .float3
-        mtlVertexDescriptor.attributes[VertexAttribute.position.rawValue].offset = 0
-        mtlVertexDescriptor.attributes[VertexAttribute.position.rawValue].bufferIndex = BufferIndex.meshPositions.rawValue
-
-        mtlVertexDescriptor.attributes[VertexAttribute.texcoord.rawValue].format = .float2
-        mtlVertexDescriptor.attributes[VertexAttribute.texcoord.rawValue].offset = 0
-        mtlVertexDescriptor.attributes[VertexAttribute.texcoord.rawValue].bufferIndex = BufferIndex.meshGenerics.rawValue
-
-        mtlVertexDescriptor.layouts[BufferIndex.meshPositions.rawValue].stride = 12
-        mtlVertexDescriptor.layouts[BufferIndex.meshPositions.rawValue].stepRate = 1
-        mtlVertexDescriptor.layouts[BufferIndex.meshPositions.rawValue].stepFunction = .perVertex
-
-        mtlVertexDescriptor.layouts[BufferIndex.meshGenerics.rawValue].stride = 8
-        mtlVertexDescriptor.layouts[BufferIndex.meshGenerics.rawValue].stepRate = 1
-        mtlVertexDescriptor.layouts[BufferIndex.meshGenerics.rawValue].stepFunction = .perVertex
-
-        return mtlVertexDescriptor
+        VertexDescriptorLibrary.vertexPNUT()
     }
 
     @MainActor
@@ -40,30 +22,29 @@ enum PipelineBuilder {
         let library = device.makeDefaultLibrary()
         let compiler = try device.makeCompiler(descriptor: MTL4CompilerDescriptor())
 
-        let vertexFunctionDescriptor = MTL4LibraryFunctionDescriptor()
-        vertexFunctionDescriptor.library = library
-        vertexFunctionDescriptor.name = "vertexShader"
+        let vfd = MTL4LibraryFunctionDescriptor()
+        vfd.library = library
+        vfd.name = "vertexShader"
 
-        let fragmentFunctionDescriptor = MTL4LibraryFunctionDescriptor()
-        fragmentFunctionDescriptor.library = library
-        fragmentFunctionDescriptor.name = "fragmentShader"
+        let ffd = MTL4LibraryFunctionDescriptor()
+        ffd.library = library
+        ffd.name = "fragmentShader"
 
-        let pipelineDescriptor = MTL4RenderPipelineDescriptor()
-        pipelineDescriptor.label = "RenderPipeline"
-        pipelineDescriptor.rasterSampleCount = view.sampleCount
-        pipelineDescriptor.vertexFunctionDescriptor = vertexFunctionDescriptor
-        pipelineDescriptor.fragmentFunctionDescriptor = fragmentFunctionDescriptor
-        pipelineDescriptor.vertexDescriptor = vertexDescriptor
+        let pd = MTL4RenderPipelineDescriptor()
+        pd.label = "RenderPipeline"
+        pd.rasterSampleCount = view.sampleCount
+        pd.vertexFunctionDescriptor = vfd
+        pd.fragmentFunctionDescriptor = ffd
+        pd.vertexDescriptor = vertexDescriptor
+        pd.colorAttachments[0].pixelFormat = view.colorPixelFormat
 
-        pipelineDescriptor.colorAttachments[0].pixelFormat = view.colorPixelFormat
-
-        return try compiler.makeRenderPipelineState(descriptor: pipelineDescriptor)
+        return try compiler.makeRenderPipelineState(descriptor: pd)
     }
 
     static func makeDepthState(device: MTLDevice) -> MTLDepthStencilState? {
-        let depthStateDescriptor = MTLDepthStencilDescriptor()
-        depthStateDescriptor.depthCompareFunction = .less
-        depthStateDescriptor.isDepthWriteEnabled = true
-        return device.makeDepthStencilState(descriptor: depthStateDescriptor)
+        let d = MTLDepthStencilDescriptor()
+        d.depthCompareFunction = .less
+        d.isDepthWriteEnabled = true
+        return device.makeDepthStencilState(descriptor: d)
     }
 }
