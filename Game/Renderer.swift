@@ -37,6 +37,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var gAlbedoTexture: MTLTexture?
     private var temporalColorTexture: MTLTexture?
     private var atrousTexture: MTLTexture?
+    private var rtDirectTexture: MTLTexture?
+    private var rtIndirectTexture: MTLTexture?
     private var historyColorTextures: [MTLTexture] = []
     private var historyMomentsTextures: [MTLTexture] = []
     private var historyNormalTextures: [MTLTexture] = []
@@ -225,6 +227,8 @@ final class Renderer: NSObject, MTKViewDelegate {
             gAlbedoTexture = makeTex(.rgba8Unorm, [.shaderRead, .shaderWrite], "GBufferAlbedo")
             temporalColorTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "TemporalColor")
             atrousTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "AtrousColor")
+            rtDirectTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "RTDirect")
+            rtIndirectTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "RTIndirect")
             historyColorTextures = [
                 makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "HistoryColorA"),
                 makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "HistoryColorB")
@@ -320,6 +324,8 @@ final class Renderer: NSObject, MTKViewDelegate {
            let gDepth = gDepthTexture,
            let gRoughness = gRoughnessTexture,
            let gAlbedo = gAlbedoTexture,
+           let rtDirect = rtDirectTexture,
+           let rtIndirect = rtIndirectTexture,
            let enc = rtCommandBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(rtPipelineState)
             enc.setTexture(rtColor, index: 0)
@@ -327,7 +333,9 @@ final class Renderer: NSObject, MTKViewDelegate {
             enc.setTexture(gDepth, index: 2)
             enc.setTexture(gRoughness, index: 3)
             enc.setTexture(gAlbedo, index: 4)
-            enc.setTexture(blueNoiseTexture, index: 5)
+            enc.setTexture(rtDirect, index: 5)
+            enc.setTexture(rtIndirect, index: 6)
+            enc.setTexture(blueNoiseTexture, index: 7)
             enc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
             enc.setAccelerationStructure(tlas, bufferIndex: BufferIndex.rtAccel.rawValue)
             enc.setBuffer(geometry.vertexBuffer, offset: 0, index: BufferIndex.rtVertices.rawValue)
@@ -341,7 +349,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             if !geometry.textures.isEmpty {
                 let count = min(geometry.textures.count, maxRTTextures)
                 let texArray: [MTLTexture?] = Array(geometry.textures.prefix(count))
-                enc.__setTextures(texArray, with: NSRange(location: 6, length: count))
+                enc.__setTextures(texArray, with: NSRange(location: 8, length: count))
             }
 
             let tgW = 8

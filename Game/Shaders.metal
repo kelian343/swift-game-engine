@@ -112,6 +112,40 @@ inline float ggx_G(float NoV, float NoL, float alpha) {
     return ggx_G1(NoV, alpha) * ggx_G1(NoL, alpha);
 }
 
+inline float3 eval_brdf(float3 N, float3 V, float3 L, float3 base, float metallic, float roughness) {
+    float NoL = sat(dot(N, L));
+    float NoV = sat(dot(N, V));
+    if (NoL <= 0.0 || NoV <= 0.0) {
+        return float3(0.0);
+    }
+    float3 H = normalize(V + L);
+    float NoH = sat(dot(N, H));
+    float VoH = sat(dot(V, H));
+    float alpha = roughness * roughness;
+    float3 diff = base * (1.0 - metallic) * (1.0 / 3.14159265);
+    float D = ggx_D(NoH, alpha);
+    float G = ggx_G(NoV, NoL, alpha);
+    float3 F0 = mix(float3(0.04), base, metallic);
+    float3 F = fresnel_schlick(VoH, F0);
+    float3 spec = (D * G) * F / max(4.0 * NoV * NoL, 1e-4);
+    return diff + spec;
+}
+
+inline float pdf_brdf(float3 N, float3 V, float3 L, float roughness, float pSpec) {
+    float NoL = sat(dot(N, L));
+    float NoV = sat(dot(N, V));
+    if (NoL <= 0.0 || NoV <= 0.0) {
+        return 0.0;
+    }
+    float3 H = normalize(V + L);
+    float NoH = sat(dot(N, H));
+    float VoH = sat(dot(V, H));
+    float alpha = roughness * roughness;
+    float pdf_diff = NoL * (1.0 / 3.14159265);
+    float pdf_spec = ggx_D(NoH, alpha) * NoH / max(4.0 * VoH, 1e-4);
+    return mix(pdf_diff, pdf_spec, pSpec);
+}
+
 inline float3 sample_ggx(float3 N, float alpha, thread uint &state) {
     float u1 = rand01(state);
     float u2 = rand01(state);
@@ -141,9 +175,13 @@ inline float3 traceRay(ray current,
                        thread float &primaryRoughness,
                        thread uint &primaryHit,
                        thread float3 &primaryAlbedo,
+                       thread float3 &directOut,
+                       thread float3 &indirectOut,
                        bool recordPrimary) {
     constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
     float3 radiance = float3(0.0);
+    directOut = float3(0.0);
+    indirectOut = float3(0.0);
     float3 throughput = float3(1.0);
 
     for (uint bounce = 0; bounce < 2; ++bounce) {
@@ -155,7 +193,7 @@ inline float3 traceRay(ray current,
                 primaryDepth = 1e6;
                 primaryRoughness = 1.0;
             }
-            radiance += throughput * float3(0.02, 0.02, 0.03);
+            indirectOut += throughput * float3(0.02, 0.02, 0.03);
             break;
         }
 
@@ -196,6 +234,11 @@ inline float3 traceRay(ray current,
             base *= tex;
         }
 
+        float3 V = normalize(-current.direction);
+        float NoV = sat(dot(N, V));
+        float alpha = roughness * roughness;
+        float pSpec = mix(0.1, 0.9, metallic);
+
         if (bounce == 0 && recordPrimary) {
             primaryHit = 1;
             primaryNormal = N;
@@ -205,7 +248,7 @@ inline float3 traceRay(ray current,
         }
 
         float3 hitPos = current.origin + current.direction * hit.distance;
-        radiance += throughput * base * frame.ambientIntensity;
+        indirectOut += throughput * base * frame.ambientIntensity;
 
         for (uint i = 0; i < frame.dirLightCount; ++i) {
             RTDirectionalLight l = dirLights[i];
@@ -221,8 +264,14 @@ inline float3 traceRay(ray current,
 
             intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
             float shadow = (shadowHit.type == intersection_type::triangle) ? 0.0 : 1.0;
-            float3 diffColor = base * (1.0 - metallic);
-            radiance += throughput * diffColor * l.color * (l.intensity * NdotL * shadow);
+            float3 brdf = eval_brdf(N, V, L, base, metallic, roughness);
+            float3 Li = l.color * l.intensity;
+            float3 contrib = throughput * brdf * Li * (NdotL * shadow);
+            if (bounce == 0) {
+                directOut += contrib;
+            } else {
+                indirectOut += contrib;
+            }
         }
 
         for (uint i = 0; i < frame.pointLightCount; ++i) {
@@ -242,15 +291,22 @@ inline float3 traceRay(ray current,
             intersection_result<triangle_data, instancing> pointHit = isect.intersect(pointShadow, accel);
             float pointShadowTerm = (pointHit.type == intersection_type::triangle) ? 0.0 : 1.0;
             float attenuation = 1.0 / max(dist * dist, 0.001);
-            float3 diffColor = base * (1.0 - metallic);
-            radiance += throughput * diffColor * l.color
-                * (l.intensity * attenuation * NdotLp * pointShadowTerm);
+            float3 brdf = eval_brdf(N, V, Lp, base, metallic, roughness);
+            float3 Li = l.color * (l.intensity * attenuation);
+            float3 contrib = throughput * brdf * Li * (NdotLp * pointShadowTerm);
+            if (bounce == 0) {
+                directOut += contrib;
+            } else {
+                indirectOut += contrib;
+            }
         }
 
         uint areaSamples = max(frame.areaLightSamples, 1u);
         for (uint i = 0; i < frame.areaLightCount; ++i) {
             RTAreaLight l = areaLights[i];
             float3 areaAccum = float3(0.0);
+            float3 lightNormal = normalize(cross(l.u, l.v));
+            float area = max(length(cross(l.u, l.v)) * 4.0, 1e-4);
             for (uint a = 0; a < areaSamples; ++a) {
                 float2 r = float2(rand01(seed), rand01(seed)) * 2.0 - 1.0;
                 float3 lightPos = l.position + l.u * r.x + l.v * r.y;
@@ -258,7 +314,8 @@ inline float3 traceRay(ray current,
                 float distA = length(toArea);
                 float3 La = (distA > 0.0) ? (toArea / distA) : float3(0.0);
                 float NdotLa = max(dot(N, La), 0.0);
-                if (NdotLa <= 0.0 || distA <= 0.0) { continue; }
+                float cosThetaLight = max(dot(-La, lightNormal), 0.0);
+                if (NdotLa <= 0.0 || distA <= 0.0 || cosThetaLight <= 0.0) { continue; }
 
                 ray areaShadow;
                 areaShadow.origin = hitPos + N * 0.01;
@@ -269,16 +326,20 @@ inline float3 traceRay(ray current,
                 intersection_result<triangle_data, instancing> areaHit = isect.intersect(areaShadow, accel);
                 float areaShadowTerm = (areaHit.type == intersection_type::triangle) ? 0.0 : 1.0;
                 float attenuationA = 1.0 / max(distA * distA, 0.001);
-                areaAccum += l.color * (l.intensity * attenuationA * NdotLa * areaShadowTerm);
+                float3 brdf = eval_brdf(N, V, La, base, metallic, roughness);
+                float pdfLight = (distA * distA) / max(cosThetaLight * area, 1e-4);
+                float pdfBsdf = pdf_brdf(N, V, La, roughness, pSpec);
+                float w = (pdfLight * pdfLight) / max(pdfLight * pdfLight + pdfBsdf * pdfBsdf, 1e-5);
+                float3 Li = l.color * (l.intensity * attenuationA * cosThetaLight);
+                areaAccum += brdf * Li * (NdotLa * areaShadowTerm) * w / max(pdfLight, 1e-5);
             }
-            float3 diffColor = base * (1.0 - metallic);
-            radiance += throughput * diffColor * (areaAccum / float(areaSamples));
+            float3 contrib = throughput * (areaAccum / float(areaSamples));
+            if (bounce == 0) {
+                directOut += contrib;
+            } else {
+                indirectOut += contrib;
+            }
         }
-
-        float3 V = normalize(-current.direction);
-        float NoV = sat(dot(N, V));
-        float alpha = roughness * roughness;
-        float pSpec = mix(0.1, 0.9, metallic);
 
         float3 nextDir;
         float pdf = 1.0;
@@ -317,6 +378,7 @@ inline float3 traceRay(ray current,
         current.max_distance = 1e6;
     }
 
+    radiance = directOut + indirectOut;
     return radiance;
 }
 
@@ -325,8 +387,10 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                            texture2d<float, access::write> gDepth [[texture(2)]],
                            texture2d<float, access::write> gRoughness [[texture(3)]],
                            texture2d<float, access::write> gAlbedo [[texture(4)]],
-                           texture2d<float, access::read> blueNoise [[texture(5)]],
-                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(6)]],
+                           texture2d<float, access::write> outDirect [[texture(5)]],
+                           texture2d<float, access::write> outIndirect [[texture(6)]],
+                           texture2d<float, access::read> blueNoise [[texture(7)]],
+                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(8)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
                            acceleration_structure<instancing> accel [[buffer(BufferIndexRTAccel)]],
                            device const float3 *rtVertices [[buffer(BufferIndexRTVertices)]],
@@ -349,6 +413,8 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
     uint baseSeed = (gid.x * 1973u) ^ (gid.y * 9277u) ^ (frame.frameIndex * 26699u);
     uint spp = max(frame.samplesPerPixel, 1u);
     float3 radiance = float3(0.0);
+    float3 directSum = float3(0.0);
+    float3 indirectSum = float3(0.0);
     float3 primaryNormal = float3(0.0);
     float primaryDepth = 1e6;
     float primaryRoughness = 1.0;
@@ -375,6 +441,8 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         current.min_distance = 0.001;
         current.max_distance = 1e6;
 
+        float3 direct = float3(0.0);
+        float3 indirect = float3(0.0);
         radiance += traceRay(current,
                              isect,
                              accel,
@@ -393,11 +461,19 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                              primaryRoughness,
                              primaryHit,
                              primaryAlbedo,
+                             direct,
+                             indirect,
                              s == 0);
+        directSum += direct;
+        indirectSum += indirect;
     }
     radiance /= float(spp);
+    directSum /= float(spp);
+    indirectSum /= float(spp);
 
     outTexture.write(float4(radiance, 1.0), gid);
+    outDirect.write(float4(directSum, 1.0), gid);
+    outIndirect.write(float4(indirectSum, 1.0), gid);
     if (primaryHit == 0u) {
         gNormal.write(float4(0.0, 0.0, 0.0, 1.0), gid);
         gDepth.write(float4(1e6, 0.0, 0.0, 0.0), gid);
