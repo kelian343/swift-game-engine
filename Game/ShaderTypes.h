@@ -68,6 +68,8 @@ typedef struct
     uint32_t pointLightCount;
     uint32_t areaLightCount;
     uint32_t areaLightSamples;
+    float denoiseSigma;
+    vector_float3 padding;
 } RTFrameUniforms;
 
 typedef struct

@@ -273,3 +273,36 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
     accumTexture.write(float4(accum, 1.0), gid);
     outTexture.write(float4(accum, 1.0), gid);
 }
+
+kernel void denoiseKernel(texture2d<float, access::read> accumTexture [[texture(0)]],
+                          texture2d<float, access::write> outTexture [[texture(1)]],
+                          constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
+                          uint2 gid [[thread_position_in_grid]])
+{
+    if (gid.x >= frame.imageSize.x || gid.y >= frame.imageSize.y) {
+        return;
+    }
+
+    float3 center = accumTexture.read(gid).xyz;
+    float sigma = max(frame.denoiseSigma, 0.001);
+
+    float3 sum = float3(0.0);
+    float wsum = 0.0;
+
+    for (int y = -1; y <= 1; ++y) {
+        int yy = int(gid.y) + y;
+        if (yy < 0 || yy >= int(frame.imageSize.y)) { continue; }
+        for (int x = -1; x <= 1; ++x) {
+            int xx = int(gid.x) + x;
+            if (xx < 0 || xx >= int(frame.imageSize.x)) { continue; }
+            float3 c = accumTexture.read(uint2(xx, yy)).xyz;
+            float3 d = c - center;
+            float w = 1.0 / (1.0 + dot(d, d) * sigma);
+            sum += c * w;
+            wsum += w;
+        }
+    }
+
+    float3 outc = (wsum > 0.0) ? (sum / wsum) : center;
+    outTexture.write(float4(outc, 1.0), gid);
+}

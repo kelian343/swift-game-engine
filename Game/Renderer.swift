@@ -24,6 +24,7 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     // Ray tracing
     private let rtPipelineState: MTLComputePipelineState
+    private let denoisePipelineState: MTLComputePipelineState
     private let rtScene: RayTracingScene
     private let rtFrameBuffer: MTLBuffer
     private var rtFrameIndex: UInt32 = 0
@@ -86,6 +87,11 @@ final class Renderer: NSObject, MTKViewDelegate {
                 return nil
             }
             self.rtPipelineState = try device.makeComputePipelineState(function: fn)
+            guard let dn = library?.makeFunction(name: "denoiseKernel") else {
+                print("Denoise kernel not found")
+                return nil
+            }
+            self.denoisePipelineState = try device.makeComputePipelineState(function: dn)
         } catch {
             print("Unable to compile ray tracing pipeline state. Error info: \(error)")
             return nil
@@ -218,7 +224,9 @@ final class Renderer: NSObject, MTKViewDelegate {
             dirLightCount: 1,
             pointLightCount: 1,
             areaLightCount: 1,
-            areaLightSamples: 2
+            areaLightSamples: 2,
+            denoiseSigma: 6.0,
+            padding: .zero
         )
         rtFrameIndex &+= 1
         memcpy(rtFrameBuffer.contents(), &rtFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
@@ -267,6 +275,20 @@ final class Renderer: NSObject, MTKViewDelegate {
             let threadsPerGrid = MTLSize(width: width, height: height, depth: 1)
             enc.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
             enc.endEncoding()
+        }
+
+        if let accum = accumulationTexture,
+           let denoiseEnc = rtCommandBuffer.makeComputeCommandEncoder() {
+            denoiseEnc.setComputePipelineState(denoisePipelineState)
+            denoiseEnc.setTexture(accum, index: 0)
+            denoiseEnc.setTexture(drawable.texture, index: 1)
+            denoiseEnc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
+            let tgW = 8
+            let tgH = 8
+            let threadsPerThreadgroup = MTLSize(width: tgW, height: tgH, depth: 1)
+            let threadsPerGrid = MTLSize(width: width, height: height, depth: 1)
+            denoiseEnc.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
+            denoiseEnc.endEncoding()
         }
 
         rtCommandBuffer.present(drawable)
