@@ -37,6 +37,7 @@ public final class World {
 
     // Stores by component type
     private var stores: [ObjectIdentifier: Any] = [:]
+    private var removers: [ObjectIdentifier: (Entity) -> Void] = [:]
 
     public init() {}
 
@@ -49,15 +50,10 @@ public final class World {
 
     public func destroyEntity(_ e: Entity) {
         guard alive.remove(e) != nil else { return }
-        // Remove from all component stores
-        for (key, anyStore) in stores {
-            // Try cast to known store shapes by erasing through closures is heavy.
-            // For minimal ECS, we just best-effort via reflection-free path:
-            // We'll store remover closures later if needed. For now, do nothing here.
-            _ = key
-            _ = anyStore
+        // Remove from all component stores via type-erased removers.
+        for remover in removers.values {
+            remover(e)
         }
-        // Minimal: systems should tolerate "dead" entities via alive checks.
     }
 
     public func isAlive(_ e: Entity) -> Bool {
@@ -72,6 +68,9 @@ public final class World {
         }
         let created = ComponentStore<T>()
         stores[key] = created
+        removers[key] = { [weak created] entity in
+            created?.remove(entity)
+        }
         return created
     }
 

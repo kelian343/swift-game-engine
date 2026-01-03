@@ -55,6 +55,9 @@ final class RenderContext {
         set.addAllocations([uniforms])
         set.commit()
 
+        if let existing = residencySet {
+            commandQueue.removeResidencySet(existing)
+        }
         commandQueue.addResidencySet(set)
         self.residencySet = set
     }

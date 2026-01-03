@@ -134,7 +134,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             depthState: depthState,
             fallbackWhite: fallbackWhite,
             projection: projection,
-            viewMatrix: viewM
+            viewMatrix: viewM,
         )
 
         let graph = RenderGraph()
