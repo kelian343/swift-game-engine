@@ -250,6 +250,9 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         let prevViewProj = hasLastView ? lastViewProj : viewProj
         let prevCameraPosition = hasLastView ? lastCameraPosition : scene.camera.position
+        let camMove = simd_distance(scene.camera.position, prevCameraPosition)
+        let camSpeed = camMove / max(dt, 0.0001)
+        let cameraMotion = min(max(camSpeed / 2.5, 0.0), 1.0)
 
         if resetHistory {
             rtFrameIndex = 0
@@ -277,6 +280,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             textureCount: UInt32(geometry?.textures.count ?? 0),
             denoiseSigma: 6.0,
             atrousStep: 1.0,
+            cameraMotion: cameraMotion,
             padding: .zero
         )
         rtFrameIndex &+= 1

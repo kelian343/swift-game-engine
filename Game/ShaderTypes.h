@@ -75,6 +75,7 @@ typedef struct
     uint32_t textureCount;
     float denoiseSigma;
     float atrousStep;
+    float cameraMotion;
     vector_float2 padding;
 } RTFrameUniforms;
 

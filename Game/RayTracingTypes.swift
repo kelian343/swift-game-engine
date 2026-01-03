@@ -26,6 +26,7 @@ struct RTFrameUniformsSwift {
     var textureCount: UInt32
     var denoiseSigma: Float
     var atrousStep: Float
+    var cameraMotion: Float
     var padding: SIMD2<Float>
 }
 

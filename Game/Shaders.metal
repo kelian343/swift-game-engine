@@ -62,6 +62,13 @@ inline float rand01(thread uint &state) {
     return float(state & 0x00FFFFFFu) / float(0x01000000u);
 }
 
+inline float2 r2_sequence(uint s, uint frame, thread uint &seed) {
+    float idx = float(s) + float(frame) * 0.5;
+    float2 cp = float2(rand01(seed), rand01(seed));
+    float2 r2 = float2(0.754877666, 0.569840296);
+    return fract(r2 * idx + cp);
+}
+
 inline float3x3 make_basis(float3 n) {
     float3 t = normalize(abs(n.z) < 0.999 ? cross(n, float3(0, 0, 1)) : cross(n, float3(0, 1, 0)));
     float3 b = cross(n, t);
@@ -349,7 +356,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
 
     for (uint s = 0; s < spp; ++s) {
         uint seed = baseSeed ^ (s * 16807u);
-        float2 jitter = (s == 0) ? float2(0.5, 0.5) : float2(rand01(seed), rand01(seed));
+        float2 jitter = r2_sequence(s, frame.frameIndex, seed);
         float2 pixel = (float2(gid) + jitter) / float2(frame.imageSize);
         float2 ndc = float2(pixel.x * 2.0 - 1.0, (1.0 - pixel.y) * 2.0 - 1.0);
 
@@ -485,7 +492,8 @@ kernel void temporalReprojectKernel(texture2d<float, access::read> rtColor [[tex
     bool normalOk = dot(currNormal, historyNormal) >= normalThreshold;
     bool valid = depthOk && normalOk;
 
-    float historyWeight = valid ? frame.historyWeight : 0.0;
+    float motionFactor = clamp(1.0 - frame.cameraMotion, 0.0, 1.0);
+    float historyWeight = valid ? (frame.historyWeight * motionFactor) : 0.0;
     float variance = max(historyMoments.y - historyMoments.x * historyMoments.x, 0.0);
     float sigma = sqrt(variance + 1e-5);
     float3 clampedHistory = clamp(historyColor,
