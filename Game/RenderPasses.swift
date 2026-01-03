@@ -12,7 +12,7 @@ final class ShadowPass: RenderPass {
 
     func makeTarget(frame: FrameContext) -> RenderTargetSource? {
         let depth = DepthAttachment(
-            texture: frame.shadowMap.texture,
+            resource: .external(frame.shadowMap.texture),
             loadAction: .clear,
             storeAction: .store,
             clearDepth: 1.0
@@ -20,7 +20,15 @@ final class ShadowPass: RenderPass {
         return .offscreen(RenderTarget(depthAttachment: depth))
     }
 
-    func encode(frame: FrameContext, encoder: MTL4RenderCommandEncoder) {
+    func readResources(frame: FrameContext) -> [RenderResourceID] {
+        []
+    }
+
+    func writeResources(frame: FrameContext) -> [RenderResourceID] {
+        [resourceID(for: frame.shadowMap.texture)]
+    }
+
+    func encode(frame: FrameContext, resources: RenderGraphResources, encoder: MTL4RenderCommandEncoder) {
         encoder.setRenderPipelineState(frame.shadowPipelineState)
         encoder.setDepthStencilState(frame.depthState)
 
@@ -60,7 +68,15 @@ final class MainPass: RenderPass {
         .view
     }
 
-    func encode(frame: FrameContext, encoder: MTL4RenderCommandEncoder) {
+    func readResources(frame: FrameContext) -> [RenderResourceID] {
+        [resourceID(for: frame.shadowMap.texture)]
+    }
+
+    func writeResources(frame: FrameContext) -> [RenderResourceID] {
+        []
+    }
+
+    func encode(frame: FrameContext, resources: RenderGraphResources, encoder: MTL4RenderCommandEncoder) {
         encoder.setRenderPipelineState(frame.pipelineState)
         encoder.setDepthStencilState(frame.depthState)
 
