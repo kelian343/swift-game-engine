@@ -26,6 +26,9 @@ struct RTFrameUniformsSwift {
     var envSH6: SIMD3<Float>
     var envSH7: SIMD3<Float>
     var envSH8: SIMD3<Float>
+    var aoRadius: Float
+    var aoIntensity: Float
+    var pad1: SIMD2<Float>
 }
 
 struct RTDirectionalLightSwift {

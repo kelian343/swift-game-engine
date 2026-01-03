@@ -75,6 +75,9 @@ typedef struct
     vector_float3 envSH6;
     vector_float3 envSH7;
     vector_float3 envSH8;
+    float aoRadius;
+    float aoIntensity;
+    vector_float2 pad1;
 } RTFrameUniforms;
 
 typedef struct
