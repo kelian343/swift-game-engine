@@ -79,7 +79,7 @@ final class RayTracingRenderer {
             invViewProj: invViewProj,
             cameraPosition: camera.position,
             imageSize: SIMD2<UInt32>(UInt32(width), UInt32(height)),
-            ambientIntensity: 0.12,
+            ambientIntensity: 0.2,
             dirLightCount: 1,
             pointLightCount: 1,
             areaLightCount: 1,
@@ -140,19 +140,19 @@ final class RayTracingRenderer {
     private func updateLightBuffers() {
         let dirPtr = dirLightBuffer.contents().bindMemory(to: RTDirectionalLightSwift.self, capacity: 4)
         dirPtr[0] = RTDirectionalLightSwift(direction: SIMD3<Float>(-0.5, -1.0, -0.3),
-                                            intensity: 1.0,
+                                            intensity: 1.2,
                                             color: SIMD3<Float>(1.0, 1.0, 1.0),
                                             padding: 0)
 
         let pointPtr = pointLightBuffer.contents().bindMemory(to: RTPointLightSwift.self, capacity: 8)
         pointPtr[0] = RTPointLightSwift(position: SIMD3<Float>(0.0, 4.0, 0.0),
-                                        intensity: 8.0,
+                                        intensity: 9.6,
                                         color: SIMD3<Float>(1.0, 0.95, 0.9),
                                         radius: 0.0)
 
         let areaPtr = areaLightBuffer.contents().bindMemory(to: RTAreaLightSwift.self, capacity: 4)
         areaPtr[0] = RTAreaLightSwift(position: SIMD3<Float>(0.0, 5.0, -2.0),
-                                      intensity: 6.0,
+                                      intensity: 7.2,
                                       u: SIMD3<Float>(1.5, 0.0, 0.0),
                                       padding0: 0,
                                       v: SIMD3<Float>(0.0, 0.0, 1.0),
