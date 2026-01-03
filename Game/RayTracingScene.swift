@@ -21,8 +21,18 @@ final class RayTracingScene {
     private var instanceBuffer: MTLBuffer?
     private var lastInstanceCount: Int = 0
 
+    private var geometryVertexBuffer: MTLBuffer?
+    private var geometryIndexBuffer: MTLBuffer?
+    private var geometryInstanceInfoBuffer: MTLBuffer?
+
     init(device: MTLDevice) {
         self.device = device
+    }
+
+    struct GeometryBuffers {
+        let vertexBuffer: MTLBuffer
+        let indexBuffer: MTLBuffer
+        let instanceInfoBuffer: MTLBuffer
     }
 
     func buildAccelerationStructures(items: [RenderItem],
@@ -134,6 +144,79 @@ final class RayTracingScene {
                           scratchBufferOffset: 0)
             encoder.endEncoding()
             return tlas
+        }
+
+        return nil
+    }
+
+    func buildGeometryBuffers(items: [RenderItem]) -> GeometryBuffers? {
+        guard !items.isEmpty else { return nil }
+
+        var vertices: [SIMD3<Float>] = []
+        var indices: [UInt32] = []
+        var instances: [RTInstanceInfoSwift] = []
+
+        vertices.reserveCapacity(items.count * 256)
+        indices.reserveCapacity(items.count * 256)
+        instances.reserveCapacity(items.count)
+
+        for item in items {
+            let baseVertex = UInt32(vertices.count)
+            let baseIndex = UInt32(indices.count)
+
+            let vCount = item.mesh.vertexBuffer.length / MemoryLayout<VertexPNUT>.stride
+            let vPtr = item.mesh.vertexBuffer.contents().bindMemory(to: VertexPNUT.self,
+                                                                    capacity: vCount)
+            for i in 0..<vCount {
+                vertices.append(vPtr[i].position)
+            }
+
+            let indexCount = item.mesh.indexCount
+            switch item.mesh.indexType {
+            case .uint16:
+                let iPtr = item.mesh.indexBuffer.contents().bindMemory(to: UInt16.self,
+                                                                       capacity: indexCount)
+                for i in 0..<indexCount {
+                    indices.append(UInt32(iPtr[i]))
+                }
+            case .uint32:
+                let iPtr = item.mesh.indexBuffer.contents().bindMemory(to: UInt32.self,
+                                                                       capacity: indexCount)
+                for i in 0..<indexCount {
+                    indices.append(iPtr[i])
+                }
+            @unknown default:
+                break
+            }
+
+            instances.append(RTInstanceInfoSwift(baseIndex: baseIndex,
+                                                 baseVertex: baseVertex,
+                                                 indexCount: UInt32(indexCount),
+                                                 padding: 0,
+                                                 modelMatrix: item.modelMatrix))
+        }
+
+        let vBytes = vertices.count * MemoryLayout<SIMD3<Float>>.stride
+        let iBytes = indices.count * MemoryLayout<UInt32>.stride
+        let instBytes = instances.count * MemoryLayout<RTInstanceInfoSwift>.stride
+
+        geometryVertexBuffer = device.makeBuffer(bytes: vertices,
+                                                  length: max(vBytes, 1),
+                                                  options: [.storageModeShared])
+        geometryIndexBuffer = device.makeBuffer(bytes: indices,
+                                                 length: max(iBytes, 1),
+                                                 options: [.storageModeShared])
+        geometryInstanceInfoBuffer = device.makeBuffer(bytes: instances,
+                                                        length: max(instBytes, 1),
+                                                        options: [.storageModeShared])
+
+        if let vb = geometryVertexBuffer,
+           let ib = geometryIndexBuffer,
+           let instb = geometryInstanceInfoBuffer {
+            vb.label = "RTGeometryVertices"
+            ib.label = "RTGeometryIndices"
+            instb.label = "RTInstanceInfo"
+            return GeometryBuffers(vertexBuffer: vb, indexBuffer: ib, instanceInfoBuffer: instb)
         }
 
         return nil

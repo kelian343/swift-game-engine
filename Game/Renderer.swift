@@ -145,6 +145,7 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         let rtCommandBuffer = context.rtCommandQueue.makeCommandBuffer()!
         let tlas = rtScene.buildAccelerationStructures(items: items, commandBuffer: rtCommandBuffer)
+        let geometry = rtScene.buildGeometryBuffers(items: items)
 
         let invViewProj = simd_inverse(simd_mul(projection, viewM))
         let width = max(Int(view.drawableSize.width), 1)
@@ -163,11 +164,15 @@ final class Renderer: NSObject, MTKViewDelegate {
         memcpy(rtFrameBuffer.contents(), &rtFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
 
         if let tlas = tlas,
+           let geometry = geometry,
            let enc = rtCommandBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(rtPipelineState)
             enc.setTexture(drawable.texture, index: 0)
             enc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
             enc.setAccelerationStructure(tlas, bufferIndex: BufferIndex.rtAccel.rawValue)
+            enc.setBuffer(geometry.vertexBuffer, offset: 0, index: BufferIndex.rtVertices.rawValue)
+            enc.setBuffer(geometry.indexBuffer, offset: 0, index: BufferIndex.rtIndices.rawValue)
+            enc.setBuffer(geometry.instanceInfoBuffer, offset: 0, index: BufferIndex.rtInstances.rawValue)
 
             let tgW = 8
             let tgH = 8

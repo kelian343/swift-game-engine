@@ -26,7 +26,10 @@ typedef NS_ENUM(EnumBackingType, BufferIndex)
     BufferIndexMeshVertices = 0,
     BufferIndexUniforms     = 1,
     BufferIndexRTFrame      = 2,
-    BufferIndexRTAccel      = 3
+    BufferIndexRTAccel      = 3,
+    BufferIndexRTVertices   = 4,
+    BufferIndexRTIndices    = 5,
+    BufferIndexRTInstances  = 6
 };
 
 typedef NS_ENUM(EnumBackingType, VertexAttribute)
@@ -59,5 +62,14 @@ typedef struct
     vector_float3 lightColor;
     float ambientIntensity;
 } RTFrameUniforms;
+
+typedef struct
+{
+    uint32_t baseIndex;
+    uint32_t baseVertex;
+    uint32_t indexCount;
+    uint32_t padding;
+    matrix_float4x4 modelMatrix;
+} RTInstanceInfo;
 
 #endif /* ShaderTypes_h */

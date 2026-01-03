@@ -17,3 +17,11 @@ struct RTFrameUniformsSwift {
     var lightColor: SIMD3<Float>
     var ambientIntensity: Float
 }
+
+struct RTInstanceInfoSwift {
+    var baseIndex: UInt32
+    var baseVertex: UInt32
+    var indexCount: UInt32
+    var padding: UInt32
+    var modelMatrix: matrix_float4x4
+}
