@@ -12,11 +12,20 @@ struct RTFrameUniformsSwift {
     var cameraPosition: SIMD3<Float>
     var imageSize: SIMD2<UInt32>
     var ambientIntensity: Float
+    var pad0: UInt32
     var dirLightCount: UInt32
     var pointLightCount: UInt32
     var areaLightCount: UInt32
     var textureCount: UInt32
-    var pad0: UInt32
+    var envSH0: SIMD3<Float>
+    var envSH1: SIMD3<Float>
+    var envSH2: SIMD3<Float>
+    var envSH3: SIMD3<Float>
+    var envSH4: SIMD3<Float>
+    var envSH5: SIMD3<Float>
+    var envSH6: SIMD3<Float>
+    var envSH7: SIMD3<Float>
+    var envSH8: SIMD3<Float>
 }
 
 struct RTDirectionalLightSwift {

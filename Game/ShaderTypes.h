@@ -61,11 +61,20 @@ typedef struct
     vector_float3 cameraPosition;
     vector_uint2 imageSize;
     float ambientIntensity;
+    uint32_t pad0;
     uint32_t dirLightCount;
     uint32_t pointLightCount;
     uint32_t areaLightCount;
     uint32_t textureCount;
-    uint32_t pad0;
+    vector_float3 envSH0;
+    vector_float3 envSH1;
+    vector_float3 envSH2;
+    vector_float3 envSH3;
+    vector_float3 envSH4;
+    vector_float3 envSH5;
+    vector_float3 envSH6;
+    vector_float3 envSH7;
+    vector_float3 envSH8;
 } RTFrameUniforms;
 
 typedef struct

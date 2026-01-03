@@ -56,6 +56,29 @@ inline float shadow_bias(float hitDistance) {
     return max(0.002, hitDistance * 0.002);
 }
 
+inline float3 eval_env_sh(float3 n, constant RTFrameUniforms& frame) {
+    float x = n.x;
+    float y = n.y;
+    float z = n.z;
+
+    float c0 = 0.282095;
+    float c1 = 0.488603;
+    float c2 = 1.092548;
+    float c3 = 0.315392;
+    float c4 = 0.546274;
+
+    float3 result = frame.envSH0 * c0;
+    result += frame.envSH1 * (c1 * y);
+    result += frame.envSH2 * (c1 * z);
+    result += frame.envSH3 * (c1 * x);
+    result += frame.envSH4 * (c2 * x * y);
+    result += frame.envSH5 * (c2 * y * z);
+    result += frame.envSH6 * (c3 * (3.0 * z * z - 1.0));
+    result += frame.envSH7 * (c2 * x * z);
+    result += frame.envSH8 * (c4 * (x * x - y * y));
+    return result;
+}
+
 kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(0)]],
                            array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(1)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
@@ -213,7 +236,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         shadowCount += 1.0;
     }
 
-    float3 ambient = base * frame.ambientIntensity;
+    float3 ambient = base * eval_env_sh(N, frame) * frame.ambientIntensity;
     float3 color = direct + ambient;
     outTexture.write(float4(color, 1.0), gid);
 }

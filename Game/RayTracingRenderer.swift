@@ -74,17 +74,27 @@ final class RayTracingRenderer {
         let invViewProj = simd_inverse(viewProj)
         let width = max(Int(drawableSize.width), 1)
         let height = max(Int(drawableSize.height), 1)
+        let (envSH0, envSH1) = RayTracingRenderer.makeHemisphereSH()
 
         var rtFrame = RTFrameUniformsSwift(
             invViewProj: invViewProj,
             cameraPosition: camera.position,
             imageSize: SIMD2<UInt32>(UInt32(width), UInt32(height)),
             ambientIntensity: 0.2,
+            pad0: 0,
             dirLightCount: 1,
             pointLightCount: 1,
             areaLightCount: 1,
             textureCount: UInt32(geometry?.textures.count ?? 0),
-            pad0: 0
+            envSH0: envSH0,
+            envSH1: envSH1,
+            envSH2: .zero,
+            envSH3: .zero,
+            envSH4: .zero,
+            envSH5: .zero,
+            envSH6: .zero,
+            envSH7: .zero,
+            envSH8: .zero
         )
         memcpy(rtFrameBuffer.contents(), &rtFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
 
@@ -167,5 +177,15 @@ final class RayTracingRenderer {
         let threadsPerThreadgroup = MTLSize(width: tgW, height: tgH, depth: 1)
         let threadsPerGrid = MTLSize(width: width, height: height, depth: 1)
         enc.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
+    }
+
+    private static func makeHemisphereSH() -> (SIMD3<Float>, SIMD3<Float>) {
+        let sky = SIMD3<Float>(0.7, 0.8, 1.0)
+        let ground = SIMD3<Float>(0.3, 0.25, 0.2)
+        let avg = (sky + ground) * 0.5
+        let diff = (sky - ground) * 0.5
+        let c0 = avg / 0.282095
+        let c1 = diff / 0.488603
+        return (c0, c1)
     }
 }
