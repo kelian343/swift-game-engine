@@ -121,10 +121,9 @@ inline float3 traceRay(ray current,
         float3 N = normalize(cross(w1 - w0, w2 - w0));
         if (dot(N, current.direction) > 0.0) { N = -N; }
 
-        float id = float(hit.instance_id);
-        float3 base = float3(fract(sin(id * 12.9898) * 43758.5453),
-                             fract(sin(id * 78.233) * 43758.5453),
-                             fract(sin(id * 39.425) * 43758.5453));
+        float3 base = inst.baseColor;
+        float metallic = clamp(inst.metallic, 0.0, 1.0);
+        float roughness = clamp(inst.roughness, 0.05, 1.0);
 
         float3 hitPos = current.origin + current.direction * hit.distance;
         radiance += throughput * base * frame.ambientIntensity;
@@ -143,7 +142,8 @@ inline float3 traceRay(ray current,
 
             intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
             float shadow = (shadowHit.type == intersection_type::triangle) ? 0.0 : 1.0;
-            radiance += throughput * base * l.color * (l.intensity * NdotL * shadow);
+            float3 diffColor = base * (1.0 - metallic);
+            radiance += throughput * diffColor * l.color * (l.intensity * NdotL * shadow);
         }
 
         for (uint i = 0; i < frame.pointLightCount; ++i) {
@@ -163,7 +163,9 @@ inline float3 traceRay(ray current,
             intersection_result<triangle_data, instancing> pointHit = isect.intersect(pointShadow, accel);
             float pointShadowTerm = (pointHit.type == intersection_type::triangle) ? 0.0 : 1.0;
             float attenuation = 1.0 / max(dist * dist, 0.001);
-            radiance += throughput * base * l.color * (l.intensity * attenuation * NdotLp * pointShadowTerm);
+            float3 diffColor = base * (1.0 - metallic);
+            radiance += throughput * diffColor * l.color
+                * (l.intensity * attenuation * NdotLp * pointShadowTerm);
         }
 
         uint areaSamples = max(frame.areaLightSamples, 1u);
@@ -190,14 +192,16 @@ inline float3 traceRay(ray current,
                 float attenuationA = 1.0 / max(distA * distA, 0.001);
                 areaAccum += l.color * (l.intensity * attenuationA * NdotLa * areaShadowTerm);
             }
-            radiance += throughput * base * (areaAccum / float(areaSamples));
+            float3 diffColor = base * (1.0 - metallic);
+            radiance += throughput * diffColor * (areaAccum / float(areaSamples));
         }
 
         float3 diffuseDir = sample_hemisphere(N, seed);
         float3 reflectDir = reflect(current.direction, N);
-        float3 nextDir = normalize(mix(diffuseDir, reflectDir, 0.2));
+        float reflectProb = mix(0.1, 0.9, metallic);
+        float3 nextDir = normalize(mix(diffuseDir, reflectDir, reflectProb));
 
-        throughput *= base;
+        throughput *= base * (1.0 - roughness * 0.5);
         current.origin = hitPos + nextDir * 0.01;
         current.direction = nextDir;
         current.min_distance = 0.001;

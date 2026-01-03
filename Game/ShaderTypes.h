@@ -79,6 +79,10 @@ typedef struct
     uint32_t indexCount;
     uint32_t padding;
     matrix_float4x4 modelMatrix;
+    vector_float3 baseColor;
+    float metallic;
+    float roughness;
+    vector_float3 padding2;
 } RTInstanceInfo;
 
 typedef struct

@@ -41,7 +41,7 @@ public final class DemoScene: RenderScene {
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 80, g: 80, b: 80, a: 255),
                                       label: "GroundTex")
-            let mat = Material(baseColorTexture: tex)
+            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.8)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -56,7 +56,7 @@ public final class DemoScene: RenderScene {
             let tex = TextureResource(device: device,
                                       source: ProceduralTextures.checkerboard(width: 256, height: 256, cell: 16),
                                       label: "TexA")
-            let mat = Material(baseColorTexture: tex)
+            let mat = Material(baseColorTexture: tex, metallic: 0.1, roughness: 0.6)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -72,7 +72,7 @@ public final class DemoScene: RenderScene {
             let tex = TextureResource(device: device,
                                       source: ProceduralTextures.checkerboard(width: 256, height: 256, cell: 48),
                                       label: "TexB")
-            let mat = Material(baseColorTexture: tex)
+            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.4)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -88,7 +88,7 @@ public final class DemoScene: RenderScene {
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 255, g: 80, b: 80, a: 255),
                                       label: "TexC")
-            let mat = Material(baseColorTexture: tex)
+            let mat = Material(baseColorTexture: tex, metallic: 0.2, roughness: 0.5)
 
             let e = world.createEntity()
             var t = TransformComponent()

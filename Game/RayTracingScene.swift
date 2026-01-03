@@ -193,7 +193,11 @@ final class RayTracingScene {
                                                  baseVertex: baseVertex,
                                                  indexCount: UInt32(indexCount),
                                                  padding: 0,
-                                                 modelMatrix: item.modelMatrix))
+                                                 modelMatrix: item.modelMatrix,
+                                                 baseColor: SIMD3<Float>(1, 1, 1),
+                                                 metallic: item.material.metallic,
+                                                 roughness: item.material.roughness,
+                                                 padding2: .zero))
         }
 
         let vBytes = vertices.count * MemoryLayout<SIMD3<Float>>.stride
