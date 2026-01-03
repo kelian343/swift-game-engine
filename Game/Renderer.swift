@@ -32,6 +32,9 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var lastCameraPosition: SIMD3<Float> = .zero
     private var hasLastView = false
     private var lastSceneRevisionForRT: UInt64 = 0
+    private let dirLightBuffer: MTLBuffer
+    private let pointLightBuffer: MTLBuffer
+    private let areaLightBuffer: MTLBuffer
 
     // Scene hook
     private var scene: RenderScene?
@@ -100,6 +103,20 @@ final class Renderer: NSObject, MTKViewDelegate {
             return nil
         }
         self.rtFrameBuffer = rtBuffer
+        guard let dirBuf = device.makeBuffer(length: MemoryLayout<RTDirectionalLightSwift>.stride * 4,
+                                             options: [.storageModeShared]),
+              let pointBuf = device.makeBuffer(length: MemoryLayout<RTPointLightSwift>.stride * 8,
+                                               options: [.storageModeShared]),
+              let areaBuf = device.makeBuffer(length: MemoryLayout<RTAreaLightSwift>.stride * 4,
+                                              options: [.storageModeShared]) else {
+            return nil
+        }
+        dirBuf.label = "RTDirectionalLights"
+        pointBuf.label = "RTPointLights"
+        areaBuf.label = "RTAreaLights"
+        self.dirLightBuffer = dirBuf
+        self.pointLightBuffer = pointBuf
+        self.areaLightBuffer = areaBuf
 
         super.init()
     }
@@ -194,17 +211,39 @@ final class Renderer: NSObject, MTKViewDelegate {
             cameraPosition: scene.camera.position,
             frameIndex: rtFrameIndex,
             imageSize: SIMD2<UInt32>(UInt32(width), UInt32(height)),
-            lightDirection: SIMD3<Float>(-0.5, -1.0, -0.3),
-            lightIntensity: 1.0,
-            lightColor: SIMD3<Float>(1.0, 1.0, 1.0),
             ambientIntensity: 0.12,
             historyWeight: 0.3,
             historyClamp: 0.5,
             samplesPerPixel: 4,
-            padding: 0
+            dirLightCount: 1,
+            pointLightCount: 1,
+            areaLightCount: 1,
+            areaLightSamples: 2
         )
         rtFrameIndex &+= 1
         memcpy(rtFrameBuffer.contents(), &rtFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
+
+        let dirPtr = dirLightBuffer.contents().bindMemory(to: RTDirectionalLightSwift.self, capacity: 4)
+        dirPtr[0] = RTDirectionalLightSwift(direction: SIMD3<Float>(-0.5, -1.0, -0.3),
+                                            intensity: 1.0,
+                                            color: SIMD3<Float>(1.0, 1.0, 1.0),
+                                            padding: 0)
+
+        let pointPtr = pointLightBuffer.contents().bindMemory(to: RTPointLightSwift.self, capacity: 8)
+        pointPtr[0] = RTPointLightSwift(position: SIMD3<Float>(0.0, 4.0, 0.0),
+                                        intensity: 8.0,
+                                        color: SIMD3<Float>(1.0, 0.95, 0.9),
+                                        radius: 0.0)
+
+        let areaPtr = areaLightBuffer.contents().bindMemory(to: RTAreaLightSwift.self, capacity: 4)
+        areaPtr[0] = RTAreaLightSwift(position: SIMD3<Float>(0.0, 5.0, -2.0),
+                                      intensity: 6.0,
+                                      u: SIMD3<Float>(1.5, 0.0, 0.0),
+                                      padding0: 0,
+                                      v: SIMD3<Float>(0.0, 0.0, 1.0),
+                                      padding1: 0,
+                                      color: SIMD3<Float>(0.9, 0.95, 1.0),
+                                      padding2: 0)
 
         if let tlas = tlas,
            let geometry = geometry,
@@ -218,6 +257,9 @@ final class Renderer: NSObject, MTKViewDelegate {
             enc.setBuffer(geometry.vertexBuffer, offset: 0, index: BufferIndex.rtVertices.rawValue)
             enc.setBuffer(geometry.indexBuffer, offset: 0, index: BufferIndex.rtIndices.rawValue)
             enc.setBuffer(geometry.instanceInfoBuffer, offset: 0, index: BufferIndex.rtInstances.rawValue)
+            enc.setBuffer(dirLightBuffer, offset: 0, index: BufferIndex.rtDirLights.rawValue)
+            enc.setBuffer(pointLightBuffer, offset: 0, index: BufferIndex.rtPointLights.rawValue)
+            enc.setBuffer(areaLightBuffer, offset: 0, index: BufferIndex.rtAreaLights.rawValue)
 
             let tgW = 8
             let tgH = 8

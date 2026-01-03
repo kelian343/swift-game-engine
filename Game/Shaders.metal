@@ -84,6 +84,9 @@ inline float3 traceRay(ray current,
                        device const float3 *rtVertices,
                        device const uint *rtIndices,
                        device const RTInstanceInfo *rtInstances,
+                       device const RTDirectionalLight *dirLights,
+                       device const RTPointLight *pointLights,
+                       device const RTAreaLight *areaLights,
                        constant RTFrameUniforms& frame,
                        thread uint &seed) {
     float3 radiance = float3(0.0);
@@ -124,11 +127,14 @@ inline float3 traceRay(ray current,
                              fract(sin(id * 39.425) * 43758.5453));
 
         float3 hitPos = current.origin + current.direction * hit.distance;
-        float3 lightDir = normalize(frame.lightDirection);
-        float3 L = -lightDir;
-        float NdotL = max(dot(N, L), 0.0);
+        radiance += throughput * base * frame.ambientIntensity;
 
-        if (NdotL > 0.0) {
+        for (uint i = 0; i < frame.dirLightCount; ++i) {
+            RTDirectionalLight l = dirLights[i];
+            float3 L = normalize(-l.direction);
+            float NdotL = max(dot(N, L), 0.0);
+            if (NdotL <= 0.0) { continue; }
+
             ray shadowRay;
             shadowRay.origin = hitPos + N * 0.01;
             shadowRay.direction = L;
@@ -137,9 +143,54 @@ inline float3 traceRay(ray current,
 
             intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
             float shadow = (shadowHit.type == intersection_type::triangle) ? 0.0 : 1.0;
-            radiance += throughput * base * frame.lightColor * (frame.ambientIntensity + shadow * frame.lightIntensity * NdotL);
-        } else {
-            radiance += throughput * base * frame.ambientIntensity;
+            radiance += throughput * base * l.color * (l.intensity * NdotL * shadow);
+        }
+
+        for (uint i = 0; i < frame.pointLightCount; ++i) {
+            RTPointLight l = pointLights[i];
+            float3 toPoint = l.position - hitPos;
+            float dist = length(toPoint);
+            float3 Lp = (dist > 0.0) ? (toPoint / dist) : float3(0.0);
+            float NdotLp = max(dot(N, Lp), 0.0);
+            if (NdotLp <= 0.0 || dist <= 0.0) { continue; }
+
+            ray pointShadow;
+            pointShadow.origin = hitPos + N * 0.01;
+            pointShadow.direction = Lp;
+            pointShadow.min_distance = 0.001;
+            pointShadow.max_distance = dist - 0.01;
+
+            intersection_result<triangle_data, instancing> pointHit = isect.intersect(pointShadow, accel);
+            float pointShadowTerm = (pointHit.type == intersection_type::triangle) ? 0.0 : 1.0;
+            float attenuation = 1.0 / max(dist * dist, 0.001);
+            radiance += throughput * base * l.color * (l.intensity * attenuation * NdotLp * pointShadowTerm);
+        }
+
+        uint areaSamples = max(frame.areaLightSamples, 1u);
+        for (uint i = 0; i < frame.areaLightCount; ++i) {
+            RTAreaLight l = areaLights[i];
+            float3 areaAccum = float3(0.0);
+            for (uint a = 0; a < areaSamples; ++a) {
+                float2 r = float2(rand01(seed), rand01(seed)) * 2.0 - 1.0;
+                float3 lightPos = l.position + l.u * r.x + l.v * r.y;
+                float3 toArea = lightPos - hitPos;
+                float distA = length(toArea);
+                float3 La = (distA > 0.0) ? (toArea / distA) : float3(0.0);
+                float NdotLa = max(dot(N, La), 0.0);
+                if (NdotLa <= 0.0 || distA <= 0.0) { continue; }
+
+                ray areaShadow;
+                areaShadow.origin = hitPos + N * 0.01;
+                areaShadow.direction = La;
+                areaShadow.min_distance = 0.001;
+                areaShadow.max_distance = distA - 0.01;
+
+                intersection_result<triangle_data, instancing> areaHit = isect.intersect(areaShadow, accel);
+                float areaShadowTerm = (areaHit.type == intersection_type::triangle) ? 0.0 : 1.0;
+                float attenuationA = 1.0 / max(distA * distA, 0.001);
+                areaAccum += l.color * (l.intensity * attenuationA * NdotLa * areaShadowTerm);
+            }
+            radiance += throughput * base * (areaAccum / float(areaSamples));
         }
 
         float3 diffuseDir = sample_hemisphere(N, seed);
@@ -163,6 +214,9 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                            device const float3 *rtVertices [[buffer(BufferIndexRTVertices)]],
                            device const uint *rtIndices [[buffer(BufferIndexRTIndices)]],
                            device const RTInstanceInfo *rtInstances [[buffer(BufferIndexRTInstances)]],
+                           device const RTDirectionalLight *dirLights [[buffer(BufferIndexRTDirLights)]],
+                           device const RTPointLight *pointLights [[buffer(BufferIndexRTPointLights)]],
+                           device const RTAreaLight *areaLights [[buffer(BufferIndexRTAreaLights)]],
                            uint2 gid [[thread_position_in_grid]])
 {
     if (gid.x >= frame.imageSize.x || gid.y >= frame.imageSize.y) {
@@ -193,7 +247,17 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         current.min_distance = 0.001;
         current.max_distance = 1e6;
 
-        radiance += traceRay(current, isect, accel, rtVertices, rtIndices, rtInstances, frame, seed);
+        radiance += traceRay(current,
+                             isect,
+                             accel,
+                             rtVertices,
+                             rtIndices,
+                             rtInstances,
+                             dirLights,
+                             pointLights,
+                             areaLights,
+                             frame,
+                             seed);
     }
     radiance /= float(spp);
 

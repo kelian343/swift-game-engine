@@ -12,14 +12,39 @@ struct RTFrameUniformsSwift {
     var cameraPosition: SIMD3<Float>
     var frameIndex: UInt32
     var imageSize: SIMD2<UInt32>
-    var lightDirection: SIMD3<Float>
-    var lightIntensity: Float
-    var lightColor: SIMD3<Float>
     var ambientIntensity: Float
     var historyWeight: Float
     var historyClamp: Float
     var samplesPerPixel: UInt32
-    var padding: UInt32
+    var dirLightCount: UInt32
+    var pointLightCount: UInt32
+    var areaLightCount: UInt32
+    var areaLightSamples: UInt32
+}
+
+struct RTDirectionalLightSwift {
+    var direction: SIMD3<Float>
+    var intensity: Float
+    var color: SIMD3<Float>
+    var padding: Float
+}
+
+struct RTPointLightSwift {
+    var position: SIMD3<Float>
+    var intensity: Float
+    var color: SIMD3<Float>
+    var radius: Float
+}
+
+struct RTAreaLightSwift {
+    var position: SIMD3<Float>
+    var intensity: Float
+    var u: SIMD3<Float>
+    var padding0: Float
+    var v: SIMD3<Float>
+    var padding1: Float
+    var color: SIMD3<Float>
+    var padding2: Float
 }
 
 struct RTInstanceInfoSwift {

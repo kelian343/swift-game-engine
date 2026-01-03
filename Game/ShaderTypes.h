@@ -29,7 +29,10 @@ typedef NS_ENUM(EnumBackingType, BufferIndex)
     BufferIndexRTAccel      = 3,
     BufferIndexRTVertices   = 4,
     BufferIndexRTIndices    = 5,
-    BufferIndexRTInstances  = 6
+    BufferIndexRTInstances  = 6,
+    BufferIndexRTDirLights  = 7,
+    BufferIndexRTPointLights = 8,
+    BufferIndexRTAreaLights = 9
 };
 
 typedef NS_ENUM(EnumBackingType, VertexAttribute)
@@ -57,14 +60,14 @@ typedef struct
     vector_float3 cameraPosition;
     uint32_t frameIndex;
     vector_uint2 imageSize;
-    vector_float3 lightDirection;
-    float lightIntensity;
-    vector_float3 lightColor;
     float ambientIntensity;
     float historyWeight;
     float historyClamp;
     uint32_t samplesPerPixel;
-    uint32_t padding;
+    uint32_t dirLightCount;
+    uint32_t pointLightCount;
+    uint32_t areaLightCount;
+    uint32_t areaLightSamples;
 } RTFrameUniforms;
 
 typedef struct
@@ -75,5 +78,33 @@ typedef struct
     uint32_t padding;
     matrix_float4x4 modelMatrix;
 } RTInstanceInfo;
+
+typedef struct
+{
+    vector_float3 direction;
+    float intensity;
+    vector_float3 color;
+    float padding;
+} RTDirectionalLight;
+
+typedef struct
+{
+    vector_float3 position;
+    float intensity;
+    vector_float3 color;
+    float radius;
+} RTPointLight;
+
+typedef struct
+{
+    vector_float3 position;
+    float intensity;
+    vector_float3 u;
+    float padding0;
+    vector_float3 v;
+    float padding1;
+    vector_float3 color;
+    float padding2;
+} RTAreaLight;
 
 #endif /* ShaderTypes_h */
