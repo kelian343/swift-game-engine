@@ -24,7 +24,9 @@ typedef NSInteger EnumBackingType;
 typedef NS_ENUM(EnumBackingType, BufferIndex)
 {
     BufferIndexMeshVertices = 0,
-    BufferIndexUniforms     = 1
+    BufferIndexUniforms     = 1,
+    BufferIndexRTFrame      = 2,
+    BufferIndexRTAccel      = 3
 };
 
 typedef NS_ENUM(EnumBackingType, VertexAttribute)
@@ -45,5 +47,17 @@ typedef struct
     matrix_float4x4 viewMatrix;
     matrix_float4x4 modelMatrix;
 } Uniforms;
+
+typedef struct
+{
+    matrix_float4x4 invViewProj;
+    vector_float3 cameraPosition;
+    uint32_t frameIndex;
+    vector_uint2 imageSize;
+    vector_float3 lightDirection;
+    float lightIntensity;
+    vector_float3 lightColor;
+    float ambientIntensity;
+} RTFrameUniforms;
 
 #endif /* ShaderTypes_h */

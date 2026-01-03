@@ -12,6 +12,7 @@ import QuartzCore
 final class RenderContext {
     let device: MTLDevice
 
+    let rtCommandQueue: MTLCommandQueue
     let commandQueue: MTL4CommandQueue
     let commandBuffer: MTL4CommandBuffer
     let allocators: [MTL4CommandAllocator]
@@ -25,6 +26,7 @@ final class RenderContext {
         guard let device = view.device else { return nil }
         self.device = device
 
+        self.rtCommandQueue = device.makeCommandQueue()!
         self.commandQueue = device.makeMTL4CommandQueue()!
         self.commandBuffer = device.makeCommandBuffer()!
         self.allocators = (0...maxFramesInFlight).map { _ in device.makeCommandAllocator()! }

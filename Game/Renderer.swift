@@ -7,6 +7,7 @@
 
 import Metal
 import MetalKit
+import simd
 
 final class Renderer: NSObject, MTKViewDelegate {
 
@@ -16,10 +17,16 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let frameSync: FrameSync
     private let uniformRing: UniformRingBuffer
 
-    // Main pipeline
+    // Main pipeline (still available for raster fallback)
     private let pipelineState: MTLRenderPipelineState
     private let depthState: MTLDepthStencilState
     private let fallbackWhite: TextureResource
+
+    // Ray tracing
+    private let rtPipelineState: MTLComputePipelineState
+    private let rtScene: RayTracingScene
+    private let rtFrameBuffer: MTLBuffer
+    private var rtFrameIndex: UInt32 = 0
 
     // Scene hook
     private var scene: RenderScene?
@@ -63,11 +70,31 @@ final class Renderer: NSObject, MTKViewDelegate {
         guard let ds = PipelineBuilder.makeDepthState(device: device) else { return nil }
         self.depthState = ds
 
+        // Ray tracing pipeline
+        do {
+            let library = device.makeDefaultLibrary()
+            guard let fn = library?.makeFunction(name: "raytraceKernel") else {
+                print("Ray tracing kernel not found")
+                return nil
+            }
+            self.rtPipelineState = try device.makeComputePipelineState(function: fn)
+        } catch {
+            print("Unable to compile ray tracing pipeline state. Error info: \(error)")
+            return nil
+        }
+
         self.fallbackWhite = TextureResource(
             device: device,
             source: .solid(width: 1, height: 1, r: 255, g: 255, b: 255, a: 255),
             label: "FallbackWhite"
         )
+
+        self.rtScene = RayTracingScene(device: device)
+        guard let rtBuffer = device.makeBuffer(length: MemoryLayout<RTFrameUniformsSwift>.stride,
+                                               options: [.storageModeShared]) else {
+            return nil
+        }
+        self.rtFrameBuffer = rtBuffer
 
         super.init()
     }
@@ -116,40 +143,42 @@ final class Renderer: NSObject, MTKViewDelegate {
         let projection = scene.camera.projection
         let viewM = scene.camera.view
 
-        // Sync
-        frameSync.waitIfNeeded(timeoutMS: 10)
+        let rtCommandBuffer = context.rtCommandQueue.makeCommandBuffer()!
+        let tlas = rtScene.buildAccelerationStructures(items: items, commandBuffer: rtCommandBuffer)
 
-        // Begin frame allocation (allocator slot)
-        let frameSlot = uniformRing.beginFrame()
-        let allocator = context.allocators[frameSlot]
-        allocator.reset()
-        context.commandBuffer.beginCommandBuffer(allocator: allocator)
-
-        let frame = FrameContext(
-            scene: scene,
-            items: items,
-            context: context,
-            uniformRing: uniformRing,
-            pipelineState: pipelineState,
-            depthState: depthState,
-            fallbackWhite: fallbackWhite,
-            projection: projection,
-            viewMatrix: viewM,
+        let invViewProj = simd_inverse(simd_mul(projection, viewM))
+        let width = max(Int(view.drawableSize.width), 1)
+        let height = max(Int(view.drawableSize.height), 1)
+        var rtFrame = RTFrameUniformsSwift(
+            invViewProj: invViewProj,
+            cameraPosition: scene.camera.position,
+            frameIndex: rtFrameIndex,
+            imageSize: SIMD2<UInt32>(UInt32(width), UInt32(height)),
+            lightDirection: SIMD3<Float>(-0.5, -1.0, -0.3),
+            lightIntensity: 1.0,
+            lightColor: SIMD3<Float>(1.0, 1.0, 1.0),
+            ambientIntensity: 0.12
         )
+        rtFrameIndex &+= 1
+        memcpy(rtFrameBuffer.contents(), &rtFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
 
-        let graph = RenderGraph()
-        graph.addPass(mainPass)
-        graph.execute(frame: frame, view: view)
+        if let tlas = tlas,
+           let enc = rtCommandBuffer.makeComputeCommandEncoder() {
+            enc.setComputePipelineState(rtPipelineState)
+            enc.setTexture(drawable.texture, index: 0)
+            enc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
+            enc.setAccelerationStructure(tlas, bufferIndex: BufferIndex.rtAccel.rawValue)
 
-        context.useViewResidencySetIfAvailable(for: view)
-        context.commandBuffer.endCommandBuffer()
+            let tgW = 8
+            let tgH = 8
+            let threadsPerThreadgroup = MTLSize(width: tgW, height: tgH, depth: 1)
+            let threadsPerGrid = MTLSize(width: width, height: height, depth: 1)
+            enc.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
+            enc.endEncoding()
+        }
 
-        context.commandQueue.waitForDrawable(drawable)
-        context.commandQueue.commit([context.commandBuffer])
-        context.commandQueue.signalDrawable(drawable)
-
-        frameSync.signalNextFrame(on: context.commandQueue)
-        drawable.present()
+        rtCommandBuffer.present(drawable)
+        rtCommandBuffer.commit()
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
