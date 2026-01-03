@@ -34,6 +34,9 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var sceneContext: SceneContext
     private var lastSceneRevision: UInt64 = 0
 
+    private let shadowPass = ShadowPass()
+    private let mainPass = MainPass()
+
     // time
     private var lastTime: Double = CACurrentMediaTime()
 
@@ -120,26 +123,6 @@ final class Renderer: NSObject, MTKViewDelegate {
         // e.g. include lightSystem.buffer as well.
     }
 
-    // MARK: - Uniform packing
-
-    private func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
-                               projection: matrix_float4x4,
-                               view: matrix_float4x4,
-                               model: matrix_float4x4,
-                               lightViewProj: matrix_float4x4) {
-
-        // NOTE: This matches the *updated* ShaderTypes.h layout I provided earlier.
-        ptr[0].projectionMatrix = projection
-        ptr[0].viewMatrix = view
-        ptr[0].modelMatrix = model
-        ptr[0].lightViewProjMatrix = lightViewProj
-
-        let n3 = NormalMatrix.fromModel(model)
-        ptr[0].normalMatrix0 = SIMD4<Float>(n3.columns.0, 0)
-        ptr[0].normalMatrix1 = SIMD4<Float>(n3.columns.1, 0)
-        ptr[0].normalMatrix2 = SIMD4<Float>(n3.columns.2, 0)
-    }
-
     // MARK: - Shadow pipeline builder (SDK-stable)
 
     private static func buildShadowPipeline(device: MTLDevice,
@@ -162,7 +145,6 @@ final class Renderer: NSObject, MTKViewDelegate {
     func draw(in view: MTKView) {
         guard let scene = scene else { return }
         guard let drawable = view.currentDrawable else { return }
-        guard let mainRPD = context.currentRenderPassDescriptor(from: view) else { return }
 
         let now = CACurrentMediaTime()
         let dt = Float(max(0.0, min(now - lastTime, 0.1)))
@@ -190,84 +172,26 @@ final class Renderer: NSObject, MTKViewDelegate {
         allocator.reset()
         context.commandBuffer.beginCommandBuffer(allocator: allocator)
 
-        // ---------------------------
-        // Pass 1: Shadow (depth-only)
-        // ---------------------------
-        if let shadowEnc = context.commandBuffer.makeRenderCommandEncoder(descriptor: shadowMap.passDesc) {
-            shadowEnc.label = "Shadow Pass"
-            shadowEnc.setRenderPipelineState(shadowPipelineState)
-            shadowEnc.setDepthStencilState(depthState)
+        let frame = FrameContext(
+            scene: scene,
+            items: items,
+            context: context,
+            uniformRing: uniformRing,
+            pipelineState: pipelineState,
+            shadowPipelineState: shadowPipelineState,
+            depthState: depthState,
+            fallbackWhite: fallbackWhite,
+            shadowMap: shadowMap,
+            lightSystem: lightSystem,
+            projection: projection,
+            viewMatrix: viewM,
+            lightViewProj: lightVP
+        )
 
-            shadowEnc.setCullMode(.back)
-            shadowEnc.setFrontFacing(.counterClockwise)
-
-            shadowEnc.setArgumentTable(context.vertexTable, stages: .vertex)
-
-            for item in items {
-                let u = uniformRing.allocate()
-                writeUniforms(u.pointer, projection: projection, view: viewM, model: item.modelMatrix, lightViewProj: lightVP)
-
-                let uAddr = u.buffer.gpuAddress + UInt64(u.offset)
-                context.vertexTable.setAddress(uAddr, index: BufferIndex.uniforms.rawValue)
-
-                context.vertexTable.setAddress(item.mesh.vertexBuffer.gpuAddress, index: BufferIndex.meshVertices.rawValue)
-
-                shadowEnc.drawIndexedPrimitives(
-                    primitiveType: .triangle,
-                    indexCount: item.mesh.indexCount,
-                    indexType: item.mesh.indexType,
-                    indexBuffer: item.mesh.indexBuffer.gpuAddress,
-                    indexBufferLength: item.mesh.indexBuffer.length
-                )
-            }
-
-            shadowEnc.endEncoding()
-        }
-
-        // ---------------------------
-        // Pass 2: Main
-        // ---------------------------
-        guard let enc = context.commandBuffer.makeRenderCommandEncoder(descriptor: mainRPD) else {
-            fatalError("Failed to create main render command encoder")
-        }
-
-        enc.label = "Main Pass"
-        enc.setRenderPipelineState(pipelineState)
-        enc.setDepthStencilState(depthState)
-
-        enc.setArgumentTable(context.vertexTable, stages: .vertex)
-        enc.setArgumentTable(context.fragmentTable, stages: .fragment)
-
-        // Bind light buffer + shadow map once (bindless)
-        context.fragmentTable.setAddress(lightSystem.buffer.gpuAddress, index: BufferIndex.light.rawValue)
-        context.fragmentTable.setTexture(shadowMap.texture.gpuResourceID, index: TextureIndex.shadowMap.rawValue)
-
-        for item in items {
-            enc.setCullMode(item.material.cullMode)
-            enc.setFrontFacing(item.material.frontFacing)
-
-            let u = uniformRing.allocate()
-            writeUniforms(u.pointer, projection: projection, view: viewM, model: item.modelMatrix, lightViewProj: lightVP)
-
-            let uAddr = u.buffer.gpuAddress + UInt64(u.offset)
-            context.vertexTable.setAddress(uAddr, index: BufferIndex.uniforms.rawValue)
-            context.fragmentTable.setAddress(uAddr, index: BufferIndex.uniforms.rawValue)
-
-            context.vertexTable.setAddress(item.mesh.vertexBuffer.gpuAddress, index: BufferIndex.meshVertices.rawValue)
-
-            let tex = item.material.baseColorTexture?.texture ?? fallbackWhite.texture
-            context.fragmentTable.setTexture(tex.gpuResourceID, index: TextureIndex.baseColor.rawValue)
-
-            enc.drawIndexedPrimitives(
-                primitiveType: .triangle,
-                indexCount: item.mesh.indexCount,
-                indexType: item.mesh.indexType,
-                indexBuffer: item.mesh.indexBuffer.gpuAddress,
-                indexBufferLength: item.mesh.indexBuffer.length
-            )
-        }
-
-        enc.endEncoding()
+        let graph = RenderGraph()
+        graph.addPass(shadowPass)
+        graph.addPass(mainPass)
+        graph.execute(frame: frame, view: view)
 
         context.useViewResidencySetIfAvailable(for: view)
         context.commandBuffer.endCommandBuffer()

@@ -10,7 +10,6 @@ import Metal
 final class ShadowMap {
     let size: Int
     let texture: MTLTexture
-    let passDesc: MTL4RenderPassDescriptor
 
     init(device: MTLDevice, size: Int) {
         self.size = size
@@ -25,12 +24,5 @@ final class ShadowMap {
         self.texture = device.makeTexture(descriptor: td)!
         self.texture.label = "ShadowMapDepth"
 
-        let rpd = MTL4RenderPassDescriptor()
-        rpd.depthAttachment.texture = texture
-        rpd.depthAttachment.loadAction = .clear
-        rpd.depthAttachment.storeAction = .store
-        rpd.depthAttachment.clearDepth = 1.0
-
-        self.passDesc = rpd
     }
 }
