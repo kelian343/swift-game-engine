@@ -17,4 +17,3 @@ using namespace metal::raytracing;
 
 #include "ShadersRaster.metalinc"
 #include "RayTracing.metalinc"
-#include "Denoise.metalinc"

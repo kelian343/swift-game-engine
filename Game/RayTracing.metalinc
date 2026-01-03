@@ -8,45 +8,6 @@ using namespace metal::raytracing;
 
 #define MAX_RT_TEXTURES 32
 
-inline uint hash_u32(uint x) {
-    x ^= x >> 16;
-    x *= 0x7feb352d;
-    x ^= x >> 15;
-    x *= 0x846ca68b;
-    x ^= x >> 16;
-    return x;
-}
-
-inline float rand01(thread uint &state) {
-    state = hash_u32(state);
-    return float(state & 0x00FFFFFFu) / float(0x01000000u);
-}
-
-inline float2 r2_sequence(uint s, uint frame, thread uint &seed) {
-    float idx = float(s) + float(frame) * 0.5;
-    float2 cp = float2(rand01(seed), rand01(seed));
-    float2 r2 = float2(0.754877666, 0.569840296);
-    return fract(r2 * idx + cp);
-}
-
-inline float3x3 make_basis(float3 n) {
-    float3 t = normalize(abs(n.z) < 0.999 ? cross(n, float3(0, 0, 1)) : cross(n, float3(0, 1, 0)));
-    float3 b = cross(n, t);
-    return float3x3(t, b, n);
-}
-
-inline float3 sample_hemisphere(float3 n, thread uint &state) {
-    float u1 = rand01(state);
-    float u2 = rand01(state);
-    float r = sqrt(u1);
-    float phi = 6.2831853 * u2;
-    float x = r * cos(phi);
-    float y = r * sin(phi);
-    float z = sqrt(max(0.0, 1.0 - u1));
-    float3 local = float3(x, y, z);
-    return make_basis(n) * local;
-}
-
 inline float sat(float v) {
     return clamp(v, 0.0, 1.0);
 }
@@ -91,285 +52,8 @@ inline float3 eval_brdf(float3 N, float3 V, float3 L, float3 base, float metalli
     return diff + spec;
 }
 
-inline float pdf_brdf(float3 N, float3 V, float3 L, float roughness, float pSpec) {
-    float NoL = sat(dot(N, L));
-    float NoV = sat(dot(N, V));
-    if (NoL <= 0.0 || NoV <= 0.0) {
-        return 0.0;
-    }
-    float3 H = normalize(V + L);
-    float NoH = sat(dot(N, H));
-    float VoH = sat(dot(V, H));
-    float alpha = roughness * roughness;
-    float pdf_diff = NoL * (1.0 / 3.14159265);
-    float pdf_spec = ggx_D(NoH, alpha) * NoH / max(4.0 * VoH, 1e-4);
-    return mix(pdf_diff, pdf_spec, pSpec);
-}
-
-inline float3 sample_ggx(float3 N, float alpha, thread uint &state) {
-    float u1 = rand01(state);
-    float u2 = rand01(state);
-    float a2 = alpha * alpha;
-    float phi = 6.2831853 * u1;
-    float cosTheta = sqrt((1.0 - u2) / (1.0 + (a2 - 1.0) * u2));
-    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
-    float3 Ht = float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
-    return normalize(make_basis(N) * Ht);
-}
-
-inline float3 traceRay(ray current,
-                       thread intersector<triangle_data, instancing> &isect,
-                       acceleration_structure<instancing> accel,
-                       device const float3 *rtVertices,
-                       device const uint *rtIndices,
-                       device const RTInstanceInfo *rtInstances,
-                       device const float2 *rtUVs,
-                       array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures,
-                       device const RTDirectionalLight *dirLights,
-                       device const RTPointLight *pointLights,
-                       device const RTAreaLight *areaLights,
-                       constant RTFrameUniforms& frame,
-                       thread uint &seed,
-                       thread float3 &primaryNormal,
-                       thread float &primaryDepth,
-                       thread float &primaryRoughness,
-                       thread uint &primaryHit,
-                       thread float3 &primaryAlbedo,
-                       thread float &primaryShadow,
-                       thread float3 &directOut,
-                       thread float3 &indirectOut,
-                       bool recordPrimary) {
-    constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
-    float3 radiance = float3(0.0);
-    directOut = float3(0.0);
-    indirectOut = float3(0.0);
-    primaryShadow = 1.0;
-    float3 throughput = float3(1.0);
-
-    for (uint bounce = 0; bounce < 2; ++bounce) {
-        intersection_result<triangle_data, instancing> hit = isect.intersect(current, accel);
-        if (hit.type != intersection_type::triangle) {
-            if (bounce == 0 && recordPrimary) {
-                primaryHit = 0;
-                primaryNormal = float3(0.0);
-                primaryDepth = 1e6;
-                primaryRoughness = 1.0;
-                primaryShadow = 1.0;
-            }
-            indirectOut += throughput * float3(0.02, 0.02, 0.03);
-            break;
-        }
-
-        RTInstanceInfo inst = rtInstances[hit.instance_id];
-        uint triBase = inst.baseIndex + hit.primitive_id * 3;
-        if (triBase + 2 >= inst.baseIndex + inst.indexCount) {
-            radiance += throughput * float3(0.0);
-            break;
-        }
-
-        uint i0 = rtIndices[triBase + 0];
-        uint i1 = rtIndices[triBase + 1];
-        uint i2 = rtIndices[triBase + 2];
-
-        float3 v0 = rtVertices[inst.baseVertex + i0];
-        float3 v1 = rtVertices[inst.baseVertex + i1];
-        float3 v2 = rtVertices[inst.baseVertex + i2];
-
-        float3 w0 = (inst.modelMatrix * float4(v0, 1.0)).xyz;
-        float3 w1 = (inst.modelMatrix * float4(v1, 1.0)).xyz;
-        float3 w2 = (inst.modelMatrix * float4(v2, 1.0)).xyz;
-
-        float3 N = normalize(cross(w1 - w0, w2 - w0));
-        if (dot(N, current.direction) > 0.0) { N = -N; }
-
-        float3 base = inst.baseColor;
-        float metallic = clamp(inst.metallic, 0.0, 1.0);
-        float roughness = clamp(inst.roughness, 0.05, 1.0);
-
-        if (inst.baseColorTexIndex < frame.textureCount && inst.baseColorTexIndex < MAX_RT_TEXTURES) {
-            float2 bary = hit.triangle_barycentric_coord;
-            float w = 1.0 - bary.x - bary.y;
-            float2 uv0 = rtUVs[inst.baseVertex + i0];
-            float2 uv1 = rtUVs[inst.baseVertex + i1];
-            float2 uv2 = rtUVs[inst.baseVertex + i2];
-            float2 uv = uv0 * w + uv1 * bary.x + uv2 * bary.y;
-            float3 tex = float3(baseColorTextures[inst.baseColorTexIndex].sample(colorSamp, uv).xyz);
-            base *= tex;
-        }
-
-        float3 V = normalize(-current.direction);
-        float NoV = sat(dot(N, V));
-        float alpha = roughness * roughness;
-        float pSpec = mix(0.1, 0.9, metallic);
-
-        if (bounce == 0 && recordPrimary) {
-            primaryHit = 1;
-            primaryNormal = N;
-            primaryDepth = hit.distance;
-            primaryRoughness = roughness;
-            primaryAlbedo = base;
-        }
-
-        float3 hitPos = current.origin + current.direction * hit.distance;
-        indirectOut += throughput * base * frame.ambientIntensity;
-
-        float shadowSum = 0.0;
-        float shadowCount = 0.0;
-
-        for (uint i = 0; i < frame.dirLightCount; ++i) {
-            RTDirectionalLight l = dirLights[i];
-            float3 L = normalize(-l.direction);
-            float NdotL = max(dot(N, L), 0.0);
-            if (NdotL <= 0.0) { continue; }
-
-            ray shadowRay;
-            shadowRay.origin = hitPos + N * 0.01;
-            shadowRay.direction = L;
-            shadowRay.min_distance = 0.001;
-            shadowRay.max_distance = 1e6;
-
-            intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
-            float shadow = (shadowHit.type == intersection_type::triangle) ? 0.0 : 1.0;
-            float3 brdf = eval_brdf(N, V, L, base, metallic, roughness);
-            float3 Li = l.color * l.intensity;
-            float3 contrib = throughput * brdf * Li * (NdotL * shadow);
-            if (bounce == 0) {
-                directOut += contrib;
-                shadowSum += shadow;
-                shadowCount += 1.0;
-            } else {
-                indirectOut += contrib;
-            }
-        }
-
-        for (uint i = 0; i < frame.pointLightCount; ++i) {
-            RTPointLight l = pointLights[i];
-            float3 toPoint = l.position - hitPos;
-            float dist = length(toPoint);
-            float3 Lp = (dist > 0.0) ? (toPoint / dist) : float3(0.0);
-            float NdotLp = max(dot(N, Lp), 0.0);
-            if (NdotLp <= 0.0 || dist <= 0.0) { continue; }
-
-            ray pointShadow;
-            pointShadow.origin = hitPos + N * 0.01;
-            pointShadow.direction = Lp;
-            pointShadow.min_distance = 0.001;
-            pointShadow.max_distance = dist - 0.01;
-
-            intersection_result<triangle_data, instancing> pointHit = isect.intersect(pointShadow, accel);
-            float pointShadowTerm = (pointHit.type == intersection_type::triangle) ? 0.0 : 1.0;
-            float attenuation = 1.0 / max(dist * dist, 0.001);
-            float3 brdf = eval_brdf(N, V, Lp, base, metallic, roughness);
-            float3 Li = l.color * (l.intensity * attenuation);
-            float3 contrib = throughput * brdf * Li * (NdotLp * pointShadowTerm);
-            if (bounce == 0) {
-                directOut += contrib;
-                shadowSum += pointShadowTerm;
-                shadowCount += 1.0;
-            } else {
-                indirectOut += contrib;
-            }
-        }
-
-        uint areaSamples = max(frame.areaLightSamples, 1u);
-        for (uint i = 0; i < frame.areaLightCount; ++i) {
-            RTAreaLight l = areaLights[i];
-            float3 areaAccum = float3(0.0);
-            float3 lightNormal = normalize(cross(l.u, l.v));
-            float area = max(length(cross(l.u, l.v)) * 4.0, 1e-4);
-            for (uint a = 0; a < areaSamples; ++a) {
-                float2 r = float2(rand01(seed), rand01(seed)) * 2.0 - 1.0;
-                float3 lightPos = l.position + l.u * r.x + l.v * r.y;
-                float3 toArea = lightPos - hitPos;
-                float distA = length(toArea);
-                float3 La = (distA > 0.0) ? (toArea / distA) : float3(0.0);
-                float NdotLa = max(dot(N, La), 0.0);
-                float cosThetaLight = max(dot(-La, lightNormal), 0.0);
-                if (NdotLa <= 0.0 || distA <= 0.0 || cosThetaLight <= 0.0) { continue; }
-
-                ray areaShadow;
-                areaShadow.origin = hitPos + N * 0.01;
-                areaShadow.direction = La;
-                areaShadow.min_distance = 0.001;
-                areaShadow.max_distance = distA - 0.01;
-
-                intersection_result<triangle_data, instancing> areaHit = isect.intersect(areaShadow, accel);
-                float areaShadowTerm = (areaHit.type == intersection_type::triangle) ? 0.0 : 1.0;
-                float attenuationA = 1.0 / max(distA * distA, 0.001);
-                float3 brdf = eval_brdf(N, V, La, base, metallic, roughness);
-                float pdfLight = (distA * distA) / max(cosThetaLight * area, 1e-4);
-                float pdfBsdf = pdf_brdf(N, V, La, roughness, pSpec);
-                float w = (pdfLight * pdfLight) / max(pdfLight * pdfLight + pdfBsdf * pdfBsdf, 1e-5);
-                float3 Li = l.color * (l.intensity * attenuationA * cosThetaLight);
-                areaAccum += brdf * Li * (NdotLa * areaShadowTerm) * w / max(pdfLight, 1e-5);
-                if (bounce == 0) {
-                    shadowSum += areaShadowTerm;
-                    shadowCount += 1.0;
-                }
-            }
-            float3 contrib = throughput * (areaAccum / float(areaSamples));
-            if (bounce == 0) {
-                directOut += contrib;
-            } else {
-                indirectOut += contrib;
-            }
-        }
-
-        if (bounce == 0 && recordPrimary) {
-            primaryShadow = (shadowCount > 0.0) ? (shadowSum / shadowCount) : 1.0;
-        }
-
-        float3 nextDir;
-        float pdf = 1.0;
-        float3 brdf = float3(1.0);
-
-        if (rand01(seed) < pSpec) {
-            float3 H = sample_ggx(N, alpha, seed);
-            float3 L = reflect(-V, H);
-            float NoL = sat(dot(N, L));
-            float NoH = sat(dot(N, H));
-            float VoH = sat(dot(V, H));
-            if (NoL > 0.0) {
-                float D = ggx_D(NoH, alpha);
-                float G = ggx_G(NoV, NoL, alpha);
-                float3 F0 = mix(float3(0.04), base, metallic);
-                float3 F = fresnel_schlick(VoH, F0);
-                brdf = (D * G) * F / max(4.0 * NoV * NoL, 1e-4);
-                pdf = max(D * NoH / max(4.0 * VoH, 1e-4), 1e-5);
-                throughput *= brdf * NoL / pdf;
-                throughput /= max(pSpec, 1e-3);
-                nextDir = L;
-            } else {
-                nextDir = sample_hemisphere(N, seed);
-                throughput *= base * (1.0 - metallic);
-                throughput /= max(1.0 - pSpec, 1e-3);
-            }
-        } else {
-            nextDir = sample_hemisphere(N, seed);
-            throughput *= base * (1.0 - metallic);
-            throughput /= max(1.0 - pSpec, 1e-3);
-        }
-
-        current.origin = hitPos + nextDir * 0.01;
-        current.direction = nextDir;
-        current.min_distance = 0.001;
-        current.max_distance = 1e6;
-    }
-
-    radiance = directOut + indirectOut;
-    return radiance;
-}
-
 kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(0)]],
-                           texture2d<float, access::write> gNormal [[texture(1)]],
-                           texture2d<float, access::write> gDepth [[texture(2)]],
-                           texture2d<float, access::write> gRoughness [[texture(3)]],
-                           texture2d<float, access::write> gAlbedo [[texture(4)]],
-                           texture2d<float, access::write> gShadow [[texture(5)]],
-                           texture2d<float, access::write> outDirect [[texture(6)]],
-                           texture2d<float, access::write> outIndirect [[texture(7)]],
-                           texture2d<float, access::read> blueNoise [[texture(8)]],
-                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(9)]],
+                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(1)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
                            acceleration_structure<instancing> accel [[buffer(BufferIndexRTAccel)]],
                            device const float3 *rtVertices [[buffer(BufferIndexRTVertices)]],
@@ -389,82 +73,142 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
     isect.assume_geometry_type(geometry_type::triangle);
     isect.force_opacity(forced_opacity::opaque);
 
-    uint baseSeed = (gid.x * 1973u) ^ (gid.y * 9277u) ^ (frame.frameIndex * 26699u);
-    uint spp = max(frame.samplesPerPixel, 1u);
-    float3 radiance = float3(0.0);
-    float3 directSum = float3(0.0);
-    float3 indirectSum = float3(0.0);
-    float3 primaryNormal = float3(0.0);
-    float primaryDepth = 1e6;
-    float primaryRoughness = 1.0;
-    uint primaryHit = 0u;
-    float3 primaryAlbedo = float3(1.0);
-    float primaryShadow = 1.0;
+    float2 pixel = (float2(gid) + 0.5) / float2(frame.imageSize);
+    float2 ndc = float2(pixel.x * 2.0 - 1.0, (1.0 - pixel.y) * 2.0 - 1.0);
+    float4 clip = float4(ndc, 1.0, 1.0);
+    float4 world = frame.invViewProj * clip;
+    float3 dir = normalize(world.xyz / world.w - frame.cameraPosition);
 
-    uint2 bnSize = uint2(blueNoise.get_width(), blueNoise.get_height());
-    uint2 bnCoord = uint2(gid.x % bnSize.x, gid.y % bnSize.y);
-    float2 cp = blueNoise.read(bnCoord).xy;
+    ray current;
+    current.origin = frame.cameraPosition;
+    current.direction = dir;
+    current.min_distance = 0.001;
+    current.max_distance = 1e6;
 
-    for (uint s = 0; s < spp; ++s) {
-        uint seed = baseSeed ^ (s * 16807u);
-        float2 jitter = fract(r2_sequence(s, frame.frameIndex, seed) + cp);
-        float2 pixel = (float2(gid) + jitter) / float2(frame.imageSize);
-        float2 ndc = float2(pixel.x * 2.0 - 1.0, (1.0 - pixel.y) * 2.0 - 1.0);
-
-        float4 clip = float4(ndc, 1.0, 1.0);
-        float4 world = frame.invViewProj * clip;
-        float3 dir = normalize(world.xyz / world.w - frame.cameraPosition);
-
-        ray current;
-        current.origin = frame.cameraPosition;
-        current.direction = dir;
-        current.min_distance = 0.001;
-        current.max_distance = 1e6;
-
-        float3 direct = float3(0.0);
-        float3 indirect = float3(0.0);
-        radiance += traceRay(current,
-                             isect,
-                             accel,
-                             rtVertices,
-                             rtIndices,
-                             rtInstances,
-                             rtUVs,
-                             baseColorTextures,
-                             dirLights,
-                             pointLights,
-                             areaLights,
-                             frame,
-                             seed,
-                             primaryNormal,
-                             primaryDepth,
-                             primaryRoughness,
-                             primaryHit,
-                             primaryAlbedo,
-                             primaryShadow,
-                             direct,
-                             indirect,
-                             s == 0);
-        directSum += direct;
-        indirectSum += indirect;
+    intersection_result<triangle_data, instancing> hit = isect.intersect(current, accel);
+    if (hit.type != intersection_type::triangle) {
+        float3 env = float3(0.02, 0.02, 0.03);
+        outTexture.write(float4(env, 1.0), gid);
+        return;
     }
-    radiance /= float(spp);
-    directSum /= float(spp);
-    indirectSum /= float(spp);
 
-    outTexture.write(float4(radiance, 1.0), gid);
-    outDirect.write(float4(directSum, 1.0), gid);
-    outIndirect.write(float4(indirectSum, 1.0), gid);
-    gShadow.write(float4(primaryShadow, 0.0, 0.0, 0.0), gid);
-    if (primaryHit == 0u) {
-        gNormal.write(float4(0.0, 0.0, 0.0, 1.0), gid);
-        gDepth.write(float4(1e6, 0.0, 0.0, 0.0), gid);
-        gRoughness.write(float4(1.0, 0.0, 0.0, 0.0), gid);
-        gAlbedo.write(float4(0.0, 0.0, 0.0, 1.0), gid);
-    } else {
-        gNormal.write(float4(primaryNormal, 1.0), gid);
-        gDepth.write(float4(primaryDepth, 0.0, 0.0, 0.0), gid);
-        gRoughness.write(float4(primaryRoughness, 0.0, 0.0, 0.0), gid);
-        gAlbedo.write(float4(primaryAlbedo, 1.0), gid);
+    RTInstanceInfo inst = rtInstances[hit.instance_id];
+    uint triBase = inst.baseIndex + hit.primitive_id * 3;
+    if (triBase + 2 >= inst.baseIndex + inst.indexCount) {
+        outTexture.write(float4(0.0, 0.0, 0.0, 1.0), gid);
+        return;
     }
+
+    uint i0 = rtIndices[triBase + 0];
+    uint i1 = rtIndices[triBase + 1];
+    uint i2 = rtIndices[triBase + 2];
+
+    float3 v0 = rtVertices[inst.baseVertex + i0];
+    float3 v1 = rtVertices[inst.baseVertex + i1];
+    float3 v2 = rtVertices[inst.baseVertex + i2];
+
+    float3 w0 = (inst.modelMatrix * float4(v0, 1.0)).xyz;
+    float3 w1 = (inst.modelMatrix * float4(v1, 1.0)).xyz;
+    float3 w2 = (inst.modelMatrix * float4(v2, 1.0)).xyz;
+
+    float3 N = normalize(cross(w1 - w0, w2 - w0));
+    if (dot(N, current.direction) > 0.0) { N = -N; }
+
+    float3 base = inst.baseColor;
+    float metallic = clamp(inst.metallic, 0.0, 1.0);
+    float roughness = clamp(inst.roughness, 0.05, 1.0);
+
+    if (inst.baseColorTexIndex < frame.textureCount && inst.baseColorTexIndex < MAX_RT_TEXTURES) {
+        constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+        float2 bary = hit.triangle_barycentric_coord;
+        float w = 1.0 - bary.x - bary.y;
+        float2 uv0 = rtUVs[inst.baseVertex + i0];
+        float2 uv1 = rtUVs[inst.baseVertex + i1];
+        float2 uv2 = rtUVs[inst.baseVertex + i2];
+        float2 uv = uv0 * w + uv1 * bary.x + uv2 * bary.y;
+        float3 tex = float3(baseColorTextures[inst.baseColorTexIndex].sample(colorSamp, uv).xyz);
+        base *= tex;
+    }
+
+    float3 V = normalize(-current.direction);
+    float3 hitPos = current.origin + current.direction * hit.distance;
+
+    float3 direct = float3(0.0);
+    float shadowSum = 0.0;
+    float shadowCount = 0.0;
+
+    for (uint i = 0; i < frame.dirLightCount; ++i) {
+        RTDirectionalLight l = dirLights[i];
+        float3 L = normalize(-l.direction);
+        float NdotL = max(dot(N, L), 0.0);
+        if (NdotL <= 0.0) { continue; }
+
+        ray shadowRay;
+        shadowRay.origin = hitPos + N * 0.01;
+        shadowRay.direction = L;
+        shadowRay.min_distance = 0.001;
+        shadowRay.max_distance = 1e6;
+
+        intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
+        float shadow = (shadowHit.type == intersection_type::triangle) ? 0.0 : 1.0;
+        float3 brdf = eval_brdf(N, V, L, base, metallic, roughness);
+        float3 Li = l.color * l.intensity;
+        direct += brdf * Li * (NdotL * shadow);
+        shadowSum += shadow;
+        shadowCount += 1.0;
+    }
+
+    for (uint i = 0; i < frame.pointLightCount; ++i) {
+        RTPointLight l = pointLights[i];
+        float3 toPoint = l.position - hitPos;
+        float dist = length(toPoint);
+        float3 Lp = (dist > 0.0) ? (toPoint / dist) : float3(0.0);
+        float NdotLp = max(dot(N, Lp), 0.0);
+        if (NdotLp <= 0.0 || dist <= 0.0) { continue; }
+
+        ray pointShadow;
+        pointShadow.origin = hitPos + N * 0.01;
+        pointShadow.direction = Lp;
+        pointShadow.min_distance = 0.001;
+        pointShadow.max_distance = dist - 0.01;
+
+        intersection_result<triangle_data, instancing> pointHit = isect.intersect(pointShadow, accel);
+        float pointShadowTerm = (pointHit.type == intersection_type::triangle) ? 0.0 : 1.0;
+        float attenuation = 1.0 / max(dist * dist, 0.001);
+        float3 brdf = eval_brdf(N, V, Lp, base, metallic, roughness);
+        float3 Li = l.color * (l.intensity * attenuation);
+        direct += brdf * Li * (NdotLp * pointShadowTerm);
+        shadowSum += pointShadowTerm;
+        shadowCount += 1.0;
+    }
+
+    for (uint i = 0; i < frame.areaLightCount; ++i) {
+        RTAreaLight l = areaLights[i];
+        float3 lightNormal = normalize(cross(l.u, l.v));
+        float3 toArea = l.position - hitPos;
+        float distA = length(toArea);
+        float3 La = (distA > 0.0) ? (toArea / distA) : float3(0.0);
+        float NdotLa = max(dot(N, La), 0.0);
+        float cosThetaLight = max(dot(-La, lightNormal), 0.0);
+        if (NdotLa <= 0.0 || distA <= 0.0 || cosThetaLight <= 0.0) { continue; }
+
+        ray areaShadow;
+        areaShadow.origin = hitPos + N * 0.01;
+        areaShadow.direction = La;
+        areaShadow.min_distance = 0.001;
+        areaShadow.max_distance = distA - 0.01;
+
+        intersection_result<triangle_data, instancing> areaHit = isect.intersect(areaShadow, accel);
+        float areaShadowTerm = (areaHit.type == intersection_type::triangle) ? 0.0 : 1.0;
+        float attenuationA = 1.0 / max(distA * distA, 0.001);
+        float3 brdf = eval_brdf(N, V, La, base, metallic, roughness);
+        float3 Li = l.color * (l.intensity * attenuationA * cosThetaLight);
+        direct += brdf * Li * (NdotLa * areaShadowTerm);
+        shadowSum += areaShadowTerm;
+        shadowCount += 1.0;
+    }
+
+    float3 ambient = base * frame.ambientIntensity;
+    float3 color = direct + ambient;
+    outTexture.write(float4(color, 1.0), gid);
 }
