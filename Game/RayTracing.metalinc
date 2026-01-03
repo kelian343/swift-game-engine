@@ -79,51 +79,6 @@ inline float3 eval_env_sh(float3 n, constant RTFrameUniforms& frame) {
     return result;
 }
 
-inline float3 make_tangent(float3 n) {
-    return normalize(abs(n.z) < 0.999 ? cross(n, float3(0.0, 0.0, 1.0))
-                                     : cross(n, float3(0.0, 1.0, 0.0)));
-}
-
-inline float compute_ao(float3 pos,
-                        float3 n,
-                        float bias,
-                        thread intersector<triangle_data, instancing> &isect,
-                        acceleration_structure<instancing> accel,
-                        constant RTFrameUniforms& frame) {
-    constexpr float3 dirs[6] = {
-        float3( 1.0,  0.0,  1.0),
-        float3(-1.0,  0.0,  1.0),
-        float3( 0.0,  1.0,  1.0),
-        float3( 0.0, -1.0,  1.0),
-        float3( 1.0,  1.0,  1.0),
-        float3(-1.0,  1.0,  1.0)
-    };
-
-    float3 t = make_tangent(n);
-    float3 b = cross(n, t);
-
-    float occluded = 0.0;
-    float radius = max(frame.aoRadius, bias * 2.0);
-
-    for (uint i = 0; i < 6; ++i) {
-        float3 d = normalize(dirs[i]);
-        float3 worldDir = normalize(t * d.x + b * d.y + n * d.z);
-
-        ray aoRay;
-        aoRay.origin = pos + n * bias;
-        aoRay.direction = worldDir;
-        aoRay.min_distance = bias * 0.5;
-        aoRay.max_distance = radius;
-
-        intersection_result<triangle_data, instancing> aoHit = isect.intersect(aoRay, accel);
-        if (aoHit.type == intersection_type::triangle) {
-            occluded += 1.0;
-        }
-    }
-
-    return 1.0 - (occluded / 6.0);
-}
-
 kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(0)]],
                            array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(1)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
@@ -133,8 +88,6 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                            device const RTInstanceInfo *rtInstances [[buffer(BufferIndexRTInstances)]],
                            device const float2 *rtUVs [[buffer(BufferIndexRTUVs)]],
                            device const RTDirectionalLight *dirLights [[buffer(BufferIndexRTDirLights)]],
-                           device const RTPointLight *pointLights [[buffer(BufferIndexRTPointLights)]],
-                           device const RTAreaLight *areaLights [[buffer(BufferIndexRTAreaLights)]],
                            uint2 gid [[thread_position_in_grid]])
 {
     if (gid.x >= frame.imageSize.x || gid.y >= frame.imageSize.y) {
@@ -231,62 +184,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         shadowCount += 1.0;
     }
 
-    for (uint i = 0; i < frame.pointLightCount; ++i) {
-        RTPointLight l = pointLights[i];
-        float3 toPoint = l.position - hitPos;
-        float dist = length(toPoint);
-        float3 Lp = (dist > 0.0) ? (toPoint / dist) : float3(0.0);
-        float NdotLp = max(dot(N, Lp), 0.0);
-        if (NdotLp <= 0.0 || dist <= 0.0) { continue; }
-
-        ray pointShadow;
-        pointShadow.origin = hitPos + N * bias;
-        pointShadow.direction = Lp;
-        pointShadow.min_distance = bias * 0.5;
-        pointShadow.max_distance = max(dist - bias, bias);
-
-        intersection_result<triangle_data, instancing> pointHit = isect.intersect(pointShadow, accel);
-        float pointShadowTerm = (pointHit.type == intersection_type::triangle) ? 0.0 : 1.0;
-        float attenuation = 1.0 / max(dist * dist, 0.001);
-        float3 brdf = eval_brdf(N, V, Lp, base, metallic, roughness);
-        float3 Li = l.color * (l.intensity * attenuation);
-        direct += brdf * Li * (NdotLp * pointShadowTerm);
-        shadowSum += pointShadowTerm;
-        shadowCount += 1.0;
-    }
-
-    for (uint i = 0; i < frame.areaLightCount; ++i) {
-        RTAreaLight l = areaLights[i];
-        float3 lightNormal = normalize(cross(l.u, l.v));
-        float3 toArea = l.position - hitPos;
-        float distA = length(toArea);
-        float3 La = (distA > 0.0) ? (toArea / distA) : float3(0.0);
-        float NdotLa = max(dot(N, La), 0.0);
-        float cosThetaLight = max(dot(-La, lightNormal), 0.0);
-        if (NdotLa <= 0.0 || distA <= 0.0 || cosThetaLight <= 0.0) { continue; }
-
-        ray areaShadow;
-        areaShadow.origin = hitPos + N * bias;
-        areaShadow.direction = La;
-        areaShadow.min_distance = bias * 0.5;
-        areaShadow.max_distance = max(distA - bias, bias);
-
-        intersection_result<triangle_data, instancing> areaHit = isect.intersect(areaShadow, accel);
-        float areaShadowTerm = (areaHit.type == intersection_type::triangle) ? 0.0 : 1.0;
-        float attenuationA = 1.0 / max(distA * distA, 0.001);
-        float3 brdf = eval_brdf(N, V, La, base, metallic, roughness);
-        float3 Li = l.color * (l.intensity * attenuationA * cosThetaLight);
-        direct += brdf * Li * (NdotLa * areaShadowTerm);
-        shadowSum += areaShadowTerm;
-        shadowCount += 1.0;
-    }
-
-    float ao = 1.0;
-    if (frame.aoIntensity > 0.0) {
-        ao = compute_ao(hitPos, N, bias, isect, accel, frame);
-    }
-    float aoWeight = 1.0 - frame.aoIntensity * (1.0 - ao);
-    float3 ambient = base * eval_env_sh(N, frame) * frame.ambientIntensity * aoWeight;
+    float3 ambient = base * eval_env_sh(N, frame) * frame.ambientIntensity;
     float3 color = direct + ambient;
     outTexture.write(float4(color, 1.0), gid);
 }

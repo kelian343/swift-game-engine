@@ -17,8 +17,6 @@ final class RayTracingRenderer {
     private let rtFrameBuffer: MTLBuffer
 
     private let dirLightBuffer: MTLBuffer
-    private let pointLightBuffer: MTLBuffer
-    private let areaLightBuffer: MTLBuffer
 
     init?(device: MTLDevice) {
         self.device = device
@@ -31,19 +29,11 @@ final class RayTracingRenderer {
         self.rtFrameBuffer = rtBuffer
 
         guard let dirBuf = device.makeBuffer(length: MemoryLayout<RTDirectionalLightSwift>.stride * 4,
-                                             options: [.storageModeShared]),
-              let pointBuf = device.makeBuffer(length: MemoryLayout<RTPointLightSwift>.stride * 8,
-                                               options: [.storageModeShared]),
-              let areaBuf = device.makeBuffer(length: MemoryLayout<RTAreaLightSwift>.stride * 4,
-                                              options: [.storageModeShared]) else {
+                                             options: [.storageModeShared]) else {
             return nil
         }
         dirBuf.label = "RTDirectionalLights"
-        pointBuf.label = "RTPointLights"
-        areaBuf.label = "RTAreaLights"
         self.dirLightBuffer = dirBuf
-        self.pointLightBuffer = pointBuf
-        self.areaLightBuffer = areaBuf
 
         do {
             let library = device.makeDefaultLibrary()
@@ -82,10 +72,8 @@ final class RayTracingRenderer {
             imageSize: SIMD2<UInt32>(UInt32(width), UInt32(height)),
             ambientIntensity: 0.2,
             pad0: 0,
-            dirLightCount: 1,
-            pointLightCount: 1,
-            areaLightCount: 1,
             textureCount: UInt32(geometry?.textures.count ?? 0),
+            dirLightCount: 1,
             envSH0: envSH0,
             envSH1: envSH1,
             envSH2: .zero,
@@ -94,10 +82,7 @@ final class RayTracingRenderer {
             envSH5: .zero,
             envSH6: .zero,
             envSH7: .zero,
-            envSH8: .zero,
-            aoRadius: 1.2,
-            aoIntensity: 0.0,
-            pad1: .zero
+            envSH8: .zero
         )
         memcpy(rtFrameBuffer.contents(), &rtFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
 
@@ -137,8 +122,6 @@ final class RayTracingRenderer {
         enc.setBuffer(geometry.instanceInfoBuffer, offset: 0, index: BufferIndex.rtInstances.rawValue)
         enc.setBuffer(geometry.uvBuffer, offset: 0, index: BufferIndex(rawValue: 7)!.rawValue)
         enc.setBuffer(dirLightBuffer, offset: 0, index: BufferIndex.rtDirLights.rawValue)
-        enc.setBuffer(pointLightBuffer, offset: 0, index: BufferIndex.rtPointLights.rawValue)
-        enc.setBuffer(areaLightBuffer, offset: 0, index: BufferIndex.rtAreaLights.rawValue)
 
         if !geometry.textures.isEmpty {
             let count = min(geometry.textures.count, maxRTTextures)
@@ -156,22 +139,6 @@ final class RayTracingRenderer {
                                             intensity: 2.6,
                                             color: SIMD3<Float>(1.0, 0.95, 0.85),
                                             padding: 0)
-
-        let pointPtr = pointLightBuffer.contents().bindMemory(to: RTPointLightSwift.self, capacity: 8)
-        pointPtr[0] = RTPointLightSwift(position: SIMD3<Float>(0.0, 4.0, 0.0),
-                                        intensity: 0.0,
-                                        color: SIMD3<Float>(1.0, 0.95, 0.9),
-                                        radius: 0.0)
-
-        let areaPtr = areaLightBuffer.contents().bindMemory(to: RTAreaLightSwift.self, capacity: 4)
-        areaPtr[0] = RTAreaLightSwift(position: SIMD3<Float>(0.0, 5.0, -2.0),
-                                      intensity: 0.0,
-                                      u: SIMD3<Float>(1.5, 0.0, 0.0),
-                                      padding0: 0,
-                                      v: SIMD3<Float>(0.0, 0.0, 1.0),
-                                      padding1: 0,
-                                      color: SIMD3<Float>(0.9, 0.95, 1.0),
-                                      padding2: 0)
     }
 
     private func dispatch(enc: MTLComputeCommandEncoder, width: Int, height: Int) {
