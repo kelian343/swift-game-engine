@@ -654,3 +654,18 @@ kernel void spatialDenoiseKernel(texture2d<float, access::read> temporalColor [[
     float3 outc = (wsum > 0.0) ? (sum / wsum) : center;
     outTexture.write(float4(outc, 1.0), gid);
 }
+
+kernel void combineKernel(texture2d<float, access::read> directTex [[texture(0)]],
+                          texture2d<float, access::read> indirectTex [[texture(1)]],
+                          texture2d<float, access::write> outTexture [[texture(2)]],
+                          constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
+                          uint2 gid [[thread_position_in_grid]])
+{
+    if (gid.x >= outTexture.get_width() || gid.y >= outTexture.get_height()) {
+        return;
+    }
+    float3 direct = directTex.read(gid).xyz;
+    float3 indirect = indirectTex.read(gid).xyz;
+    float exposure = max(frame.exposure, 0.0);
+    outTexture.write(float4((direct + indirect) * exposure, 1.0), gid);
+}

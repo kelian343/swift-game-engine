@@ -76,6 +76,7 @@ typedef struct
     float denoiseSigma;
     float atrousStep;
     float cameraMotion;
+    float exposure;
     vector_float2 padding;
 } RTFrameUniforms;
 
