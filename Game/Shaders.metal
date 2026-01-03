@@ -78,38 +78,16 @@ inline float3 sample_hemisphere(float3 n, thread uint &state) {
     return make_basis(n) * local;
 }
 
-kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(0)]],
-                           constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
-                           acceleration_structure<instancing> accel [[buffer(BufferIndexRTAccel)]],
-                           device const float3 *rtVertices [[buffer(BufferIndexRTVertices)]],
-                           device const uint *rtIndices [[buffer(BufferIndexRTIndices)]],
-                           device const RTInstanceInfo *rtInstances [[buffer(BufferIndexRTInstances)]],
-                           uint2 gid [[thread_position_in_grid]])
-{
-    if (gid.x >= frame.imageSize.x || gid.y >= frame.imageSize.y) {
-        return;
-    }
-
-    float2 pixel = (float2(gid) + 0.5) / float2(frame.imageSize);
-    float2 ndc = float2(pixel.x * 2.0 - 1.0, (1.0 - pixel.y) * 2.0 - 1.0);
-
-    float4 clip = float4(ndc, 1.0, 1.0);
-    float4 world = frame.invViewProj * clip;
-    float3 dir = normalize(world.xyz / world.w - frame.cameraPosition);
-
-    intersector<triangle_data, instancing> isect;
-    isect.assume_geometry_type(geometry_type::triangle);
-    isect.force_opacity(forced_opacity::opaque);
-
-    uint seed = (gid.x * 1973u) ^ (gid.y * 9277u) ^ (frame.frameIndex * 26699u);
-
+inline float3 traceRay(ray current,
+                       thread intersector<triangle_data, instancing> &isect,
+                       acceleration_structure<instancing> accel,
+                       device const float3 *rtVertices,
+                       device const uint *rtIndices,
+                       device const RTInstanceInfo *rtInstances,
+                       constant RTFrameUniforms& frame,
+                       thread uint &seed) {
     float3 radiance = float3(0.0);
     float3 throughput = float3(1.0);
-    ray current;
-    current.origin = frame.cameraPosition;
-    current.direction = dir;
-    current.min_distance = 0.001;
-    current.max_distance = 1e6;
 
     for (uint bounce = 0; bounce < 2; ++bounce) {
         intersection_result<triangle_data, instancing> hit = isect.intersect(current, accel);
@@ -175,5 +153,59 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         current.max_distance = 1e6;
     }
 
-    outTexture.write(float4(radiance, 1.0), gid);
+    return radiance;
+}
+
+kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(0)]],
+                           texture2d<float, access::read_write> accumTexture [[texture(1)]],
+                           constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
+                           acceleration_structure<instancing> accel [[buffer(BufferIndexRTAccel)]],
+                           device const float3 *rtVertices [[buffer(BufferIndexRTVertices)]],
+                           device const uint *rtIndices [[buffer(BufferIndexRTIndices)]],
+                           device const RTInstanceInfo *rtInstances [[buffer(BufferIndexRTInstances)]],
+                           uint2 gid [[thread_position_in_grid]])
+{
+    if (gid.x >= frame.imageSize.x || gid.y >= frame.imageSize.y) {
+        return;
+    }
+
+    intersector<triangle_data, instancing> isect;
+    isect.assume_geometry_type(geometry_type::triangle);
+    isect.force_opacity(forced_opacity::opaque);
+
+    uint baseSeed = (gid.x * 1973u) ^ (gid.y * 9277u) ^ (frame.frameIndex * 26699u);
+    uint spp = max(frame.samplesPerPixel, 1u);
+    float3 radiance = float3(0.0);
+
+    for (uint s = 0; s < spp; ++s) {
+        uint seed = baseSeed ^ (s * 16807u);
+        float2 jitter = float2(rand01(seed), rand01(seed));
+        float2 pixel = (float2(gid) + jitter) / float2(frame.imageSize);
+        float2 ndc = float2(pixel.x * 2.0 - 1.0, (1.0 - pixel.y) * 2.0 - 1.0);
+
+        float4 clip = float4(ndc, 1.0, 1.0);
+        float4 world = frame.invViewProj * clip;
+        float3 dir = normalize(world.xyz / world.w - frame.cameraPosition);
+
+        ray current;
+        current.origin = frame.cameraPosition;
+        current.direction = dir;
+        current.min_distance = 0.001;
+        current.max_distance = 1e6;
+
+        radiance += traceRay(current, isect, accel, rtVertices, rtIndices, rtInstances, frame, seed);
+    }
+    radiance /= float(spp);
+
+    float3 currentColor = radiance;
+    float3 prev = accumTexture.read(gid).xyz;
+    if (frame.frameIndex == 0) {
+        prev = currentColor;
+    }
+
+    float3 clamped = clamp(prev, currentColor - frame.historyClamp, currentColor + frame.historyClamp);
+    float3 accum = mix(currentColor, clamped, frame.historyWeight);
+
+    accumTexture.write(float4(accum, 1.0), gid);
+    outTexture.write(float4(accum, 1.0), gid);
 }

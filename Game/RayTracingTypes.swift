@@ -16,6 +16,10 @@ struct RTFrameUniformsSwift {
     var lightIntensity: Float
     var lightColor: SIMD3<Float>
     var ambientIntensity: Float
+    var historyWeight: Float
+    var historyClamp: Float
+    var samplesPerPixel: UInt32
+    var padding: UInt32
 }
 
 struct RTInstanceInfoSwift {

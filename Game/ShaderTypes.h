@@ -61,6 +61,10 @@ typedef struct
     float lightIntensity;
     vector_float3 lightColor;
     float ambientIntensity;
+    float historyWeight;
+    float historyClamp;
+    uint32_t samplesPerPixel;
+    uint32_t padding;
 } RTFrameUniforms;
 
 typedef struct
