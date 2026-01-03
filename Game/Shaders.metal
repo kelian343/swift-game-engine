@@ -597,6 +597,7 @@ kernel void spatialDenoiseKernel(texture2d<float, access::read> temporalColor [[
                                  texture2d<float, access::read> gRoughness [[texture(3)]],
                                  texture2d<float, access::read> gAlbedo [[texture(4)]],
                                  texture2d<float, access::write> outTexture [[texture(5)]],
+                                 texture2d<float, access::read> momentsTex [[texture(6)]],
                                  constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
                                  uint2 gid [[thread_position_in_grid]])
 {
@@ -619,7 +620,12 @@ kernel void spatialDenoiseKernel(texture2d<float, access::read> temporalColor [[
     float normalSigma = mix(16.0, 4.0, centerRoughness);
     float luma = luminance(center);
     float shadowPreserve = smoothstep(0.03, 0.2, luma);
-    float colorSigma = max(frame.denoiseSigma, 0.1) * mix(0.35, 1.0, shadowPreserve);
+    float2 moments = momentsTex.read(gid).xy;
+    float variance = max(moments.y - moments.x * moments.x, 0.0);
+    float varScale = clamp(sqrt(variance) * 4.0, 0.0, 1.0);
+    float colorSigma = max(frame.denoiseSigma, 0.1)
+        * mix(0.35, 1.0, shadowPreserve)
+        * (1.0 + varScale * 2.0);
     int step = max(int(frame.atrousStep + 0.5), 1);
 
     float3 sum = float3(0.0);

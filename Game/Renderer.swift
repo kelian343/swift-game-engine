@@ -462,6 +462,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                 spatialEnc.setTexture(gRoughness, index: 3)
                 spatialEnc.setTexture(gAlbedo, index: 4)
                 spatialEnc.setTexture(atrousDirect, index: 5)
+                spatialEnc.setTexture(historyDirectMomentsTextures[nextIndex], index: 6)
                 spatialEnc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
                 let tgW = 8
                 let tgH = 8
@@ -479,6 +480,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                 spatialEnc.setTexture(gRoughness, index: 3)
                 spatialEnc.setTexture(gAlbedo, index: 4)
                 spatialEnc.setTexture(atrousIndirect, index: 5)
+                spatialEnc.setTexture(historyIndirectMomentsTextures[nextIndex], index: 6)
                 spatialEnc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
                 let tgW = 8
                 let tgH = 8
@@ -499,6 +501,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                 spatialEnc2.setTexture(gRoughness, index: 3)
                 spatialEnc2.setTexture(gAlbedo, index: 4)
                 spatialEnc2.setTexture(temporalDirect, index: 5)
+                spatialEnc2.setTexture(historyDirectMomentsTextures[nextIndex], index: 6)
                 spatialEnc2.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
                 let tgW = 8
                 let tgH = 8
@@ -516,6 +519,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                 spatialEnc2.setTexture(gRoughness, index: 3)
                 spatialEnc2.setTexture(gAlbedo, index: 4)
                 spatialEnc2.setTexture(temporalIndirect, index: 5)
+                spatialEnc2.setTexture(historyIndirectMomentsTextures[nextIndex], index: 6)
                 spatialEnc2.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
                 let tgW = 8
                 let tgH = 8
