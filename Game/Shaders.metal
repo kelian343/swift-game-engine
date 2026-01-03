@@ -80,6 +80,42 @@ inline float3 sample_hemisphere(float3 n, thread uint &state) {
     return make_basis(n) * local;
 }
 
+inline float sat(float v) {
+    return clamp(v, 0.0, 1.0);
+}
+
+inline float3 fresnel_schlick(float cosTheta, float3 F0) {
+    return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
+}
+
+inline float ggx_D(float NoH, float alpha) {
+    float a2 = alpha * alpha;
+    float denom = (NoH * NoH) * (a2 - 1.0) + 1.0;
+    return a2 / (3.14159265 * denom * denom);
+}
+
+inline float ggx_G1(float NoV, float alpha) {
+    float a = alpha;
+    float a2 = a * a;
+    float denom = NoV + sqrt(a2 + (1.0 - a2) * NoV * NoV);
+    return 2.0 * NoV / max(denom, 1e-4);
+}
+
+inline float ggx_G(float NoV, float NoL, float alpha) {
+    return ggx_G1(NoV, alpha) * ggx_G1(NoL, alpha);
+}
+
+inline float3 sample_ggx(float3 N, float alpha, thread uint &state) {
+    float u1 = rand01(state);
+    float u2 = rand01(state);
+    float a2 = alpha * alpha;
+    float phi = 6.2831853 * u1;
+    float cosTheta = sqrt((1.0 - u2) / (1.0 + (a2 - 1.0) * u2));
+    float sinTheta = sqrt(max(0.0, 1.0 - cosTheta * cosTheta));
+    float3 Ht = float3(cos(phi) * sinTheta, sin(phi) * sinTheta, cosTheta);
+    return normalize(make_basis(N) * Ht);
+}
+
 inline float3 traceRay(ray current,
                        thread intersector<triangle_data, instancing> &isect,
                        acceleration_structure<instancing> accel,
@@ -212,12 +248,42 @@ inline float3 traceRay(ray current,
             radiance += throughput * diffColor * (areaAccum / float(areaSamples));
         }
 
-        float3 diffuseDir = sample_hemisphere(N, seed);
-        float3 reflectDir = reflect(current.direction, N);
-        float reflectProb = mix(0.1, 0.9, metallic);
-        float3 nextDir = normalize(mix(diffuseDir, reflectDir, reflectProb));
+        float3 V = normalize(-current.direction);
+        float NoV = sat(dot(N, V));
+        float alpha = roughness * roughness;
+        float pSpec = mix(0.1, 0.9, metallic);
 
-        throughput *= base * (1.0 - roughness * 0.5);
+        float3 nextDir;
+        float pdf = 1.0;
+        float3 brdf = float3(1.0);
+
+        if (rand01(seed) < pSpec) {
+            float3 H = sample_ggx(N, alpha, seed);
+            float3 L = reflect(-V, H);
+            float NoL = sat(dot(N, L));
+            float NoH = sat(dot(N, H));
+            float VoH = sat(dot(V, H));
+            if (NoL > 0.0) {
+                float D = ggx_D(NoH, alpha);
+                float G = ggx_G(NoV, NoL, alpha);
+                float3 F0 = mix(float3(0.04), base, metallic);
+                float3 F = fresnel_schlick(VoH, F0);
+                brdf = (D * G) * F / max(4.0 * NoV * NoL, 1e-4);
+                pdf = max(D * NoH / max(4.0 * VoH, 1e-4), 1e-5);
+                throughput *= brdf * NoL / pdf;
+                throughput /= max(pSpec, 1e-3);
+                nextDir = L;
+            } else {
+                nextDir = sample_hemisphere(N, seed);
+                throughput *= base * (1.0 - metallic);
+                throughput /= max(1.0 - pSpec, 1e-3);
+            }
+        } else {
+            nextDir = sample_hemisphere(N, seed);
+            throughput *= base * (1.0 - metallic);
+            throughput /= max(1.0 - pSpec, 1e-3);
+        }
+
         current.origin = hitPos + nextDir * 0.01;
         current.direction = nextDir;
         current.min_distance = 0.001;
