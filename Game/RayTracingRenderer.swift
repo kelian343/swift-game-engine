@@ -96,7 +96,7 @@ final class RayTracingRenderer {
             envSH7: .zero,
             envSH8: .zero,
             aoRadius: 1.2,
-            aoIntensity: 0.65,
+            aoIntensity: 0.0,
             pad1: .zero
         )
         memcpy(rtFrameBuffer.contents(), &rtFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
