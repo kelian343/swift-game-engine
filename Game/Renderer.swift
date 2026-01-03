@@ -36,6 +36,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var gDepthTexture: MTLTexture?
     private var gRoughnessTexture: MTLTexture?
     private var gAlbedoTexture: MTLTexture?
+    private var gShadowTexture: MTLTexture?
     private var temporalDirectTexture: MTLTexture?
     private var temporalIndirectTexture: MTLTexture?
     private var atrousDirectTexture: MTLTexture?
@@ -48,6 +49,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var historyIndirectMomentsTextures: [MTLTexture] = []
     private var historyNormalTextures: [MTLTexture] = []
     private var historyDepthTextures: [MTLTexture] = []
+    private var historyShadowTextures: [MTLTexture] = []
     private var historyIndex: Int = 0
     private var lastViewProj: matrix_float4x4 = matrix_identity_float4x4
     private var lastCameraPosition: SIMD3<Float> = .zero
@@ -235,6 +237,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             gDepthTexture = makeTex(.r32Float, [.shaderRead, .shaderWrite], "GBufferDepth")
             gRoughnessTexture = makeTex(.r16Float, [.shaderRead, .shaderWrite], "GBufferRoughness")
             gAlbedoTexture = makeTex(.rgba8Unorm, [.shaderRead, .shaderWrite], "GBufferAlbedo")
+            gShadowTexture = makeTex(.r16Float, [.shaderRead, .shaderWrite], "GBufferShadow")
             temporalDirectTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "TemporalDirect")
             temporalIndirectTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "TemporalIndirect")
             atrousDirectTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "AtrousDirect")
@@ -264,6 +267,10 @@ final class Renderer: NSObject, MTKViewDelegate {
             historyDepthTextures = [
                 makeTex(.r32Float, [.shaderRead, .shaderWrite], "HistoryDepthA"),
                 makeTex(.r32Float, [.shaderRead, .shaderWrite], "HistoryDepthB")
+            ]
+            historyShadowTextures = [
+                makeTex(.r16Float, [.shaderRead, .shaderWrite], "HistoryShadowA"),
+                makeTex(.r16Float, [.shaderRead, .shaderWrite], "HistoryShadowB")
             ]
             historyIndex = 0
             resetHistory = true
@@ -311,6 +318,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             atrousStep: 1.0,
             cameraMotion: cameraMotion,
             exposure: 1.7,
+            shadowConsistency: 0.0,
             padding: .zero
         )
         rtFrameIndex &+= 1
@@ -345,6 +353,7 @@ final class Renderer: NSObject, MTKViewDelegate {
            let gDepth = gDepthTexture,
            let gRoughness = gRoughnessTexture,
            let gAlbedo = gAlbedoTexture,
+           let gShadow = gShadowTexture,
            let rtDirect = rtDirectTexture,
            let rtIndirect = rtIndirectTexture,
            let enc = rtCommandBuffer.makeComputeCommandEncoder() {
@@ -354,9 +363,10 @@ final class Renderer: NSObject, MTKViewDelegate {
             enc.setTexture(gDepth, index: 2)
             enc.setTexture(gRoughness, index: 3)
             enc.setTexture(gAlbedo, index: 4)
-            enc.setTexture(rtDirect, index: 5)
-            enc.setTexture(rtIndirect, index: 6)
-            enc.setTexture(blueNoiseTexture, index: 7)
+            enc.setTexture(gShadow, index: 5)
+            enc.setTexture(rtDirect, index: 6)
+            enc.setTexture(rtIndirect, index: 7)
+            enc.setTexture(blueNoiseTexture, index: 8)
             enc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
             enc.setAccelerationStructure(tlas, bufferIndex: BufferIndex.rtAccel.rawValue)
             enc.setBuffer(geometry.vertexBuffer, offset: 0, index: BufferIndex.rtVertices.rawValue)
@@ -370,7 +380,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             if !geometry.textures.isEmpty {
                 let count = min(geometry.textures.count, maxRTTextures)
                 let texArray: [MTLTexture?] = Array(geometry.textures.prefix(count))
-                enc.__setTextures(texArray, with: NSRange(location: 8, length: count))
+                enc.__setTextures(texArray, with: NSRange(location: 9, length: count))
             }
 
             let tgW = 8
@@ -385,6 +395,7 @@ final class Renderer: NSObject, MTKViewDelegate {
            let gDepth = gDepthTexture,
            let gRoughness = gRoughnessTexture,
            let gAlbedo = gAlbedoTexture,
+           let gShadow = gShadowTexture,
            let temporalDirect = temporalDirectTexture,
            let temporalIndirect = temporalIndirectTexture,
            let atrousDirect = atrousDirectTexture,
@@ -394,12 +405,15 @@ final class Renderer: NSObject, MTKViewDelegate {
            historyIndirectColorTextures.count == 2,
            historyIndirectMomentsTextures.count == 2,
            historyNormalTextures.count == 2,
-           historyDepthTextures.count == 2 {
+           historyDepthTextures.count == 2,
+           historyShadowTextures.count == 2 {
             let prevIndex = historyIndex
             let nextIndex = 1 - historyIndex
 
             if let rtDirect = rtDirectTexture,
                let temporalEnc = rtCommandBuffer.makeComputeCommandEncoder() {
+                rtFrame.shadowConsistency = 1.0
+                memcpy(rtFrameBuffer.contents(), &rtFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
                 temporalEnc.setComputePipelineState(temporalPipelineState)
                 temporalEnc.setTexture(rtDirect, index: 0)
                 temporalEnc.setTexture(gNormal, index: 1)
@@ -414,6 +428,9 @@ final class Renderer: NSObject, MTKViewDelegate {
                 temporalEnc.setTexture(historyNormalTextures[nextIndex], index: 10)
                 temporalEnc.setTexture(historyDepthTextures[nextIndex], index: 11)
                 temporalEnc.setTexture(temporalDirect, index: 12)
+                temporalEnc.setTexture(gShadow, index: 13)
+                temporalEnc.setTexture(historyShadowTextures[prevIndex], index: 14)
+                temporalEnc.setTexture(historyShadowTextures[nextIndex], index: 15)
                 temporalEnc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
                 let tgW = 8
                 let tgH = 8
@@ -425,6 +442,8 @@ final class Renderer: NSObject, MTKViewDelegate {
 
             if let rtIndirect = rtIndirectTexture,
                let temporalEnc = rtCommandBuffer.makeComputeCommandEncoder() {
+                rtFrame.shadowConsistency = 0.0
+                memcpy(rtFrameBuffer.contents(), &rtFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
                 temporalEnc.setComputePipelineState(temporalPipelineState)
                 temporalEnc.setTexture(rtIndirect, index: 0)
                 temporalEnc.setTexture(gNormal, index: 1)
@@ -439,6 +458,9 @@ final class Renderer: NSObject, MTKViewDelegate {
                 temporalEnc.setTexture(historyNormalTextures[nextIndex], index: 10)
                 temporalEnc.setTexture(historyDepthTextures[nextIndex], index: 11)
                 temporalEnc.setTexture(temporalIndirect, index: 12)
+                temporalEnc.setTexture(gShadow, index: 13)
+                temporalEnc.setTexture(historyShadowTextures[prevIndex], index: 14)
+                temporalEnc.setTexture(historyShadowTextures[nextIndex], index: 15)
                 temporalEnc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
                 let tgW = 8
                 let tgH = 8
@@ -450,10 +472,14 @@ final class Renderer: NSObject, MTKViewDelegate {
 
             historyIndex = nextIndex
 
+            let directSigma: Float = 2.5
+            let indirectSigma: Float = 9.0
+
             var spatialFrame = rtFrame
             spatialFrame.atrousStep = 1.0
-            memcpy(rtFrameBuffer.contents(), &spatialFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
 
+            spatialFrame.denoiseSigma = directSigma
+            memcpy(rtFrameBuffer.contents(), &spatialFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
             if let spatialEnc = rtCommandBuffer.makeComputeCommandEncoder() {
                 spatialEnc.setComputePipelineState(spatialPipelineState)
                 spatialEnc.setTexture(temporalDirect, index: 0)
@@ -472,6 +498,8 @@ final class Renderer: NSObject, MTKViewDelegate {
                 spatialEnc.endEncoding()
             }
 
+            spatialFrame.denoiseSigma = indirectSigma
+            memcpy(rtFrameBuffer.contents(), &spatialFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
             if let spatialEnc = rtCommandBuffer.makeComputeCommandEncoder() {
                 spatialEnc.setComputePipelineState(spatialPipelineState)
                 spatialEnc.setTexture(temporalIndirect, index: 0)
@@ -491,8 +519,8 @@ final class Renderer: NSObject, MTKViewDelegate {
             }
 
             spatialFrame.atrousStep = 2.0
+            spatialFrame.denoiseSigma = directSigma
             memcpy(rtFrameBuffer.contents(), &spatialFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
-
             if let spatialEnc2 = rtCommandBuffer.makeComputeCommandEncoder() {
                 spatialEnc2.setComputePipelineState(spatialPipelineState)
                 spatialEnc2.setTexture(atrousDirect, index: 0)
@@ -511,6 +539,8 @@ final class Renderer: NSObject, MTKViewDelegate {
                 spatialEnc2.endEncoding()
             }
 
+            spatialFrame.denoiseSigma = indirectSigma
+            memcpy(rtFrameBuffer.contents(), &spatialFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
             if let spatialEnc2 = rtCommandBuffer.makeComputeCommandEncoder() {
                 spatialEnc2.setComputePipelineState(spatialPipelineState)
                 spatialEnc2.setTexture(atrousIndirect, index: 0)

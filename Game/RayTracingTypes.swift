@@ -28,6 +28,7 @@ struct RTFrameUniformsSwift {
     var atrousStep: Float
     var cameraMotion: Float
     var exposure: Float
+    var shadowConsistency: Float
     var padding: SIMD2<Float>
 }
 

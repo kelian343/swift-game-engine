@@ -175,6 +175,7 @@ inline float3 traceRay(ray current,
                        thread float &primaryRoughness,
                        thread uint &primaryHit,
                        thread float3 &primaryAlbedo,
+                       thread float &primaryShadow,
                        thread float3 &directOut,
                        thread float3 &indirectOut,
                        bool recordPrimary) {
@@ -182,6 +183,7 @@ inline float3 traceRay(ray current,
     float3 radiance = float3(0.0);
     directOut = float3(0.0);
     indirectOut = float3(0.0);
+    primaryShadow = 1.0;
     float3 throughput = float3(1.0);
 
     for (uint bounce = 0; bounce < 2; ++bounce) {
@@ -192,6 +194,7 @@ inline float3 traceRay(ray current,
                 primaryNormal = float3(0.0);
                 primaryDepth = 1e6;
                 primaryRoughness = 1.0;
+                primaryShadow = 1.0;
             }
             indirectOut += throughput * float3(0.02, 0.02, 0.03);
             break;
@@ -250,6 +253,9 @@ inline float3 traceRay(ray current,
         float3 hitPos = current.origin + current.direction * hit.distance;
         indirectOut += throughput * base * frame.ambientIntensity;
 
+        float shadowSum = 0.0;
+        float shadowCount = 0.0;
+
         for (uint i = 0; i < frame.dirLightCount; ++i) {
             RTDirectionalLight l = dirLights[i];
             float3 L = normalize(-l.direction);
@@ -269,6 +275,8 @@ inline float3 traceRay(ray current,
             float3 contrib = throughput * brdf * Li * (NdotL * shadow);
             if (bounce == 0) {
                 directOut += contrib;
+                shadowSum += shadow;
+                shadowCount += 1.0;
             } else {
                 indirectOut += contrib;
             }
@@ -296,6 +304,8 @@ inline float3 traceRay(ray current,
             float3 contrib = throughput * brdf * Li * (NdotLp * pointShadowTerm);
             if (bounce == 0) {
                 directOut += contrib;
+                shadowSum += pointShadowTerm;
+                shadowCount += 1.0;
             } else {
                 indirectOut += contrib;
             }
@@ -332,6 +342,10 @@ inline float3 traceRay(ray current,
                 float w = (pdfLight * pdfLight) / max(pdfLight * pdfLight + pdfBsdf * pdfBsdf, 1e-5);
                 float3 Li = l.color * (l.intensity * attenuationA * cosThetaLight);
                 areaAccum += brdf * Li * (NdotLa * areaShadowTerm) * w / max(pdfLight, 1e-5);
+                if (bounce == 0) {
+                    shadowSum += areaShadowTerm;
+                    shadowCount += 1.0;
+                }
             }
             float3 contrib = throughput * (areaAccum / float(areaSamples));
             if (bounce == 0) {
@@ -339,6 +353,10 @@ inline float3 traceRay(ray current,
             } else {
                 indirectOut += contrib;
             }
+        }
+
+        if (bounce == 0 && recordPrimary) {
+            primaryShadow = (shadowCount > 0.0) ? (shadowSum / shadowCount) : 1.0;
         }
 
         float3 nextDir;
@@ -387,10 +405,11 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                            texture2d<float, access::write> gDepth [[texture(2)]],
                            texture2d<float, access::write> gRoughness [[texture(3)]],
                            texture2d<float, access::write> gAlbedo [[texture(4)]],
-                           texture2d<float, access::write> outDirect [[texture(5)]],
-                           texture2d<float, access::write> outIndirect [[texture(6)]],
-                           texture2d<float, access::read> blueNoise [[texture(7)]],
-                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(8)]],
+                           texture2d<float, access::write> gShadow [[texture(5)]],
+                           texture2d<float, access::write> outDirect [[texture(6)]],
+                           texture2d<float, access::write> outIndirect [[texture(7)]],
+                           texture2d<float, access::read> blueNoise [[texture(8)]],
+                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(9)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
                            acceleration_structure<instancing> accel [[buffer(BufferIndexRTAccel)]],
                            device const float3 *rtVertices [[buffer(BufferIndexRTVertices)]],
@@ -420,6 +439,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
     float primaryRoughness = 1.0;
     uint primaryHit = 0u;
     float3 primaryAlbedo = float3(1.0);
+    float primaryShadow = 1.0;
 
     uint2 bnSize = uint2(blueNoise.get_width(), blueNoise.get_height());
     uint2 bnCoord = uint2(gid.x % bnSize.x, gid.y % bnSize.y);
@@ -461,6 +481,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                              primaryRoughness,
                              primaryHit,
                              primaryAlbedo,
+                             primaryShadow,
                              direct,
                              indirect,
                              s == 0);
@@ -474,6 +495,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
     outTexture.write(float4(radiance, 1.0), gid);
     outDirect.write(float4(directSum, 1.0), gid);
     outIndirect.write(float4(indirectSum, 1.0), gid);
+    gShadow.write(float4(primaryShadow, 0.0, 0.0, 0.0), gid);
     if (primaryHit == 0u) {
         gNormal.write(float4(0.0, 0.0, 0.0, 1.0), gid);
         gDepth.write(float4(1e6, 0.0, 0.0, 0.0), gid);
@@ -504,6 +526,9 @@ kernel void temporalReprojectKernel(texture2d<float, access::read> rtColor [[tex
                                     texture2d<float, access::write> historyNormalOut [[texture(10)]],
                                     texture2d<float, access::write> historyDepthOut [[texture(11)]],
                                     texture2d<float, access::write> outTemporal [[texture(12)]],
+                                    texture2d<float, access::read> shadowTex [[texture(13)]],
+                                    texture2d<float, access::read> historyShadowIn [[texture(14)]],
+                                    texture2d<float, access::write> historyShadowOut [[texture(15)]],
                                     constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
                                     uint2 gid [[thread_position_in_grid]])
 {
@@ -515,6 +540,7 @@ kernel void temporalReprojectKernel(texture2d<float, access::read> rtColor [[tex
     float3 currNormal = gNormal.read(gid).xyz;
     float currDepth = gDepth.read(gid).x;
     float currRoughness = gRoughness.read(gid).x;
+    float currShadow = shadowTex.read(gid).x;
 
     float luma = luminance(currColor);
     float2 currMoments = float2(luma, luma * luma);
@@ -524,6 +550,7 @@ kernel void temporalReprojectKernel(texture2d<float, access::read> rtColor [[tex
         historyMomentsOut.write(float4(currMoments, 0.0, 0.0), gid);
         historyNormalOut.write(float4(currNormal, 1.0), gid);
         historyDepthOut.write(float4(currDepth, 0.0, 0.0, 0.0), gid);
+        historyShadowOut.write(float4(currShadow, 0.0, 0.0, 0.0), gid);
         outTemporal.write(float4(currColor, 1.0), gid);
         return;
     }
@@ -541,6 +568,7 @@ kernel void temporalReprojectKernel(texture2d<float, access::read> rtColor [[tex
         historyMomentsOut.write(float4(currMoments, 0.0, 0.0), gid);
         historyNormalOut.write(float4(currNormal, 1.0), gid);
         historyDepthOut.write(float4(currDepth, 0.0, 0.0, 0.0), gid);
+        historyShadowOut.write(float4(currShadow, 0.0, 0.0, 0.0), gid);
         outTemporal.write(float4(currColor, 1.0), gid);
         return;
     }
@@ -552,6 +580,7 @@ kernel void temporalReprojectKernel(texture2d<float, access::read> rtColor [[tex
         historyMomentsOut.write(float4(currMoments, 0.0, 0.0), gid);
         historyNormalOut.write(float4(currNormal, 1.0), gid);
         historyDepthOut.write(float4(currDepth, 0.0, 0.0, 0.0), gid);
+        historyShadowOut.write(float4(currShadow, 0.0, 0.0, 0.0), gid);
         outTemporal.write(float4(currColor, 1.0), gid);
         return;
     }
@@ -564,6 +593,7 @@ kernel void temporalReprojectKernel(texture2d<float, access::read> rtColor [[tex
     float2 historyMoments = historyMomentsIn.read(prevCoord).xy;
     float3 historyNormal = historyNormalIn.read(prevCoord).xyz;
     float historyDepth = historyDepthIn.read(prevCoord).x;
+    float historyShadow = historyShadowIn.read(prevCoord).x;
 
     float prevExpectedDepth = length(worldPos - frame.prevCameraPosition);
     float depthThreshold = max(0.05, prevExpectedDepth * 0.01);
@@ -574,7 +604,10 @@ kernel void temporalReprojectKernel(texture2d<float, access::read> rtColor [[tex
     bool valid = depthOk && normalOk;
 
     float motionFactor = clamp(1.0 - frame.cameraMotion, 0.0, 1.0);
-    float historyWeight = valid ? (frame.historyWeight * motionFactor) : 0.0;
+    float shadowDiff = fabs(currShadow - historyShadow);
+    float shadowValid = 1.0 - smoothstep(0.15, 0.4, shadowDiff);
+    float shadowWeight = mix(1.0, shadowValid, clamp(frame.shadowConsistency, 0.0, 1.0));
+    float historyWeight = valid ? (frame.historyWeight * motionFactor * shadowWeight) : 0.0;
     float variance = max(historyMoments.y - historyMoments.x * historyMoments.x, 0.0);
     float sigma = sqrt(variance + 1e-5);
     float3 clampedHistory = clamp(historyColor,
@@ -588,6 +621,8 @@ kernel void temporalReprojectKernel(texture2d<float, access::read> rtColor [[tex
     historyMomentsOut.write(float4(outMoments, 0.0, 0.0), gid);
     historyNormalOut.write(float4(currNormal, 1.0), gid);
     historyDepthOut.write(float4(currDepth, 0.0, 0.0, 0.0), gid);
+    float shadowOut = mix(currShadow, historyShadow, historyWeight);
+    historyShadowOut.write(float4(shadowOut, 0.0, 0.0, 0.0), gid);
     outTemporal.write(float4(outColor, 1.0), gid);
 }
 

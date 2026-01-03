@@ -77,6 +77,7 @@ typedef struct
     float atrousStep;
     float cameraMotion;
     float exposure;
+    float shadowConsistency;
     vector_float2 padding;
 } RTFrameUniforms;
 
