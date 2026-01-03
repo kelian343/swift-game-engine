@@ -64,7 +64,11 @@ typedef struct
     float         ambientIntensity;
 
     vector_float3 cameraPosition;
-    float         shadowBias; // e.g. 0.001 ~ 0.01
+    float         padding1;
+
+    vector_float2 shadowMapSize;
+    float         normalBias; // normal-based bias
+    float         slopeBias;  // angle-based bias
 } LightParams;
 
 #endif /* ShaderTypes_h */

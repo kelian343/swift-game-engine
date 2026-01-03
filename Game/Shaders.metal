@@ -97,16 +97,25 @@ fragment float4 fragmentShader(Varyings in [[stage_in]],
     float2 shadowUV = proj.xy * 0.5 + 0.5;
     float shadowDepth = proj.z;
 
-    // Bias to reduce acne
-    float biasedDepth = shadowDepth - lp.shadowBias;
+    // Bias to reduce acne (normal + slope)
+    float NdotL2 = saturate(dot(N, L));
+    float bias = max(lp.normalBias * (1.0 - NdotL2), lp.slopeBias);
+    float biasedDepth = shadowDepth - bias;
 
     // Outside shadow map => treat as lit
     bool inBounds = all(shadowUV >= float2(0.0)) && all(shadowUV <= float2(1.0))
                     && shadowDepth >= 0.0 && shadowDepth <= 1.0;
     float shadow = 1.0;
     if (inBounds) {
-        // sample_compare returns 1 if (biasedDepth <= storedDepth)
-        shadow = shadowMap.sample_compare(shadowSamp, shadowUV, biasedDepth);
+        float2 texel = 1.0 / max(lp.shadowMapSize, float2(1.0));
+        float sum = 0.0;
+        for (int y = -1; y <= 1; ++y) {
+            for (int x = -1; x <= 1; ++x) {
+                float2 uv = shadowUV + float2(x, y) * texel;
+                sum += shadowMap.sample_compare(shadowSamp, uv, biasedDepth);
+            }
+        }
+        shadow = sum / 9.0;
     }
 
     float3 lit = ambient + shadow * (diffuse + specular);

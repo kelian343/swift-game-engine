@@ -160,7 +160,10 @@ final class Renderer: NSObject, MTKViewDelegate {
         let viewM = scene.camera.view
 
         // Light params + light view-projection
-        lightSystem.update(cameraPos: scene.camera.position)
+        let viewProj = simd_mul(projection, viewM)
+        lightSystem.update(cameraPos: scene.camera.position,
+                           cameraViewProj: viewProj,
+                           shadowMapSize: shadowMap.size)
         let lightVP = lightSystem.lightViewProj()
 
         // Sync
