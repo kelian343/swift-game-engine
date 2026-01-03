@@ -7,7 +7,6 @@
 
 import Metal
 import MetalKit
-import simd
 
 final class Renderer: NSObject, MTKViewDelegate {
 
@@ -19,22 +18,14 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     // Main pipeline
     private let pipelineState: MTLRenderPipelineState
-    // Shadow pipeline (depth only)
-    private let shadowPipelineState: MTLRenderPipelineState
-
     private let depthState: MTLDepthStencilState
     private let fallbackWhite: TextureResource
-
-    // Lighting & shadow modules (already created by you)
-    private let shadowMap: ShadowMap
-    private let lightSystem: LightSystem
 
     // Scene hook
     private var scene: RenderScene?
     private var sceneContext: SceneContext
     private var lastSceneRevision: UInt64 = 0
 
-    private let shadowPass = ShadowPass()
     private let mainPass = MainPass()
 
     // time
@@ -69,14 +60,6 @@ final class Renderer: NSObject, MTKViewDelegate {
             return nil
         }
 
-        // Shadow pipeline (use classic MTLRenderPipelineDescriptor for SDK compatibility)
-        do {
-            self.shadowPipelineState = try Renderer.buildShadowPipeline(device: device, vertexDescriptor: vDesc)
-        } catch {
-            print("Unable to compile shadow render pipeline state. Error info: \(error)")
-            return nil
-        }
-
         guard let ds = PipelineBuilder.makeDepthState(device: device) else { return nil }
         self.depthState = ds
 
@@ -85,10 +68,6 @@ final class Renderer: NSObject, MTKViewDelegate {
             source: .solid(width: 1, height: 1, r: 255, g: 255, b: 255, a: 255),
             label: "FallbackWhite"
         )
-
-        // Modules
-        self.shadowMap = ShadowMap(device: device, size: 2048)
-        self.lightSystem = LightSystem(device: device)
 
         super.init()
     }
@@ -110,34 +89,12 @@ final class Renderer: NSObject, MTKViewDelegate {
         let meshes = items.map { $0.mesh }
         let textures = items.compactMap { $0.material.baseColorTexture?.texture }
 
-        // include: base textures + fallback + shadow map + uniform buffer + light buffer
+        // include: base textures + fallback + uniform buffer
         context.prepareResidency(
             meshes: meshes,
-            textures: textures + [fallbackWhite.texture, shadowMap.texture],
+            textures: textures + [fallbackWhite.texture],
             uniforms: uniformRing.buffer
         )
-
-        // If your residency model requires explicit add for buffers too:
-        // (Most Metal4 setups still work without, but if you see validation issues,
-        // we can extend RenderContext.prepareResidency to take extraBuffers.)
-        // e.g. include lightSystem.buffer as well.
-    }
-
-    // MARK: - Shadow pipeline builder (SDK-stable)
-
-    private static func buildShadowPipeline(device: MTLDevice,
-                                            vertexDescriptor: MTLVertexDescriptor) throws -> MTLRenderPipelineState {
-        let library = device.makeDefaultLibrary()!
-        let v = library.makeFunction(name: "shadowVertex")!
-
-        let pd = MTLRenderPipelineDescriptor()
-        pd.label = "ShadowPipeline"
-        pd.vertexFunction = v
-        pd.fragmentFunction = nil
-        pd.vertexDescriptor = vertexDescriptor
-        pd.depthAttachmentPixelFormat = .depth32Float
-
-        return try device.makeRenderPipelineState(descriptor: pd)
     }
 
     // MARK: - MTKViewDelegate
@@ -159,13 +116,6 @@ final class Renderer: NSObject, MTKViewDelegate {
         let projection = scene.camera.projection
         let viewM = scene.camera.view
 
-        // Light params + light view-projection
-        let viewProj = simd_mul(projection, viewM)
-        lightSystem.update(cameraPos: scene.camera.position,
-                           cameraViewProj: viewProj,
-                           shadowMapSize: shadowMap.size)
-        let lightVP = lightSystem.lightViewProj()
-
         // Sync
         frameSync.waitIfNeeded(timeoutMS: 10)
 
@@ -181,18 +131,13 @@ final class Renderer: NSObject, MTKViewDelegate {
             context: context,
             uniformRing: uniformRing,
             pipelineState: pipelineState,
-            shadowPipelineState: shadowPipelineState,
             depthState: depthState,
             fallbackWhite: fallbackWhite,
-            shadowMap: shadowMap,
-            lightSystem: lightSystem,
             projection: projection,
-            viewMatrix: viewM,
-            lightViewProj: lightVP
+            viewMatrix: viewM
         )
 
         let graph = RenderGraph()
-        graph.addPass(shadowPass)
         graph.addPass(mainPass)
         graph.execute(frame: frame, view: view)
 

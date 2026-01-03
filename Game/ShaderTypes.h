@@ -24,8 +24,7 @@ typedef NSInteger EnumBackingType;
 typedef NS_ENUM(EnumBackingType, BufferIndex)
 {
     BufferIndexMeshVertices = 0,
-    BufferIndexUniforms     = 1,
-    BufferIndexLight        = 2
+    BufferIndexUniforms     = 1
 };
 
 typedef NS_ENUM(EnumBackingType, VertexAttribute)
@@ -37,8 +36,7 @@ typedef NS_ENUM(EnumBackingType, VertexAttribute)
 
 typedef NS_ENUM(EnumBackingType, TextureIndex)
 {
-    TextureIndexBaseColor   = 0,
-    TextureIndexShadowMap   = 1
+    TextureIndexBaseColor   = 0
 };
 
 typedef struct
@@ -46,29 +44,6 @@ typedef struct
     matrix_float4x4 projectionMatrix;
     matrix_float4x4 viewMatrix;
     matrix_float4x4 modelMatrix;
-
-    matrix_float4x4 lightViewProjMatrix;
-
-    // 3x3 packed in 3 float4 (alignment friendly)
-    vector_float4 normalMatrix0;
-    vector_float4 normalMatrix1;
-    vector_float4 normalMatrix2;
 } Uniforms;
-
-typedef struct
-{
-    vector_float3 lightDirection; // direction *toward* surface (i.e. from light to world is -dir)
-    float         padding0;
-
-    vector_float3 lightColor;
-    float         ambientIntensity;
-
-    vector_float3 cameraPosition;
-    float         padding1;
-
-    vector_float2 shadowMapSize;
-    float         normalBias; // normal-based bias
-    float         slopeBias;  // angle-based bias
-} LightParams;
 
 #endif /* ShaderTypes_h */

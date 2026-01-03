@@ -7,60 +7,6 @@
 
 import Metal
 
-final class ShadowPass: RenderPass {
-    let name = "Shadow Pass"
-
-    func makeTarget(frame: FrameContext) -> RenderTargetSource? {
-        let depth = DepthAttachment(
-            resource: .external(frame.shadowMap.texture),
-            loadAction: .clear,
-            storeAction: .store,
-            clearDepth: 1.0
-        )
-        return .offscreen(RenderTarget(depthAttachment: depth))
-    }
-
-    func readResources(frame: FrameContext) -> [RenderResourceID] {
-        []
-    }
-
-    func writeResources(frame: FrameContext) -> [RenderResourceID] {
-        [resourceID(for: frame.shadowMap.texture)]
-    }
-
-    func encode(frame: FrameContext, resources: RenderGraphResources, encoder: MTL4RenderCommandEncoder) {
-        encoder.setRenderPipelineState(frame.shadowPipelineState)
-        encoder.setDepthStencilState(frame.depthState)
-
-        encoder.setCullMode(.back)
-        encoder.setFrontFacing(.counterClockwise)
-
-        encoder.setArgumentTable(frame.context.vertexTable, stages: .vertex)
-
-        for item in frame.items {
-            let u = frame.uniformRing.allocate()
-            writeUniforms(u.pointer,
-                          projection: frame.projection,
-                          view: frame.viewMatrix,
-                          model: item.modelMatrix,
-                          lightViewProj: frame.lightViewProj)
-
-            let uAddr = u.buffer.gpuAddress + UInt64(u.offset)
-            frame.context.vertexTable.setAddress(uAddr, index: BufferIndex.uniforms.rawValue)
-            frame.context.vertexTable.setAddress(item.mesh.vertexBuffer.gpuAddress,
-                                                 index: BufferIndex.meshVertices.rawValue)
-
-            encoder.drawIndexedPrimitives(
-                primitiveType: .triangle,
-                indexCount: item.mesh.indexCount,
-                indexType: item.mesh.indexType,
-                indexBuffer: item.mesh.indexBuffer.gpuAddress,
-                indexBufferLength: item.mesh.indexBuffer.length
-            )
-        }
-    }
-}
-
 final class MainPass: RenderPass {
     let name = "Main Pass"
 
@@ -69,7 +15,7 @@ final class MainPass: RenderPass {
     }
 
     func readResources(frame: FrameContext) -> [RenderResourceID] {
-        [resourceID(for: frame.shadowMap.texture)]
+        []
     }
 
     func writeResources(frame: FrameContext) -> [RenderResourceID] {
@@ -83,11 +29,6 @@ final class MainPass: RenderPass {
         encoder.setArgumentTable(frame.context.vertexTable, stages: .vertex)
         encoder.setArgumentTable(frame.context.fragmentTable, stages: .fragment)
 
-        frame.context.fragmentTable.setAddress(frame.lightSystem.buffer.gpuAddress,
-                                               index: BufferIndex.light.rawValue)
-        frame.context.fragmentTable.setTexture(frame.shadowMap.texture.gpuResourceID,
-                                               index: TextureIndex.shadowMap.rawValue)
-
         for item in frame.items {
             encoder.setCullMode(item.material.cullMode)
             encoder.setFrontFacing(item.material.frontFacing)
@@ -96,8 +37,7 @@ final class MainPass: RenderPass {
             writeUniforms(u.pointer,
                           projection: frame.projection,
                           view: frame.viewMatrix,
-                          model: item.modelMatrix,
-                          lightViewProj: frame.lightViewProj)
+                          model: item.modelMatrix)
 
             let uAddr = u.buffer.gpuAddress + UInt64(u.offset)
             frame.context.vertexTable.setAddress(uAddr, index: BufferIndex.uniforms.rawValue)

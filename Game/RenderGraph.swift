@@ -96,16 +96,12 @@ struct FrameContext {
     let uniformRing: UniformRingBuffer
 
     let pipelineState: MTLRenderPipelineState
-    let shadowPipelineState: MTLRenderPipelineState
     let depthState: MTLDepthStencilState
 
     let fallbackWhite: TextureResource
-    let shadowMap: ShadowMap
-    let lightSystem: LightSystem
 
     let projection: matrix_float4x4
     let viewMatrix: matrix_float4x4
-    let lightViewProj: matrix_float4x4
 }
 
 final class RenderGraphResources {
