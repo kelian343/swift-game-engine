@@ -24,11 +24,22 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     // Ray tracing
     private let rtPipelineState: MTLComputePipelineState
-    private let denoisePipelineState: MTLComputePipelineState
+    private let temporalPipelineState: MTLComputePipelineState
+    private let spatialPipelineState: MTLComputePipelineState
     private let rtScene: RayTracingScene
     private let rtFrameBuffer: MTLBuffer
     private var rtFrameIndex: UInt32 = 0
-    private var accumulationTexture: MTLTexture?
+    private var rtColorTexture: MTLTexture?
+    private var gNormalTexture: MTLTexture?
+    private var gDepthTexture: MTLTexture?
+    private var gRoughnessTexture: MTLTexture?
+    private var temporalColorTexture: MTLTexture?
+    private var atrousTexture: MTLTexture?
+    private var historyColorTextures: [MTLTexture] = []
+    private var historyMomentsTextures: [MTLTexture] = []
+    private var historyNormalTextures: [MTLTexture] = []
+    private var historyDepthTextures: [MTLTexture] = []
+    private var historyIndex: Int = 0
     private var lastViewProj: matrix_float4x4 = matrix_identity_float4x4
     private var lastCameraPosition: SIMD3<Float> = .zero
     private var hasLastView = false
@@ -87,11 +98,16 @@ final class Renderer: NSObject, MTKViewDelegate {
                 return nil
             }
             self.rtPipelineState = try device.makeComputePipelineState(function: fn)
-            guard let dn = library?.makeFunction(name: "denoiseKernel") else {
-                print("Denoise kernel not found")
+            guard let tn = library?.makeFunction(name: "temporalReprojectKernel") else {
+                print("Temporal kernel not found")
                 return nil
             }
-            self.denoisePipelineState = try device.makeComputePipelineState(function: dn)
+            self.temporalPipelineState = try device.makeComputePipelineState(function: tn)
+            guard let sn = library?.makeFunction(name: "spatialDenoiseKernel") else {
+                print("Spatial denoise kernel not found")
+                return nil
+            }
+            self.spatialPipelineState = try device.makeComputePipelineState(function: sn)
         } catch {
             print("Unable to compile ray tracing pipeline state. Error info: \(error)")
             return nil
@@ -180,53 +196,85 @@ final class Renderer: NSObject, MTKViewDelegate {
         let width = max(Int(view.drawableSize.width), 1)
         let height = max(Int(view.drawableSize.height), 1)
 
-        if accumulationTexture == nil
-            || accumulationTexture?.width != width
-            || accumulationTexture?.height != height {
-            let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba16Float,
-                                                                width: width,
-                                                                height: height,
-                                                                mipmapped: false)
-            desc.usage = [.shaderRead, .shaderWrite]
-            desc.storageMode = .private
-            accumulationTexture = device.makeTexture(descriptor: desc)
-            accumulationTexture?.label = "RTAccumulation"
-            rtFrameIndex = 0
-            hasLastView = false
+        var resetHistory = false
+        if rtColorTexture == nil
+            || rtColorTexture?.width != width
+            || rtColorTexture?.height != height {
+            let makeTex: (MTLPixelFormat, MTLTextureUsage, String) -> MTLTexture = { format, usage, label in
+                let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format,
+                                                                    width: width,
+                                                                    height: height,
+                                                                    mipmapped: false)
+                desc.usage = usage
+                desc.storageMode = .private
+                let tex = self.device.makeTexture(descriptor: desc)!
+                tex.label = label
+                return tex
+            }
+
+            rtColorTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "RTColor")
+            gNormalTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "GBufferNormal")
+            gDepthTexture = makeTex(.r32Float, [.shaderRead, .shaderWrite], "GBufferDepth")
+            gRoughnessTexture = makeTex(.r16Float, [.shaderRead, .shaderWrite], "GBufferRoughness")
+            temporalColorTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "TemporalColor")
+            atrousTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "AtrousColor")
+            historyColorTextures = [
+                makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "HistoryColorA"),
+                makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "HistoryColorB")
+            ]
+            historyMomentsTextures = [
+                makeTex(.rg16Float, [.shaderRead, .shaderWrite], "HistoryMomentsA"),
+                makeTex(.rg16Float, [.shaderRead, .shaderWrite], "HistoryMomentsB")
+            ]
+            historyNormalTextures = [
+                makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "HistoryNormalA"),
+                makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "HistoryNormalB")
+            ]
+            historyDepthTextures = [
+                makeTex(.r32Float, [.shaderRead, .shaderWrite], "HistoryDepthA"),
+                makeTex(.r32Float, [.shaderRead, .shaderWrite], "HistoryDepthB")
+            ]
+            historyIndex = 0
+            resetHistory = true
         }
 
-        var resetAccum = false
-        if !hasLastView || !matrixAlmostEqual(viewProj, lastViewProj, eps: 1e-5) {
-            resetAccum = true
-        }
-        if simd_distance(scene.camera.position, lastCameraPosition) > 1e-4 {
-            resetAccum = true
+        if !hasLastView {
+            resetHistory = true
         }
         if scene.revision != lastSceneRevisionForRT {
-            resetAccum = true
+            resetHistory = true
             lastSceneRevisionForRT = scene.revision
         }
-        if resetAccum {
+
+        let prevViewProj = hasLastView ? lastViewProj : viewProj
+        let prevCameraPosition = hasLastView ? lastCameraPosition : scene.camera.position
+
+        if resetHistory {
             rtFrameIndex = 0
         }
+
         lastViewProj = viewProj
         lastCameraPosition = scene.camera.position
         hasLastView = true
         var rtFrame = RTFrameUniformsSwift(
             invViewProj: invViewProj,
+            prevViewProj: prevViewProj,
             cameraPosition: scene.camera.position,
             frameIndex: rtFrameIndex,
+            prevCameraPosition: prevCameraPosition,
+            resetHistory: resetHistory ? 1 : 0,
             imageSize: SIMD2<UInt32>(UInt32(width), UInt32(height)),
             ambientIntensity: 0.12,
-            historyWeight: 0.3,
-            historyClamp: 0.5,
-            samplesPerPixel: 4,
+            historyWeight: 0.2,
+            historyClamp: 2.5,
+            samplesPerPixel: 2,
             dirLightCount: 1,
             pointLightCount: 1,
             areaLightCount: 1,
             areaLightSamples: 2,
             textureCount: UInt32(geometry?.textures.count ?? 0),
             denoiseSigma: 6.0,
+            atrousStep: 1.0,
             padding: .zero
         )
         rtFrameIndex &+= 1
@@ -256,11 +304,16 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         if let tlas = tlas,
            let geometry = geometry,
-           let accum = accumulationTexture,
+           let rtColor = rtColorTexture,
+           let gNormal = gNormalTexture,
+           let gDepth = gDepthTexture,
+           let gRoughness = gRoughnessTexture,
            let enc = rtCommandBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(rtPipelineState)
-            enc.setTexture(drawable.texture, index: 0)
-            enc.setTexture(accum, index: 1)
+            enc.setTexture(rtColor, index: 0)
+            enc.setTexture(gNormal, index: 1)
+            enc.setTexture(gDepth, index: 2)
+            enc.setTexture(gRoughness, index: 3)
             enc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
             enc.setAccelerationStructure(tlas, bufferIndex: BufferIndex.rtAccel.rawValue)
             enc.setBuffer(geometry.vertexBuffer, offset: 0, index: BufferIndex.rtVertices.rawValue)
@@ -274,7 +327,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             if !geometry.textures.isEmpty {
                 let count = min(geometry.textures.count, maxRTTextures)
                 let texArray: [MTLTexture?] = Array(geometry.textures.prefix(count))
-                enc.__setTextures(texArray, with: NSRange(location: 2, length: count))
+                enc.__setTextures(texArray, with: NSRange(location: 4, length: count))
             }
 
             let tgW = 8
@@ -285,18 +338,84 @@ final class Renderer: NSObject, MTKViewDelegate {
             enc.endEncoding()
         }
 
-        if let accum = accumulationTexture,
-           let denoiseEnc = rtCommandBuffer.makeComputeCommandEncoder() {
-            denoiseEnc.setComputePipelineState(denoisePipelineState)
-            denoiseEnc.setTexture(accum, index: 0)
-            denoiseEnc.setTexture(drawable.texture, index: 1)
-            denoiseEnc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
+        if let rtColor = rtColorTexture,
+           let gNormal = gNormalTexture,
+           let gDepth = gDepthTexture,
+           let gRoughness = gRoughnessTexture,
+           let temporal = temporalColorTexture,
+           historyColorTextures.count == 2,
+           historyMomentsTextures.count == 2,
+           historyNormalTextures.count == 2,
+           historyDepthTextures.count == 2,
+           let temporalEnc = rtCommandBuffer.makeComputeCommandEncoder() {
+            let prevIndex = historyIndex
+            let nextIndex = 1 - historyIndex
+            temporalEnc.setComputePipelineState(temporalPipelineState)
+            temporalEnc.setTexture(rtColor, index: 0)
+            temporalEnc.setTexture(gNormal, index: 1)
+            temporalEnc.setTexture(gDepth, index: 2)
+            temporalEnc.setTexture(gRoughness, index: 3)
+            temporalEnc.setTexture(historyColorTextures[prevIndex], index: 4)
+            temporalEnc.setTexture(historyMomentsTextures[prevIndex], index: 5)
+            temporalEnc.setTexture(historyNormalTextures[prevIndex], index: 6)
+            temporalEnc.setTexture(historyDepthTextures[prevIndex], index: 7)
+            temporalEnc.setTexture(historyColorTextures[nextIndex], index: 8)
+            temporalEnc.setTexture(historyMomentsTextures[nextIndex], index: 9)
+            temporalEnc.setTexture(historyNormalTextures[nextIndex], index: 10)
+            temporalEnc.setTexture(historyDepthTextures[nextIndex], index: 11)
+            temporalEnc.setTexture(temporal, index: 12)
+            temporalEnc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
             let tgW = 8
             let tgH = 8
             let threadsPerThreadgroup = MTLSize(width: tgW, height: tgH, depth: 1)
             let threadsPerGrid = MTLSize(width: width, height: height, depth: 1)
-            denoiseEnc.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
-            denoiseEnc.endEncoding()
+            temporalEnc.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
+            temporalEnc.endEncoding()
+            historyIndex = nextIndex
+        }
+
+        if let temporal = temporalColorTexture,
+           let gNormal = gNormalTexture,
+           let gDepth = gDepthTexture,
+           let gRoughness = gRoughnessTexture,
+           let atrous = atrousTexture {
+            var spatialFrame = rtFrame
+            spatialFrame.atrousStep = 1.0
+            memcpy(rtFrameBuffer.contents(), &spatialFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
+
+            if let spatialEnc = rtCommandBuffer.makeComputeCommandEncoder() {
+                spatialEnc.setComputePipelineState(spatialPipelineState)
+                spatialEnc.setTexture(temporal, index: 0)
+                spatialEnc.setTexture(gNormal, index: 1)
+                spatialEnc.setTexture(gDepth, index: 2)
+                spatialEnc.setTexture(gRoughness, index: 3)
+                spatialEnc.setTexture(atrous, index: 4)
+                spatialEnc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
+                let tgW = 8
+                let tgH = 8
+                let threadsPerThreadgroup = MTLSize(width: tgW, height: tgH, depth: 1)
+                let threadsPerGrid = MTLSize(width: width, height: height, depth: 1)
+                spatialEnc.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
+                spatialEnc.endEncoding()
+            }
+
+            spatialFrame.atrousStep = 2.0
+            memcpy(rtFrameBuffer.contents(), &spatialFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
+            if let spatialEnc2 = rtCommandBuffer.makeComputeCommandEncoder() {
+                spatialEnc2.setComputePipelineState(spatialPipelineState)
+                spatialEnc2.setTexture(atrous, index: 0)
+                spatialEnc2.setTexture(gNormal, index: 1)
+                spatialEnc2.setTexture(gDepth, index: 2)
+                spatialEnc2.setTexture(gRoughness, index: 3)
+                spatialEnc2.setTexture(drawable.texture, index: 4)
+                spatialEnc2.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
+                let tgW = 8
+                let tgH = 8
+                let threadsPerThreadgroup = MTLSize(width: tgW, height: tgH, depth: 1)
+                let threadsPerGrid = MTLSize(width: width, height: height, depth: 1)
+                spatialEnc2.dispatchThreads(threadsPerGrid, threadsPerThreadgroup: threadsPerThreadgroup)
+                spatialEnc2.endEncoding()
+            }
         }
 
         rtCommandBuffer.present(drawable)
@@ -306,15 +425,4 @@ final class Renderer: NSObject, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         scene?.camera.updateProjection(width: Float(size.width), height: Float(size.height))
     }
-}
-
-private func matrixAlmostEqual(_ a: matrix_float4x4, _ b: matrix_float4x4, eps: Float) -> Bool {
-    let da0 = abs(a.columns.0 - b.columns.0)
-    let da1 = abs(a.columns.1 - b.columns.1)
-    let da2 = abs(a.columns.2 - b.columns.2)
-    let da3 = abs(a.columns.3 - b.columns.3)
-    return max(da0.x, da0.y, da0.z, da0.w) <= eps
-        && max(da1.x, da1.y, da1.z, da1.w) <= eps
-        && max(da2.x, da2.y, da2.z, da2.w) <= eps
-        && max(da3.x, da3.y, da3.z, da3.w) <= eps
 }

@@ -9,8 +9,11 @@ import simd
 
 struct RTFrameUniformsSwift {
     var invViewProj: matrix_float4x4
+    var prevViewProj: matrix_float4x4
     var cameraPosition: SIMD3<Float>
     var frameIndex: UInt32
+    var prevCameraPosition: SIMD3<Float>
+    var resetHistory: UInt32
     var imageSize: SIMD2<UInt32>
     var ambientIntensity: Float
     var historyWeight: Float
@@ -22,6 +25,7 @@ struct RTFrameUniformsSwift {
     var areaLightSamples: UInt32
     var textureCount: UInt32
     var denoiseSigma: Float
+    var atrousStep: Float
     var padding: SIMD2<Float>
 }
 

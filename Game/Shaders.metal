@@ -128,7 +128,12 @@ inline float3 traceRay(ray current,
                        device const RTPointLight *pointLights,
                        device const RTAreaLight *areaLights,
                        constant RTFrameUniforms& frame,
-                       thread uint &seed) {
+                       thread uint &seed,
+                       thread float3 &primaryNormal,
+                       thread float &primaryDepth,
+                       thread float &primaryRoughness,
+                       thread uint &primaryHit,
+                       bool recordPrimary) {
     constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
     float3 radiance = float3(0.0);
     float3 throughput = float3(1.0);
@@ -136,6 +141,12 @@ inline float3 traceRay(ray current,
     for (uint bounce = 0; bounce < 2; ++bounce) {
         intersection_result<triangle_data, instancing> hit = isect.intersect(current, accel);
         if (hit.type != intersection_type::triangle) {
+            if (bounce == 0 && recordPrimary) {
+                primaryHit = 0;
+                primaryNormal = float3(0.0);
+                primaryDepth = 1e6;
+                primaryRoughness = 1.0;
+            }
             radiance += throughput * float3(0.02, 0.02, 0.03);
             break;
         }
@@ -165,6 +176,13 @@ inline float3 traceRay(ray current,
         float3 base = inst.baseColor;
         float metallic = clamp(inst.metallic, 0.0, 1.0);
         float roughness = clamp(inst.roughness, 0.05, 1.0);
+
+        if (bounce == 0 && recordPrimary) {
+            primaryHit = 1;
+            primaryNormal = N;
+            primaryDepth = hit.distance;
+            primaryRoughness = roughness;
+        }
 
         if (inst.baseColorTexIndex < frame.textureCount && inst.baseColorTexIndex < MAX_RT_TEXTURES) {
             float2 bary = hit.triangle_barycentric_coord;
@@ -294,8 +312,10 @@ inline float3 traceRay(ray current,
 }
 
 kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(0)]],
-                           texture2d<float, access::read_write> accumTexture [[texture(1)]],
-                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(2)]],
+                           texture2d<float, access::write> gNormal [[texture(1)]],
+                           texture2d<float, access::write> gDepth [[texture(2)]],
+                           texture2d<float, access::write> gRoughness [[texture(3)]],
+                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(4)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
                            acceleration_structure<instancing> accel [[buffer(BufferIndexRTAccel)]],
                            device const float3 *rtVertices [[buffer(BufferIndexRTVertices)]],
@@ -318,10 +338,14 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
     uint baseSeed = (gid.x * 1973u) ^ (gid.y * 9277u) ^ (frame.frameIndex * 26699u);
     uint spp = max(frame.samplesPerPixel, 1u);
     float3 radiance = float3(0.0);
+    float3 primaryNormal = float3(0.0);
+    float primaryDepth = 1e6;
+    float primaryRoughness = 1.0;
+    uint primaryHit = 0u;
 
     for (uint s = 0; s < spp; ++s) {
         uint seed = baseSeed ^ (s * 16807u);
-        float2 jitter = float2(rand01(seed), rand01(seed));
+        float2 jitter = (s == 0) ? float2(0.5, 0.5) : float2(rand01(seed), rand01(seed));
         float2 pixel = (float2(gid) + jitter) / float2(frame.imageSize);
         float2 ndc = float2(pixel.x * 2.0 - 1.0, (1.0 - pixel.y) * 2.0 - 1.0);
 
@@ -347,47 +371,180 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                              pointLights,
                              areaLights,
                              frame,
-                             seed);
+                             seed,
+                             primaryNormal,
+                             primaryDepth,
+                             primaryRoughness,
+                             primaryHit,
+                             s == 0);
     }
     radiance /= float(spp);
 
-    float3 currentColor = radiance;
-    float3 prev = accumTexture.read(gid).xyz;
-    if (frame.frameIndex == 0) {
-        prev = currentColor;
+    outTexture.write(float4(radiance, 1.0), gid);
+    if (primaryHit == 0u) {
+        gNormal.write(float4(0.0, 0.0, 0.0, 1.0), gid);
+        gDepth.write(float4(1e6, 0.0, 0.0, 0.0), gid);
+        gRoughness.write(float4(1.0, 0.0, 0.0, 0.0), gid);
+    } else {
+        gNormal.write(float4(primaryNormal, 1.0), gid);
+        gDepth.write(float4(primaryDepth, 0.0, 0.0, 0.0), gid);
+        gRoughness.write(float4(primaryRoughness, 0.0, 0.0, 0.0), gid);
     }
-
-    float3 clamped = clamp(prev, currentColor - frame.historyClamp, currentColor + frame.historyClamp);
-    float3 accum = mix(currentColor, clamped, frame.historyWeight);
-
-    accumTexture.write(float4(accum, 1.0), gid);
-    outTexture.write(float4(accum, 1.0), gid);
 }
 
-kernel void denoiseKernel(texture2d<float, access::read> accumTexture [[texture(0)]],
-                          texture2d<float, access::write> outTexture [[texture(1)]],
-                          constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
-                          uint2 gid [[thread_position_in_grid]])
+inline float luminance(float3 c) {
+    return dot(c, float3(0.299, 0.587, 0.114));
+}
+
+kernel void temporalReprojectKernel(texture2d<float, access::read> rtColor [[texture(0)]],
+                                    texture2d<float, access::read> gNormal [[texture(1)]],
+                                    texture2d<float, access::read> gDepth [[texture(2)]],
+                                    texture2d<float, access::read> gRoughness [[texture(3)]],
+                                    texture2d<float, access::read> historyColorIn [[texture(4)]],
+                                    texture2d<float, access::read> historyMomentsIn [[texture(5)]],
+                                    texture2d<float, access::read> historyNormalIn [[texture(6)]],
+                                    texture2d<float, access::read> historyDepthIn [[texture(7)]],
+                                    texture2d<float, access::write> historyColorOut [[texture(8)]],
+                                    texture2d<float, access::write> historyMomentsOut [[texture(9)]],
+                                    texture2d<float, access::write> historyNormalOut [[texture(10)]],
+                                    texture2d<float, access::write> historyDepthOut [[texture(11)]],
+                                    texture2d<float, access::write> outTemporal [[texture(12)]],
+                                    constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
+                                    uint2 gid [[thread_position_in_grid]])
 {
     if (gid.x >= frame.imageSize.x || gid.y >= frame.imageSize.y) {
         return;
     }
 
-    float3 center = accumTexture.read(gid).xyz;
-    float sigma = max(frame.denoiseSigma, 0.001);
+    float3 currColor = rtColor.read(gid).xyz;
+    float3 currNormal = gNormal.read(gid).xyz;
+    float currDepth = gDepth.read(gid).x;
+    float currRoughness = gRoughness.read(gid).x;
+
+    float luma = luminance(currColor);
+    float2 currMoments = float2(luma, luma * luma);
+
+    if (frame.resetHistory != 0 || currDepth > 1e5) {
+        historyColorOut.write(float4(currColor, 1.0), gid);
+        historyMomentsOut.write(float4(currMoments, 0.0, 0.0), gid);
+        historyNormalOut.write(float4(currNormal, 1.0), gid);
+        historyDepthOut.write(float4(currDepth, 0.0, 0.0, 0.0), gid);
+        outTemporal.write(float4(currColor, 1.0), gid);
+        return;
+    }
+
+    float2 pixel = (float2(gid) + 0.5) / float2(frame.imageSize);
+    float2 ndc = float2(pixel.x * 2.0 - 1.0, (1.0 - pixel.y) * 2.0 - 1.0);
+    float4 clip = float4(ndc, 1.0, 1.0);
+    float4 world = frame.invViewProj * clip;
+    float3 dir = normalize(world.xyz / world.w - frame.cameraPosition);
+    float3 worldPos = frame.cameraPosition + dir * currDepth;
+
+    float4 prevClip = frame.prevViewProj * float4(worldPos, 1.0);
+    if (prevClip.w <= 0.0) {
+        historyColorOut.write(float4(currColor, 1.0), gid);
+        historyMomentsOut.write(float4(currMoments, 0.0, 0.0), gid);
+        historyNormalOut.write(float4(currNormal, 1.0), gid);
+        historyDepthOut.write(float4(currDepth, 0.0, 0.0, 0.0), gid);
+        outTemporal.write(float4(currColor, 1.0), gid);
+        return;
+    }
+
+    float2 prevNdc = prevClip.xy / prevClip.w;
+    float2 prevUv = float2(prevNdc.x * 0.5 + 0.5, 1.0 - (prevNdc.y * 0.5 + 0.5));
+    if (any(prevUv < 0.0) || any(prevUv > 1.0)) {
+        historyColorOut.write(float4(currColor, 1.0), gid);
+        historyMomentsOut.write(float4(currMoments, 0.0, 0.0), gid);
+        historyNormalOut.write(float4(currNormal, 1.0), gid);
+        historyDepthOut.write(float4(currDepth, 0.0, 0.0, 0.0), gid);
+        outTemporal.write(float4(currColor, 1.0), gid);
+        return;
+    }
+
+    uint2 prevCoord = uint2(prevUv * float2(frame.imageSize));
+    prevCoord.x = min(prevCoord.x, frame.imageSize.x - 1);
+    prevCoord.y = min(prevCoord.y, frame.imageSize.y - 1);
+
+    float3 historyColor = historyColorIn.read(prevCoord).xyz;
+    float2 historyMoments = historyMomentsIn.read(prevCoord).xy;
+    float3 historyNormal = historyNormalIn.read(prevCoord).xyz;
+    float historyDepth = historyDepthIn.read(prevCoord).x;
+
+    float prevExpectedDepth = length(worldPos - frame.prevCameraPosition);
+    float depthThreshold = max(0.05, prevExpectedDepth * 0.01);
+    float normalThreshold = mix(0.7, 0.9, 1.0 - currRoughness);
+
+    bool depthOk = fabs(historyDepth - prevExpectedDepth) <= depthThreshold;
+    bool normalOk = dot(currNormal, historyNormal) >= normalThreshold;
+    bool valid = depthOk && normalOk;
+
+    float historyWeight = valid ? frame.historyWeight : 0.0;
+    float variance = max(historyMoments.y - historyMoments.x * historyMoments.x, 0.0);
+    float sigma = sqrt(variance + 1e-5);
+    float3 clampedHistory = clamp(historyColor,
+                                  currColor - frame.historyClamp * sigma,
+                                  currColor + frame.historyClamp * sigma);
+
+    float3 outColor = mix(currColor, clampedHistory, historyWeight);
+    float2 outMoments = mix(currMoments, historyMoments, historyWeight);
+
+    historyColorOut.write(float4(outColor, 1.0), gid);
+    historyMomentsOut.write(float4(outMoments, 0.0, 0.0), gid);
+    historyNormalOut.write(float4(currNormal, 1.0), gid);
+    historyDepthOut.write(float4(currDepth, 0.0, 0.0, 0.0), gid);
+    outTemporal.write(float4(outColor, 1.0), gid);
+}
+
+kernel void spatialDenoiseKernel(texture2d<float, access::read> temporalColor [[texture(0)]],
+                                 texture2d<float, access::read> gNormal [[texture(1)]],
+                                 texture2d<float, access::read> gDepth [[texture(2)]],
+                                 texture2d<float, access::read> gRoughness [[texture(3)]],
+                                 texture2d<float, access::write> outTexture [[texture(4)]],
+                                 constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
+                                 uint2 gid [[thread_position_in_grid]])
+{
+    if (gid.x >= frame.imageSize.x || gid.y >= frame.imageSize.y) {
+        return;
+    }
+
+    float3 center = temporalColor.read(gid).xyz;
+    float3 centerNormal = gNormal.read(gid).xyz;
+    float centerDepth = gDepth.read(gid).x;
+    float centerRoughness = gRoughness.read(gid).x;
+
+    if (centerDepth > 1e5) {
+        outTexture.write(float4(center, 1.0), gid);
+        return;
+    }
+
+    float depthSigma = 1.0 / max(centerDepth * 0.02, 0.01);
+    float normalSigma = mix(16.0, 4.0, centerRoughness);
+    float colorSigma = max(frame.denoiseSigma, 0.1);
+    int step = max(int(frame.atrousStep + 0.5), 1);
 
     float3 sum = float3(0.0);
     float wsum = 0.0;
 
-    for (int y = -1; y <= 1; ++y) {
-        int yy = int(gid.y) + y;
+    const float k[5] = { 1.0, 4.0, 6.0, 4.0, 1.0 };
+    for (int fy = -2; fy <= 2; ++fy) {
+        int yy = int(gid.y) + fy * step;
         if (yy < 0 || yy >= int(frame.imageSize.y)) { continue; }
-        for (int x = -1; x <= 1; ++x) {
-            int xx = int(gid.x) + x;
+        for (int fx = -2; fx <= 2; ++fx) {
+            int xx = int(gid.x) + fx * step;
             if (xx < 0 || xx >= int(frame.imageSize.x)) { continue; }
-            float3 c = accumTexture.read(uint2(xx, yy)).xyz;
-            float3 d = c - center;
-            float w = 1.0 / (1.0 + dot(d, d) * sigma);
+            uint2 coord = uint2(xx, yy);
+            float3 c = temporalColor.read(coord).xyz;
+            float3 n = gNormal.read(coord).xyz;
+            float d = gDepth.read(coord).x;
+
+            float depthDiff = fabs(d - centerDepth);
+            float normalDiff = max(0.0, 1.0 - dot(centerNormal, n));
+            float colorDiff = length(c - center);
+
+            float w = 1.0 / (1.0 + depthDiff * depthDiff * depthSigma);
+            w *= 1.0 / (1.0 + normalDiff * normalDiff * normalSigma);
+            w *= 1.0 / (1.0 + colorDiff * colorDiff * colorSigma);
+            w *= k[fy + 2] * k[fx + 2];
             sum += c * w;
             wsum += w;
         }
