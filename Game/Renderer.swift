@@ -28,6 +28,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let spatialPipelineState: MTLComputePipelineState
     private let rtScene: RayTracingScene
     private let rtFrameBuffer: MTLBuffer
+    private let blueNoiseTexture: MTLTexture
     private var rtFrameIndex: UInt32 = 0
     private var rtColorTexture: MTLTexture?
     private var gNormalTexture: MTLTexture?
@@ -126,6 +127,10 @@ final class Renderer: NSObject, MTKViewDelegate {
             return nil
         }
         self.rtFrameBuffer = rtBuffer
+        guard let blueNoise = Renderer.makeBlueNoiseTexture(device: device) else {
+            return nil
+        }
+        self.blueNoiseTexture = blueNoise
         guard let dirBuf = device.makeBuffer(length: MemoryLayout<RTDirectionalLightSwift>.stride * 4,
                                              options: [.storageModeShared]),
               let pointBuf = device.makeBuffer(length: MemoryLayout<RTPointLightSwift>.stride * 8,
@@ -322,6 +327,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             enc.setTexture(gDepth, index: 2)
             enc.setTexture(gRoughness, index: 3)
             enc.setTexture(gAlbedo, index: 4)
+            enc.setTexture(blueNoiseTexture, index: 5)
             enc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
             enc.setAccelerationStructure(tlas, bufferIndex: BufferIndex.rtAccel.rawValue)
             enc.setBuffer(geometry.vertexBuffer, offset: 0, index: BufferIndex.rtVertices.rawValue)
@@ -335,7 +341,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             if !geometry.textures.isEmpty {
                 let count = min(geometry.textures.count, maxRTTextures)
                 let texArray: [MTLTexture?] = Array(geometry.textures.prefix(count))
-                enc.__setTextures(texArray, with: NSRange(location: 5, length: count))
+                enc.__setTextures(texArray, with: NSRange(location: 6, length: count))
             }
 
             let tgW = 8
@@ -435,5 +441,55 @@ final class Renderer: NSObject, MTKViewDelegate {
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         scene?.camera.updateProjection(width: Float(size.width), height: Float(size.height))
+    }
+}
+
+private extension Renderer {
+    static func makeBlueNoiseTexture(device: MTLDevice,
+                                     width: Int = 128,
+                                     height: Int = 128) -> MTLTexture? {
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        bytes.withUnsafeMutableBytes { raw in
+            guard let ptr = raw.baseAddress?.assumingMemoryBound(to: UInt8.self) else { return }
+            for y in 0..<height {
+                for x in 0..<width {
+                    let n0 = interleavedGradientNoise(x: x, y: y, seed: 0)
+                    let n1 = interleavedGradientNoise(x: x, y: y, seed: 1)
+                    let idx = (y * width + x) * 4
+                    ptr[idx + 0] = UInt8(clamping: Int(n0 * 255.0))
+                    ptr[idx + 1] = UInt8(clamping: Int(n1 * 255.0))
+                    ptr[idx + 2] = 0
+                    ptr[idx + 3] = 255
+                }
+            }
+        }
+
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: .rgba8Unorm,
+                                                            width: width,
+                                                            height: height,
+                                                            mipmapped: false)
+        desc.usage = [.shaderRead]
+        desc.storageMode = .shared
+        guard let tex = device.makeTexture(descriptor: desc) else { return nil }
+        tex.label = "BlueNoise"
+        bytes.withUnsafeBytes { raw in
+            let region = MTLRegionMake2D(0, 0, width, height)
+            tex.replace(region: region,
+                        mipmapLevel: 0,
+                        withBytes: raw.baseAddress!,
+                        bytesPerRow: width * 4)
+        }
+        return tex
+    }
+
+    static func interleavedGradientNoise(x: Int, y: Int, seed: Int) -> Float {
+        let xf = Float(x + seed * 19)
+        let yf = Float(y + seed * 7)
+        let v = 0.06711056 * xf + 0.00583715 * yf
+        return fract(52.9829189 * fract(v))
+    }
+
+    static func fract(_ x: Float) -> Float {
+        x - floor(x)
     }
 }

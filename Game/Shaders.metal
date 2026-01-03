@@ -325,7 +325,8 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                            texture2d<float, access::write> gDepth [[texture(2)]],
                            texture2d<float, access::write> gRoughness [[texture(3)]],
                            texture2d<float, access::write> gAlbedo [[texture(4)]],
-                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(5)]],
+                           texture2d<float, access::read> blueNoise [[texture(5)]],
+                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(6)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
                            acceleration_structure<instancing> accel [[buffer(BufferIndexRTAccel)]],
                            device const float3 *rtVertices [[buffer(BufferIndexRTVertices)]],
@@ -354,9 +355,13 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
     uint primaryHit = 0u;
     float3 primaryAlbedo = float3(1.0);
 
+    uint2 bnSize = uint2(blueNoise.get_width(), blueNoise.get_height());
+    uint2 bnCoord = uint2(gid.x % bnSize.x, gid.y % bnSize.y);
+    float2 cp = blueNoise.read(bnCoord).xy;
+
     for (uint s = 0; s < spp; ++s) {
         uint seed = baseSeed ^ (s * 16807u);
-        float2 jitter = r2_sequence(s, frame.frameIndex, seed);
+        float2 jitter = fract(r2_sequence(s, frame.frameIndex, seed) + cp);
         float2 pixel = (float2(gid) + jitter) / float2(frame.imageSize);
         float2 ndc = float2(pixel.x * 2.0 - 1.0, (1.0 - pixel.y) * 2.0 - 1.0);
 
