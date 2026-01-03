@@ -58,27 +58,14 @@ typedef struct
 typedef struct
 {
     matrix_float4x4 invViewProj;
-    matrix_float4x4 prevViewProj;
     vector_float3 cameraPosition;
-    uint32_t frameIndex;
-    vector_float3 prevCameraPosition;
-    uint32_t resetHistory;
     vector_uint2 imageSize;
     float ambientIntensity;
-    float historyWeight;
-    float historyClamp;
-    uint32_t samplesPerPixel;
     uint32_t dirLightCount;
     uint32_t pointLightCount;
     uint32_t areaLightCount;
-    uint32_t areaLightSamples;
     uint32_t textureCount;
-    float denoiseSigma;
-    float atrousStep;
-    float cameraMotion;
-    float exposure;
-    float shadowConsistency;
-    vector_float2 padding;
+    uint32_t pad0;
 } RTFrameUniforms;
 
 typedef struct

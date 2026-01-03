@@ -64,8 +64,6 @@ final class RayTracingRenderer {
                 camera: Camera,
                 projection: matrix_float4x4,
                 viewMatrix: matrix_float4x4,
-                sceneRevision: UInt64,
-                dt: Float,
                 commandQueue: MTLCommandQueue) {
         guard let commandBuffer = commandQueue.makeCommandBuffer() else { return }
 
@@ -79,27 +77,14 @@ final class RayTracingRenderer {
 
         var rtFrame = RTFrameUniformsSwift(
             invViewProj: invViewProj,
-            prevViewProj: viewProj,
             cameraPosition: camera.position,
-            frameIndex: 0,
-            prevCameraPosition: camera.position,
-            resetHistory: 1,
             imageSize: SIMD2<UInt32>(UInt32(width), UInt32(height)),
             ambientIntensity: 0.12,
-            historyWeight: 0.0,
-            historyClamp: 0.0,
-            samplesPerPixel: 1,
             dirLightCount: 1,
             pointLightCount: 1,
             areaLightCount: 1,
-            areaLightSamples: 1,
             textureCount: UInt32(geometry?.textures.count ?? 0),
-            denoiseSigma: 0.0,
-            atrousStep: 0.0,
-            cameraMotion: 0.0,
-            exposure: 1.0,
-            shadowConsistency: 0.0,
-            padding: .zero
+            pad0: 0
         )
         memcpy(rtFrameBuffer.contents(), &rtFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
 

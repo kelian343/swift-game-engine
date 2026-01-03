@@ -9,27 +9,14 @@ import simd
 
 struct RTFrameUniformsSwift {
     var invViewProj: matrix_float4x4
-    var prevViewProj: matrix_float4x4
     var cameraPosition: SIMD3<Float>
-    var frameIndex: UInt32
-    var prevCameraPosition: SIMD3<Float>
-    var resetHistory: UInt32
     var imageSize: SIMD2<UInt32>
     var ambientIntensity: Float
-    var historyWeight: Float
-    var historyClamp: Float
-    var samplesPerPixel: UInt32
     var dirLightCount: UInt32
     var pointLightCount: UInt32
     var areaLightCount: UInt32
-    var areaLightSamples: UInt32
     var textureCount: UInt32
-    var denoiseSigma: Float
-    var atrousStep: Float
-    var cameraMotion: Float
-    var exposure: Float
-    var shadowConsistency: Float
-    var padding: SIMD2<Float>
+    var pad0: UInt32
 }
 
 struct RTDirectionalLightSwift {

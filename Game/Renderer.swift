@@ -127,8 +127,6 @@ final class Renderer: NSObject, MTKViewDelegate {
                           camera: scene.camera,
                           projection: projection,
                           viewMatrix: viewM,
-                          sceneRevision: scene.revision,
-                          dt: dt,
                           commandQueue: context.rtCommandQueue)
     }
 

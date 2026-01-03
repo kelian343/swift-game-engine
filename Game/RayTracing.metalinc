@@ -52,6 +52,10 @@ inline float3 eval_brdf(float3 N, float3 V, float3 L, float3 base, float metalli
     return diff + spec;
 }
 
+inline float shadow_bias(float hitDistance) {
+    return max(0.002, hitDistance * 0.002);
+}
+
 kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(0)]],
                            array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(1)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
@@ -132,6 +136,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
 
     float3 V = normalize(-current.direction);
     float3 hitPos = current.origin + current.direction * hit.distance;
+    float bias = shadow_bias(hit.distance);
 
     float3 direct = float3(0.0);
     float shadowSum = 0.0;
@@ -144,9 +149,9 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         if (NdotL <= 0.0) { continue; }
 
         ray shadowRay;
-        shadowRay.origin = hitPos + N * 0.01;
+        shadowRay.origin = hitPos + N * bias;
         shadowRay.direction = L;
-        shadowRay.min_distance = 0.001;
+        shadowRay.min_distance = bias * 0.5;
         shadowRay.max_distance = 1e6;
 
         intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
@@ -167,10 +172,10 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         if (NdotLp <= 0.0 || dist <= 0.0) { continue; }
 
         ray pointShadow;
-        pointShadow.origin = hitPos + N * 0.01;
+        pointShadow.origin = hitPos + N * bias;
         pointShadow.direction = Lp;
-        pointShadow.min_distance = 0.001;
-        pointShadow.max_distance = dist - 0.01;
+        pointShadow.min_distance = bias * 0.5;
+        pointShadow.max_distance = max(dist - bias, bias);
 
         intersection_result<triangle_data, instancing> pointHit = isect.intersect(pointShadow, accel);
         float pointShadowTerm = (pointHit.type == intersection_type::triangle) ? 0.0 : 1.0;
@@ -193,10 +198,10 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         if (NdotLa <= 0.0 || distA <= 0.0 || cosThetaLight <= 0.0) { continue; }
 
         ray areaShadow;
-        areaShadow.origin = hitPos + N * 0.01;
+        areaShadow.origin = hitPos + N * bias;
         areaShadow.direction = La;
-        areaShadow.min_distance = 0.001;
-        areaShadow.max_distance = distA - 0.01;
+        areaShadow.min_distance = bias * 0.5;
+        areaShadow.max_distance = max(distA - bias, bias);
 
         intersection_result<triangle_data, instancing> areaHit = isect.intersect(areaShadow, accel);
         float areaShadowTerm = (areaHit.type == intersection_type::triangle) ? 0.0 : 1.0;
