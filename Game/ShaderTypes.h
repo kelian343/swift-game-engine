@@ -30,9 +30,10 @@ typedef NS_ENUM(EnumBackingType, BufferIndex)
     BufferIndexRTVertices   = 4,
     BufferIndexRTIndices    = 5,
     BufferIndexRTInstances  = 6,
-    BufferIndexRTDirLights  = 7,
-    BufferIndexRTPointLights = 8,
-    BufferIndexRTAreaLights = 9
+    BufferIndexRTUVs        = 7,
+    BufferIndexRTDirLights  = 8,
+    BufferIndexRTPointLights = 9,
+    BufferIndexRTAreaLights = 10
 };
 
 typedef NS_ENUM(EnumBackingType, VertexAttribute)
@@ -68,8 +69,9 @@ typedef struct
     uint32_t pointLightCount;
     uint32_t areaLightCount;
     uint32_t areaLightSamples;
+    uint32_t textureCount;
     float denoiseSigma;
-    vector_float3 padding;
+    vector_float2 padding;
 } RTFrameUniforms;
 
 typedef struct
@@ -83,6 +85,8 @@ typedef struct
     float metallic;
     float roughness;
     vector_float3 padding2;
+    uint32_t baseColorTexIndex;
+    vector_uint3 padding3;
 } RTInstanceInfo;
 
 typedef struct

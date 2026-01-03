@@ -12,6 +12,8 @@ let alignedUniformsSize = (MemoryLayout<Uniforms>.size + 0xFF) & -0x100
 
 let maxBuffersInFlight = 3
 
+let maxRTTextures = 32
+
 nonisolated enum RendererError: Error {
     case badVertexDescriptor
 }

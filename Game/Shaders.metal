@@ -15,6 +15,8 @@
 using namespace metal;
 using namespace metal::raytracing;
 
+#define MAX_RT_TEXTURES 32
+
 struct VertexIn {
     float3 position [[attribute(VertexAttributePosition)]];
     float3 normal   [[attribute(VertexAttributeNormal)]];
@@ -84,11 +86,14 @@ inline float3 traceRay(ray current,
                        device const float3 *rtVertices,
                        device const uint *rtIndices,
                        device const RTInstanceInfo *rtInstances,
+                       device const float2 *rtUVs,
+                       array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures,
                        device const RTDirectionalLight *dirLights,
                        device const RTPointLight *pointLights,
                        device const RTAreaLight *areaLights,
                        constant RTFrameUniforms& frame,
                        thread uint &seed) {
+    constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
     float3 radiance = float3(0.0);
     float3 throughput = float3(1.0);
 
@@ -124,6 +129,17 @@ inline float3 traceRay(ray current,
         float3 base = inst.baseColor;
         float metallic = clamp(inst.metallic, 0.0, 1.0);
         float roughness = clamp(inst.roughness, 0.05, 1.0);
+
+        if (inst.baseColorTexIndex < frame.textureCount && inst.baseColorTexIndex < MAX_RT_TEXTURES) {
+            float2 bary = hit.triangle_barycentric_coord;
+            float w = 1.0 - bary.x - bary.y;
+            float2 uv0 = rtUVs[inst.baseVertex + i0];
+            float2 uv1 = rtUVs[inst.baseVertex + i1];
+            float2 uv2 = rtUVs[inst.baseVertex + i2];
+            float2 uv = uv0 * w + uv1 * bary.x + uv2 * bary.y;
+            float3 tex = float3(baseColorTextures[inst.baseColorTexIndex].sample(colorSamp, uv).xyz);
+            base *= tex;
+        }
 
         float3 hitPos = current.origin + current.direction * hit.distance;
         radiance += throughput * base * frame.ambientIntensity;
@@ -213,11 +229,13 @@ inline float3 traceRay(ray current,
 
 kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(0)]],
                            texture2d<float, access::read_write> accumTexture [[texture(1)]],
+                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(2)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
                            acceleration_structure<instancing> accel [[buffer(BufferIndexRTAccel)]],
                            device const float3 *rtVertices [[buffer(BufferIndexRTVertices)]],
                            device const uint *rtIndices [[buffer(BufferIndexRTIndices)]],
                            device const RTInstanceInfo *rtInstances [[buffer(BufferIndexRTInstances)]],
+                           device const float2 *rtUVs [[buffer(BufferIndexRTUVs)]],
                            device const RTDirectionalLight *dirLights [[buffer(BufferIndexRTDirLights)]],
                            device const RTPointLight *pointLights [[buffer(BufferIndexRTPointLights)]],
                            device const RTAreaLight *areaLights [[buffer(BufferIndexRTAreaLights)]],
@@ -257,6 +275,8 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                              rtVertices,
                              rtIndices,
                              rtInstances,
+                             rtUVs,
+                             baseColorTextures,
                              dirLights,
                              pointLights,
                              areaLights,

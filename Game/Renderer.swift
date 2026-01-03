@@ -225,6 +225,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             pointLightCount: 1,
             areaLightCount: 1,
             areaLightSamples: 2,
+            textureCount: UInt32(geometry?.textures.count ?? 0),
             denoiseSigma: 6.0,
             padding: .zero
         )
@@ -265,9 +266,16 @@ final class Renderer: NSObject, MTKViewDelegate {
             enc.setBuffer(geometry.vertexBuffer, offset: 0, index: BufferIndex.rtVertices.rawValue)
             enc.setBuffer(geometry.indexBuffer, offset: 0, index: BufferIndex.rtIndices.rawValue)
             enc.setBuffer(geometry.instanceInfoBuffer, offset: 0, index: BufferIndex.rtInstances.rawValue)
+            enc.setBuffer(geometry.uvBuffer, offset: 0, index: BufferIndex(rawValue: 7)!.rawValue)
             enc.setBuffer(dirLightBuffer, offset: 0, index: BufferIndex.rtDirLights.rawValue)
             enc.setBuffer(pointLightBuffer, offset: 0, index: BufferIndex.rtPointLights.rawValue)
             enc.setBuffer(areaLightBuffer, offset: 0, index: BufferIndex.rtAreaLights.rawValue)
+
+            if !geometry.textures.isEmpty {
+                let count = min(geometry.textures.count, maxRTTextures)
+                let texArray: [MTLTexture?] = Array(geometry.textures.prefix(count))
+                enc.__setTextures(texArray, with: NSRange(location: 2, length: count))
+            }
 
             let tgW = 8
             let tgH = 8

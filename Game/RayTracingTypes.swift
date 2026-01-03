@@ -20,8 +20,9 @@ struct RTFrameUniformsSwift {
     var pointLightCount: UInt32
     var areaLightCount: UInt32
     var areaLightSamples: UInt32
+    var textureCount: UInt32
     var denoiseSigma: Float
-    var padding: SIMD3<Float>
+    var padding: SIMD2<Float>
 }
 
 struct RTDirectionalLightSwift {
@@ -59,4 +60,6 @@ struct RTInstanceInfoSwift {
     var metallic: Float
     var roughness: Float
     var padding2: SIMD3<Float>
+    var baseColorTexIndex: UInt32
+    var padding3: SIMD3<UInt32>
 }

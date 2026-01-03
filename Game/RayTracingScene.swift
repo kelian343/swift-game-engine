@@ -33,6 +33,8 @@ final class RayTracingScene {
         let vertexBuffer: MTLBuffer
         let indexBuffer: MTLBuffer
         let instanceInfoBuffer: MTLBuffer
+        let uvBuffer: MTLBuffer
+        let textures: [MTLTexture]
     }
 
     func buildAccelerationStructures(items: [RenderItem],
@@ -153,8 +155,11 @@ final class RayTracingScene {
         guard !items.isEmpty else { return nil }
 
         var vertices: [SIMD3<Float>] = []
+        var uvs: [SIMD2<Float>] = []
         var indices: [UInt32] = []
         var instances: [RTInstanceInfoSwift] = []
+        var textureIndexForTexture: [ObjectIdentifier: Int] = [:]
+        var texturesByIndex: [MTLTexture] = []
 
         vertices.reserveCapacity(items.count * 256)
         indices.reserveCapacity(items.count * 256)
@@ -169,6 +174,7 @@ final class RayTracingScene {
                                                                     capacity: vCount)
             for i in 0..<vCount {
                 vertices.append(vPtr[i].position)
+                uvs.append(vPtr[i].uv)
             }
 
             let indexCount = item.mesh.indexCount
@@ -189,6 +195,21 @@ final class RayTracingScene {
                 break
             }
 
+            let baseTexIndex: UInt32 = {
+                guard let tex = item.material.baseColorTexture?.texture else { return UInt32.max }
+                let key = ObjectIdentifier(tex)
+                if let existing = textureIndexForTexture[key] {
+                    return UInt32(existing)
+                }
+                if texturesByIndex.count >= maxRTTextures {
+                    return UInt32.max
+                }
+                let index = texturesByIndex.count
+                texturesByIndex.append(tex)
+                textureIndexForTexture[key] = index
+                return UInt32(index)
+            }()
+
             instances.append(RTInstanceInfoSwift(baseIndex: baseIndex,
                                                  baseVertex: baseVertex,
                                                  indexCount: UInt32(indexCount),
@@ -197,16 +218,22 @@ final class RayTracingScene {
                                                  baseColor: SIMD3<Float>(1, 1, 1),
                                                  metallic: item.material.metallic,
                                                  roughness: item.material.roughness,
-                                                 padding2: .zero))
+                                                 padding2: .zero,
+                                                 baseColorTexIndex: baseTexIndex,
+                                                 padding3: .zero))
         }
 
         let vBytes = vertices.count * MemoryLayout<SIMD3<Float>>.stride
+        let uvBytes = uvs.count * MemoryLayout<SIMD2<Float>>.stride
         let iBytes = indices.count * MemoryLayout<UInt32>.stride
         let instBytes = instances.count * MemoryLayout<RTInstanceInfoSwift>.stride
 
         geometryVertexBuffer = device.makeBuffer(bytes: vertices,
                                                   length: max(vBytes, 1),
                                                   options: [.storageModeShared])
+        let uvBuffer = device.makeBuffer(bytes: uvs,
+                                         length: max(uvBytes, 1),
+                                         options: [.storageModeShared])
         geometryIndexBuffer = device.makeBuffer(bytes: indices,
                                                  length: max(iBytes, 1),
                                                  options: [.storageModeShared])
@@ -215,12 +242,18 @@ final class RayTracingScene {
                                                         options: [.storageModeShared])
 
         if let vb = geometryVertexBuffer,
+           let uvb = uvBuffer,
            let ib = geometryIndexBuffer,
            let instb = geometryInstanceInfoBuffer {
             vb.label = "RTGeometryVertices"
+            uvb.label = "RTGeometryUVs"
             ib.label = "RTGeometryIndices"
             instb.label = "RTInstanceInfo"
-            return GeometryBuffers(vertexBuffer: vb, indexBuffer: ib, instanceInfoBuffer: instb)
+            return GeometryBuffers(vertexBuffer: vb,
+                                   indexBuffer: ib,
+                                   instanceInfoBuffer: instb,
+                                   uvBuffer: uvb,
+                                   textures: texturesByIndex)
         }
 
         return nil
