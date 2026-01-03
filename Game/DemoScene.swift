@@ -17,11 +17,13 @@ public final class DemoScene: RenderScene {
     // ECS
     private let world = World()
     private let timeSystem = TimeSystem()
+    private let inputSystem: InputSystem
     private let spinSystem = SpinSystem()
     private let fixedRunner: FixedStepRunner
     private let extractSystem = RenderExtractSystem()
 
     public init() {
+        self.inputSystem = InputSystem(camera: camera)
         self.fixedRunner = FixedStepRunner(systems: [spinSystem])
     }
 
@@ -77,7 +79,7 @@ public final class DemoScene: RenderScene {
             t.translation = SIMD3<Float>(0, 0, 0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, SpinComponent(speed: 1.2, axis: SIMD3<Float>(0, 1, 0)))
+            inputSystem.setPlayer(e)
         }
 
         // --- Entity C: prism + solid color texture
@@ -104,11 +106,12 @@ public final class DemoScene: RenderScene {
     }
 
     public func update(dt: Float) {
-        camera.updateView()
-
         // ECS simulation step
         timeSystem.update(world: world, dt: dt)
+        inputSystem.update(world: world, dt: dt)
         fixedRunner.update(world: world)
+
+        camera.updateView()
 
         // Render extraction (derived every frame)
         renderItems = extractSystem.extract(world: world)
