@@ -33,6 +33,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var gNormalTexture: MTLTexture?
     private var gDepthTexture: MTLTexture?
     private var gRoughnessTexture: MTLTexture?
+    private var gAlbedoTexture: MTLTexture?
     private var temporalColorTexture: MTLTexture?
     private var atrousTexture: MTLTexture?
     private var historyColorTextures: [MTLTexture] = []
@@ -216,6 +217,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             gNormalTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "GBufferNormal")
             gDepthTexture = makeTex(.r32Float, [.shaderRead, .shaderWrite], "GBufferDepth")
             gRoughnessTexture = makeTex(.r16Float, [.shaderRead, .shaderWrite], "GBufferRoughness")
+            gAlbedoTexture = makeTex(.rgba8Unorm, [.shaderRead, .shaderWrite], "GBufferAlbedo")
             temporalColorTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "TemporalColor")
             atrousTexture = makeTex(.rgba16Float, [.shaderRead, .shaderWrite], "AtrousColor")
             historyColorTextures = [
@@ -308,12 +310,14 @@ final class Renderer: NSObject, MTKViewDelegate {
            let gNormal = gNormalTexture,
            let gDepth = gDepthTexture,
            let gRoughness = gRoughnessTexture,
+           let gAlbedo = gAlbedoTexture,
            let enc = rtCommandBuffer.makeComputeCommandEncoder() {
             enc.setComputePipelineState(rtPipelineState)
             enc.setTexture(rtColor, index: 0)
             enc.setTexture(gNormal, index: 1)
             enc.setTexture(gDepth, index: 2)
             enc.setTexture(gRoughness, index: 3)
+            enc.setTexture(gAlbedo, index: 4)
             enc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
             enc.setAccelerationStructure(tlas, bufferIndex: BufferIndex.rtAccel.rawValue)
             enc.setBuffer(geometry.vertexBuffer, offset: 0, index: BufferIndex.rtVertices.rawValue)
@@ -327,7 +331,7 @@ final class Renderer: NSObject, MTKViewDelegate {
             if !geometry.textures.isEmpty {
                 let count = min(geometry.textures.count, maxRTTextures)
                 let texArray: [MTLTexture?] = Array(geometry.textures.prefix(count))
-                enc.__setTextures(texArray, with: NSRange(location: 4, length: count))
+                enc.__setTextures(texArray, with: NSRange(location: 5, length: count))
             }
 
             let tgW = 8
@@ -378,6 +382,7 @@ final class Renderer: NSObject, MTKViewDelegate {
            let gNormal = gNormalTexture,
            let gDepth = gDepthTexture,
            let gRoughness = gRoughnessTexture,
+           let gAlbedo = gAlbedoTexture,
            let atrous = atrousTexture {
             var spatialFrame = rtFrame
             spatialFrame.atrousStep = 1.0
@@ -389,7 +394,8 @@ final class Renderer: NSObject, MTKViewDelegate {
                 spatialEnc.setTexture(gNormal, index: 1)
                 spatialEnc.setTexture(gDepth, index: 2)
                 spatialEnc.setTexture(gRoughness, index: 3)
-                spatialEnc.setTexture(atrous, index: 4)
+                spatialEnc.setTexture(gAlbedo, index: 4)
+                spatialEnc.setTexture(atrous, index: 5)
                 spatialEnc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
                 let tgW = 8
                 let tgH = 8
@@ -407,7 +413,8 @@ final class Renderer: NSObject, MTKViewDelegate {
                 spatialEnc2.setTexture(gNormal, index: 1)
                 spatialEnc2.setTexture(gDepth, index: 2)
                 spatialEnc2.setTexture(gRoughness, index: 3)
-                spatialEnc2.setTexture(drawable.texture, index: 4)
+                spatialEnc2.setTexture(gAlbedo, index: 4)
+                spatialEnc2.setTexture(drawable.texture, index: 5)
                 spatialEnc2.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
                 let tgW = 8
                 let tgH = 8

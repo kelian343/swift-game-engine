@@ -133,6 +133,7 @@ inline float3 traceRay(ray current,
                        thread float &primaryDepth,
                        thread float &primaryRoughness,
                        thread uint &primaryHit,
+                       thread float3 &primaryAlbedo,
                        bool recordPrimary) {
     constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
     float3 radiance = float3(0.0);
@@ -177,13 +178,6 @@ inline float3 traceRay(ray current,
         float metallic = clamp(inst.metallic, 0.0, 1.0);
         float roughness = clamp(inst.roughness, 0.05, 1.0);
 
-        if (bounce == 0 && recordPrimary) {
-            primaryHit = 1;
-            primaryNormal = N;
-            primaryDepth = hit.distance;
-            primaryRoughness = roughness;
-        }
-
         if (inst.baseColorTexIndex < frame.textureCount && inst.baseColorTexIndex < MAX_RT_TEXTURES) {
             float2 bary = hit.triangle_barycentric_coord;
             float w = 1.0 - bary.x - bary.y;
@@ -193,6 +187,14 @@ inline float3 traceRay(ray current,
             float2 uv = uv0 * w + uv1 * bary.x + uv2 * bary.y;
             float3 tex = float3(baseColorTextures[inst.baseColorTexIndex].sample(colorSamp, uv).xyz);
             base *= tex;
+        }
+
+        if (bounce == 0 && recordPrimary) {
+            primaryHit = 1;
+            primaryNormal = N;
+            primaryDepth = hit.distance;
+            primaryRoughness = roughness;
+            primaryAlbedo = base;
         }
 
         float3 hitPos = current.origin + current.direction * hit.distance;
@@ -315,7 +317,8 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                            texture2d<float, access::write> gNormal [[texture(1)]],
                            texture2d<float, access::write> gDepth [[texture(2)]],
                            texture2d<float, access::write> gRoughness [[texture(3)]],
-                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(4)]],
+                           texture2d<float, access::write> gAlbedo [[texture(4)]],
+                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(5)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
                            acceleration_structure<instancing> accel [[buffer(BufferIndexRTAccel)]],
                            device const float3 *rtVertices [[buffer(BufferIndexRTVertices)]],
@@ -342,6 +345,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
     float primaryDepth = 1e6;
     float primaryRoughness = 1.0;
     uint primaryHit = 0u;
+    float3 primaryAlbedo = float3(1.0);
 
     for (uint s = 0; s < spp; ++s) {
         uint seed = baseSeed ^ (s * 16807u);
@@ -376,6 +380,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                              primaryDepth,
                              primaryRoughness,
                              primaryHit,
+                             primaryAlbedo,
                              s == 0);
     }
     radiance /= float(spp);
@@ -385,10 +390,12 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         gNormal.write(float4(0.0, 0.0, 0.0, 1.0), gid);
         gDepth.write(float4(1e6, 0.0, 0.0, 0.0), gid);
         gRoughness.write(float4(1.0, 0.0, 0.0, 0.0), gid);
+        gAlbedo.write(float4(0.0, 0.0, 0.0, 1.0), gid);
     } else {
         gNormal.write(float4(primaryNormal, 1.0), gid);
         gDepth.write(float4(primaryDepth, 0.0, 0.0, 0.0), gid);
         gRoughness.write(float4(primaryRoughness, 0.0, 0.0, 0.0), gid);
+        gAlbedo.write(float4(primaryAlbedo, 1.0), gid);
     }
 }
 
@@ -499,7 +506,8 @@ kernel void spatialDenoiseKernel(texture2d<float, access::read> temporalColor [[
                                  texture2d<float, access::read> gNormal [[texture(1)]],
                                  texture2d<float, access::read> gDepth [[texture(2)]],
                                  texture2d<float, access::read> gRoughness [[texture(3)]],
-                                 texture2d<float, access::write> outTexture [[texture(4)]],
+                                 texture2d<float, access::read> gAlbedo [[texture(4)]],
+                                 texture2d<float, access::write> outTexture [[texture(5)]],
                                  constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
                                  uint2 gid [[thread_position_in_grid]])
 {
@@ -508,6 +516,7 @@ kernel void spatialDenoiseKernel(texture2d<float, access::read> temporalColor [[
     }
 
     float3 center = temporalColor.read(gid).xyz;
+    float3 centerAlbedo = gAlbedo.read(gid).xyz;
     float3 centerNormal = gNormal.read(gid).xyz;
     float centerDepth = gDepth.read(gid).x;
     float centerRoughness = gRoughness.read(gid).x;
@@ -519,7 +528,9 @@ kernel void spatialDenoiseKernel(texture2d<float, access::read> temporalColor [[
 
     float depthSigma = 1.0 / max(centerDepth * 0.02, 0.01);
     float normalSigma = mix(16.0, 4.0, centerRoughness);
-    float colorSigma = max(frame.denoiseSigma, 0.1);
+    float luma = luminance(center);
+    float shadowPreserve = smoothstep(0.03, 0.2, luma);
+    float colorSigma = max(frame.denoiseSigma, 0.1) * mix(0.35, 1.0, shadowPreserve);
     int step = max(int(frame.atrousStep + 0.5), 1);
 
     float3 sum = float3(0.0);
@@ -534,12 +545,13 @@ kernel void spatialDenoiseKernel(texture2d<float, access::read> temporalColor [[
             if (xx < 0 || xx >= int(frame.imageSize.x)) { continue; }
             uint2 coord = uint2(xx, yy);
             float3 c = temporalColor.read(coord).xyz;
+            float3 a = gAlbedo.read(coord).xyz;
             float3 n = gNormal.read(coord).xyz;
             float d = gDepth.read(coord).x;
 
             float depthDiff = fabs(d - centerDepth);
             float normalDiff = max(0.0, 1.0 - dot(centerNormal, n));
-            float colorDiff = length(c - center);
+            float colorDiff = length(a - centerAlbedo);
 
             float w = 1.0 / (1.0 + depthDiff * depthDiff * depthSigma);
             w *= 1.0 / (1.0 + normalDiff * normalDiff * normalSigma);
