@@ -95,13 +95,14 @@ fragment float4 fragmentShader(Varyings in [[stage_in]],
     // Shadow mapping (project into [0,1])
     float3 proj = in.shadowPos.xyz / in.shadowPos.w;
     float2 shadowUV = proj.xy * 0.5 + 0.5;
-    float shadowDepth = proj.z * 0.5 + 0.5;
+    float shadowDepth = proj.z;
 
     // Bias to reduce acne
     float biasedDepth = shadowDepth - lp.shadowBias;
 
     // Outside shadow map => treat as lit
-    bool inBounds = all(shadowUV >= float2(0.0)) && all(shadowUV <= float2(1.0));
+    bool inBounds = all(shadowUV >= float2(0.0)) && all(shadowUV <= float2(1.0))
+                    && shadowDepth >= 0.0 && shadowDepth <= 1.0;
     float shadow = 1.0;
     if (inBounds) {
         // sample_compare returns 1 if (biasedDepth <= storedDepth)

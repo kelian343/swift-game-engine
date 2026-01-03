@@ -33,9 +33,24 @@ public final class DemoScene: RenderScene {
         camera.target = SIMD3<Float>(0, 0, 0)
         camera.updateView()
 
-        // --- Entity A: small box + fine checkerboard
+        // --- Ground: platform plane
         do {
-            let mesh = GPUMesh(device: device, data: ProceduralMeshes.box(size: 3.0), label: "BoxA")
+            let mesh = GPUMesh(device: device, data: ProceduralMeshes.plane(size: 20.0), label: "Ground")
+            let tex = TextureResource(device: device,
+                                      source: .solid(width: 4, height: 4, r: 80, g: 80, b: 80, a: 255),
+                                      label: "GroundTex")
+            let mat = Material(baseColorTexture: tex)
+
+            let e = world.createEntity()
+            var t = TransformComponent()
+            t.translation = SIMD3<Float>(0, -3, 0)
+            world.add(e, t)
+            world.add(e, RenderComponent(mesh: mesh, material: mat))
+        }
+
+        // --- Entity A: tetrahedron + fine checkerboard
+        do {
+            let mesh = GPUMesh(device: device, data: ProceduralMeshes.tetrahedron(size: 3.0), label: "TetraA")
             let tex = TextureResource(device: device,
                                       source: ProceduralTextures.checkerboard(width: 256, height: 256, cell: 16),
                                       label: "TexA")
@@ -65,9 +80,9 @@ public final class DemoScene: RenderScene {
             world.add(e, SpinComponent(speed: 1.2, axis: SIMD3<Float>(0, 1, 0)))
         }
 
-        // --- Entity C: large box + solid color texture
+        // --- Entity C: prism + solid color texture
         do {
-            let mesh = GPUMesh(device: device, data: ProceduralMeshes.box(size: 5.0), label: "BoxC")
+            let mesh = GPUMesh(device: device, data: ProceduralMeshes.triangularPrism(size: 4.5, height: 4.0), label: "PrismC")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 255, g: 80, b: 80, a: 255),
                                       label: "TexC")
