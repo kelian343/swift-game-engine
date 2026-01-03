@@ -96,6 +96,12 @@ public final class World {
 
     // MARK: - Queries
 
+    /// Query entities that have component A
+    public func query<A>(_ a: A.Type) -> [Entity] {
+        let sa = store(A.self)
+        return sa.data.keys.filter { isAlive($0) }
+    }
+
     /// Query entities that have both components A and B
     public func query<A, B>(_ a: A.Type, _ b: B.Type) -> [Entity] {
         let sa = store(A.self)

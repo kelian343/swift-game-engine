@@ -68,3 +68,37 @@ public struct SpinComponent {
         self.axis = axis
     }
 }
+
+// MARK: - Time
+
+public struct TimeComponent {
+    public var time: Float
+    public var deltaTime: Float
+    public var unscaledTime: Float
+    public var unscaledDeltaTime: Float
+    public var frame: UInt64
+    public var timeScale: Float
+    public var fixedDelta: Float
+    public var accumulator: Float
+    public var maxSubsteps: Int
+
+    public init(time: Float = 0,
+                deltaTime: Float = 0,
+                unscaledTime: Float = 0,
+                unscaledDeltaTime: Float = 0,
+                frame: UInt64 = 0,
+                timeScale: Float = 1,
+                fixedDelta: Float = 1.0 / 60.0,
+                accumulator: Float = 0,
+                maxSubsteps: Int = 4) {
+        self.time = time
+        self.deltaTime = deltaTime
+        self.unscaledTime = unscaledTime
+        self.unscaledDeltaTime = unscaledDeltaTime
+        self.frame = frame
+        self.timeScale = timeScale
+        self.fixedDelta = fixedDelta
+        self.accumulator = accumulator
+        self.maxSubsteps = maxSubsteps
+    }
+}

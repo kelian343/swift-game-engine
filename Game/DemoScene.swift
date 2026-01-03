@@ -16,10 +16,14 @@ public final class DemoScene: RenderScene {
 
     // ECS
     private let world = World()
+    private let timeSystem = TimeSystem()
     private let spinSystem = SpinSystem()
+    private let fixedRunner: FixedStepRunner
     private let extractSystem = RenderExtractSystem()
 
-    public init() {}
+    public init() {
+        self.fixedRunner = FixedStepRunner(systems: [spinSystem])
+    }
 
     public func build(context: SceneContext) {
         let device = context.device
@@ -88,7 +92,8 @@ public final class DemoScene: RenderScene {
         camera.updateView()
 
         // ECS simulation step
-        spinSystem.update(world: world, dt: dt)
+        timeSystem.update(world: world, dt: dt)
+        fixedRunner.update(world: world)
 
         // Render extraction (derived every frame)
         renderItems = extractSystem.extract(world: world)
