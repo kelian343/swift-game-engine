@@ -45,10 +45,16 @@ public final class TimeSystem: System {
 
 /// Runs fixed-step systems using TimeComponent's accumulator.
 public final class FixedStepRunner {
-    private let systems: [FixedStepSystem]
+    private let preFixedSystems: [FixedStepSystem]
+    private let fixedSystems: [FixedStepSystem]
+    private let postFixedSystems: [FixedStepSystem]
 
-    public init(systems: [FixedStepSystem]) {
-        self.systems = systems
+    public init(preFixed: [FixedStepSystem] = [],
+                fixed: [FixedStepSystem] = [],
+                postFixed: [FixedStepSystem] = []) {
+        self.preFixedSystems = preFixed
+        self.fixedSystems = fixed
+        self.postFixedSystems = postFixed
     }
 
     public func update(world: World) {
@@ -61,7 +67,13 @@ public final class FixedStepRunner {
 
         var steps = 0
         while t.accumulator >= fixedDt && steps < t.maxSubsteps {
-            for s in systems {
+            for s in preFixedSystems {
+                s.fixedUpdate(world: world, dt: fixedDt)
+            }
+            for s in fixedSystems {
+                s.fixedUpdate(world: world, dt: fixedDt)
+            }
+            for s in postFixedSystems {
                 s.fixedUpdate(world: world, dt: fixedDt)
             }
             t.accumulator -= fixedDt
@@ -84,12 +96,136 @@ public final class SpinSystem: FixedStepSystem {
         let entities = world.query(TransformComponent.self, SpinComponent.self)
         let tStore = world.store(TransformComponent.self)
         let sStore = world.store(SpinComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
 
         for e in entities {
             guard var t = tStore[e], let s = sStore[e] else { continue }
             let angle = s.speed * dt
             let dq = simd_quatf(angle: angle, axis: simd_normalize(s.axis))
-            t.rotation = simd_normalize(dq * t.rotation)
+            if var p = pStore[e] {
+                p.rotation = simd_normalize(dq * p.rotation)
+                pStore[e] = p
+            } else {
+                t.rotation = simd_normalize(dq * t.rotation)
+                tStore[e] = t
+            }
+        }
+    }
+}
+
+/// Sync ECS transforms/colliders to PhysicsWorld proxies.
+public final class PhysicsSyncSystem: FixedStepSystem {
+    private let physicsWorld: PhysicsWorld
+
+    public init(physicsWorld: PhysicsWorld) {
+        self.physicsWorld = physicsWorld
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = dt
+        physicsWorld.sync(world: world)
+    }
+}
+
+/// Broadphase pass using a simple sweep-and-prune on X axis.
+public final class PhysicsBroadphaseSystem: FixedStepSystem {
+    private let physicsWorld: PhysicsWorld
+
+    public init(physicsWorld: PhysicsWorld) {
+        self.physicsWorld = physicsWorld
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = world
+        _ = dt
+        physicsWorld.buildBroadphasePairs()
+    }
+}
+
+/// Apply input intents to physics bodies before the physics step.
+public final class PhysicsIntentSystem: FixedStepSystem {
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        let bodies = world.query(PhysicsBodyComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let mStore = world.store(MoveIntentComponent.self)
+        let mvStore = world.store(MovementComponent.self)
+
+        for e in bodies {
+            guard var body = pStore[e] else { continue }
+            guard let intent = mStore[e] else { continue }
+            if body.bodyType == .dynamic || body.bodyType == .kinematic {
+                let move = mvStore[e] ?? MovementComponent()
+                let target = intent.desiredVelocity
+                let current = body.linearVelocity
+                let accel = simd_length(target) >= simd_length(current) ? move.maxAcceleration : move.maxDeceleration
+                body.linearVelocity = approachVec(current: current, target: target, maxDelta: accel * dt)
+                if intent.hasFacingYaw {
+                    body.rotation = simd_quatf(angle: intent.desiredFacingYaw,
+                                               axis: SIMD3<Float>(0, 1, 0))
+                }
+                pStore[e] = body
+            }
+        }
+    }
+}
+
+private func approachVec(current: SIMD3<Float>, target: SIMD3<Float>, maxDelta: Float) -> SIMD3<Float> {
+    let delta = target - current
+    let len = simd_length(delta)
+    if len <= maxDelta || len < 0.00001 {
+        return target
+    }
+    return current + delta / len * maxDelta
+}
+
+/// Minimal physics integration step (authoritative for entities with PhysicsBodyComponent).
+public final class PhysicsSystem: FixedStepSystem {
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        let bodies = world.query(PhysicsBodyComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+
+        for e in bodies {
+            guard var body = pStore[e] else { continue }
+            body.prevPosition = body.position
+            body.prevRotation = body.rotation
+
+            switch body.bodyType {
+            case .static:
+                break
+            case .kinematic, .dynamic:
+                body.position += body.linearVelocity * dt
+                let w = body.angularVelocity
+                let wLen = simd_length(w)
+                if wLen > 0.0001 {
+                    let axis = w / wLen
+                    let dq = simd_quatf(angle: wLen * dt, axis: axis)
+                    body.rotation = simd_normalize(dq * body.rotation)
+                }
+            }
+
+            pStore[e] = body
+        }
+    }
+}
+
+/// Write back physics state to ECS transforms after physics step.
+public final class PhysicsWritebackSystem: FixedStepSystem {
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = dt
+        let bodies = world.query(PhysicsBodyComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let tStore = world.store(TransformComponent.self)
+
+        for e in bodies {
+            guard let body = pStore[e], var t = tStore[e] else { continue }
+            t.translation = body.position
+            t.rotation = body.rotation
             tStore[e] = t
         }
     }
@@ -108,13 +244,31 @@ public final class RenderExtractSystem {
 
         let tStore = world.store(TransformComponent.self)
         let rStore = world.store(RenderComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let timeStore = world.store(TimeComponent.self)
+        let alpha: Float = {
+            guard let e = world.query(TimeComponent.self).first,
+                  let t = timeStore[e],
+                  t.fixedDelta > 0 else {
+                return 1.0
+            }
+            let a = t.accumulator / t.fixedDelta
+            return min(max(a, 0), 1)
+        }()
 
         var items: [RenderItem] = []
         items.reserveCapacity(entities.count)
 
         for e in entities {
             guard let t = tStore[e], let r = rStore[e] else { continue }
-            items.append(RenderItem(mesh: r.mesh, material: r.material, modelMatrix: t.modelMatrix))
+            if let p = pStore[e] {
+                let pos = p.prevPosition + (p.position - p.prevPosition) * alpha
+                let rot = simd_slerp(p.prevRotation, p.rotation, alpha)
+                let interp = TransformComponent(translation: pos, rotation: rot, scale: t.scale)
+                items.append(RenderItem(mesh: r.mesh, material: r.material, modelMatrix: interp.modelMatrix))
+            } else {
+                items.append(RenderItem(mesh: r.mesh, material: r.material, modelMatrix: t.modelMatrix))
+            }
         }
         return items
     }

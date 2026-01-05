@@ -19,12 +19,24 @@ public final class DemoScene: RenderScene {
     private let timeSystem = TimeSystem()
     private let inputSystem: InputSystem
     private let spinSystem = SpinSystem()
+    private let physicsWorld = PhysicsWorld()
+    private let physicsSyncSystem: PhysicsSyncSystem
+    private let physicsBroadphaseSystem: PhysicsBroadphaseSystem
+    private let physicsIntentSystem = PhysicsIntentSystem()
+    private let physicsSystem = PhysicsSystem()
+    private let physicsWritebackSystem = PhysicsWritebackSystem()
     private let fixedRunner: FixedStepRunner
     private let extractSystem = RenderExtractSystem()
 
     public init() {
         self.inputSystem = InputSystem(camera: camera)
-        self.fixedRunner = FixedStepRunner(systems: [spinSystem])
+        self.physicsSyncSystem = PhysicsSyncSystem(physicsWorld: physicsWorld)
+        self.physicsBroadphaseSystem = PhysicsBroadphaseSystem(physicsWorld: physicsWorld)
+        self.fixedRunner = FixedStepRunner(
+            preFixed: [spinSystem, physicsIntentSystem, physicsSyncSystem],
+            fixed: [physicsBroadphaseSystem, physicsSystem],
+            postFixed: [physicsWritebackSystem]
+        )
     }
 
     public func build(context: SceneContext) {
@@ -48,6 +60,10 @@ public final class DemoScene: RenderScene {
             t.translation = SIMD3<Float>(0, -3, 0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
+            world.add(e, PhysicsBodyComponent(bodyType: .static,
+                                              position: t.translation,
+                                              rotation: t.rotation))
+            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(10, 0.1, 10))))
         }
 
         // --- Entity A: tetrahedron + fine checkerboard
@@ -64,6 +80,10 @@ public final class DemoScene: RenderScene {
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, SpinComponent(speed: 0.9, axis: SIMD3<Float>(1, 1, 0)))
+            world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
+                                              position: t.translation,
+                                              rotation: t.rotation))
+            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(1.5, 1.5, 1.5))))
         }
 
         // --- Entity B: medium box + coarse checkerboard
@@ -80,6 +100,12 @@ public final class DemoScene: RenderScene {
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             inputSystem.setPlayer(e)
+            world.add(e, PhysicsBodyComponent(bodyType: .dynamic,
+                                              position: t.translation,
+                                              rotation: t.rotation))
+            world.add(e, MoveIntentComponent())
+            world.add(e, MovementComponent(maxAcceleration: 16.0, maxDeceleration: 24.0))
+            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(2, 2, 2))))
         }
 
         // --- Entity C: prism + solid color texture
@@ -96,6 +122,10 @@ public final class DemoScene: RenderScene {
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, SpinComponent(speed: 0.7, axis: SIMD3<Float>(1, 0, 1)))
+            world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
+                                              position: t.translation,
+                                              rotation: t.rotation))
+            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(2.25, 2.0, 2.25))))
         }
 
         // Extract initial draw calls

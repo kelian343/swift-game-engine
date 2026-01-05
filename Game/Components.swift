@@ -102,3 +102,93 @@ public struct TimeComponent {
         self.maxSubsteps = maxSubsteps
     }
 }
+
+// MARK: - Physics
+
+public enum BodyType {
+    case `static`
+    case kinematic
+    case dynamic
+}
+
+public struct PhysicsBodyComponent {
+    public var bodyType: BodyType
+    public var position: SIMD3<Float>
+    public var rotation: simd_quatf
+    public var prevPosition: SIMD3<Float>
+    public var prevRotation: simd_quatf
+    public var linearVelocity: SIMD3<Float>
+    public var angularVelocity: SIMD3<Float>
+    public var mass: Float
+    public var inverseMass: Float
+
+    public init(bodyType: BodyType = .dynamic,
+                position: SIMD3<Float> = .zero,
+                rotation: simd_quatf = simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0)),
+                linearVelocity: SIMD3<Float> = .zero,
+                angularVelocity: SIMD3<Float> = .zero,
+                mass: Float = 1.0) {
+        self.bodyType = bodyType
+        self.position = position
+        self.rotation = rotation
+        self.prevPosition = position
+        self.prevRotation = rotation
+        self.linearVelocity = linearVelocity
+        self.angularVelocity = angularVelocity
+        self.mass = mass
+        self.inverseMass = mass > 0 ? 1.0 / mass : 0
+    }
+}
+
+public struct MoveIntentComponent {
+    public var desiredVelocity: SIMD3<Float>
+    public var desiredFacingYaw: Float
+    public var hasFacingYaw: Bool
+
+    public init(desiredVelocity: SIMD3<Float> = .zero,
+                desiredFacingYaw: Float = 0,
+                hasFacingYaw: Bool = false) {
+        self.desiredVelocity = desiredVelocity
+        self.desiredFacingYaw = desiredFacingYaw
+        self.hasFacingYaw = hasFacingYaw
+    }
+}
+
+public struct MovementComponent {
+    public var maxAcceleration: Float
+    public var maxDeceleration: Float
+
+    public init(maxAcceleration: Float = 20.0,
+                maxDeceleration: Float = 30.0) {
+        self.maxAcceleration = maxAcceleration
+        self.maxDeceleration = maxDeceleration
+    }
+}
+
+public enum ColliderShape {
+    case box(halfExtents: SIMD3<Float>)
+}
+
+public struct ColliderComponent {
+    public var shape: ColliderShape
+
+    public init(shape: ColliderShape) {
+        self.shape = shape
+    }
+
+    public struct AABB {
+        public var min: SIMD3<Float>
+        public var max: SIMD3<Float>
+    }
+
+    public static func computeAABB(position: SIMD3<Float>,
+                                   rotation: simd_quatf,
+                                   collider: ColliderComponent) -> AABB {
+        switch collider.shape {
+        case .box(let he):
+            // TODO: rotate extents for OBB -> AABB; for now assume axis-aligned.
+            _ = rotation
+            return AABB(min: position - he, max: position + he)
+        }
+    }
+}

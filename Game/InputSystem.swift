@@ -67,8 +67,10 @@ final class InputSystem: System {
         if controller == nil {
             controller = GCController.controllers().first
         }
-        guard let pad = controller?.extendedGamepad else { return }
-        guard var t = world.store(TransformComponent.self)[player] else { return }
+        guard let pad = controller?.extendedGamepad else {
+            world.store(MoveIntentComponent.self)[player] = MoveIntentComponent()
+            return
+        }
 
         let lx = axis(pad.leftThumbstick.xAxis.value)
         let ly = axis(-pad.leftThumbstick.yAxis.value)
@@ -84,18 +86,22 @@ final class InputSystem: System {
 
         let move = forward * ly + right * lx
         let moveLen = simd_length(move)
-        if moveLen > 0.001 {
+        var intent = MoveIntentComponent()
+        if moveLen > deadzone {
             let dir = move / moveLen
-            t.translation += dir * moveSpeed * dt
             let targetYaw = atan2f(dir.x, dir.z)
             facingYaw = approachAngle(current: facingYaw, target: targetYaw, maxDelta: turnSpeed * dt)
-            t.rotation = simd_quatf(angle: facingYaw, axis: SIMD3<Float>(0, 1, 0))
+            intent.desiredVelocity = dir * moveSpeed
+            intent.desiredFacingYaw = facingYaw
+            intent.hasFacingYaw = true
         }
+        world.store(MoveIntentComponent.self)[player] = intent
 
-        world.store(TransformComponent.self)[player] = t
-
+        let tStore = world.store(TransformComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let basePos = pStore[player]?.position ?? tStore[player]?.translation ?? .zero
         if let camera = camera {
-            let target = t.translation + SIMD3<Float>(0, cameraHeight, 0)
+            let target = basePos + SIMD3<Float>(0, cameraHeight, 0)
             let dir = SIMD3<Float>(sinf(yaw) * cosf(pitch),
                                    sinf(pitch),
                                    cosf(yaw) * cosf(pitch))
