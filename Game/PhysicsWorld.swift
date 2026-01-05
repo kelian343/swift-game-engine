@@ -11,6 +11,16 @@ public final class PhysicsWorld {
     public struct Pair: Hashable {
         public let a: Entity
         public let b: Entity
+
+        public init(a: Entity, b: Entity) {
+            if a.id <= b.id {
+                self.a = a
+                self.b = b
+            } else {
+                self.a = b
+                self.b = a
+            }
+        }
     }
 
     public struct Proxy {
@@ -21,9 +31,22 @@ public final class PhysicsWorld {
         public var collider: ColliderComponent
     }
 
+    public enum ContactEventType {
+        case enter
+        case stay
+        case exit
+    }
+
+    public struct ContactEvent {
+        public var pair: Pair
+        public var type: ContactEventType
+    }
+
     private(set) var proxies: [Proxy] = []
     private var proxyIndexForEntity: [Entity: Int] = [:]
     private(set) var broadphasePairs: [Pair] = []
+    private(set) var contactEvents: [ContactEvent] = []
+    private var contactPairs: Set<Pair> = []
 
     public init() {}
 
@@ -69,11 +92,31 @@ public final class PhysicsWorld {
             for j in (i + 1)..<order.count {
                 let b = proxies[order[j]]
                 if b.aabbMin.x > a.aabbMax.x { break }
+                if !a.collider.filter.canCollide(with: b.collider.filter) { continue }
                 if overlaps(a, b) {
                     broadphasePairs.append(Pair(a: a.entity, b: b.entity))
                 }
             }
         }
+    }
+
+    public func updateContactCache(from pairs: [Pair]) {
+        let newPairs = Set(pairs)
+        contactEvents.removeAll(keepingCapacity: true)
+
+        for p in newPairs {
+            if contactPairs.contains(p) {
+                contactEvents.append(ContactEvent(pair: p, type: .stay))
+            } else {
+                contactEvents.append(ContactEvent(pair: p, type: .enter))
+            }
+        }
+
+        for p in contactPairs where !newPairs.contains(p) {
+            contactEvents.append(ContactEvent(pair: p, type: .exit))
+        }
+
+        contactPairs = newPairs
     }
 
     private func overlaps(_ a: Proxy, _ b: Proxy) -> Bool {

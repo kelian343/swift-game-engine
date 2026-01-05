@@ -165,15 +165,59 @@ public struct MovementComponent {
     }
 }
 
+public struct PhysicsMaterial {
+    public var friction: Float
+    public var restitution: Float
+
+    public static let `default` = PhysicsMaterial(friction: 0.5, restitution: 0.0)
+
+    public init(friction: Float = 0.5, restitution: Float = 0.0) {
+        self.friction = friction
+        self.restitution = restitution
+    }
+}
+
+public struct CollisionLayer {
+    public var bits: UInt32
+
+    public static let `default` = CollisionLayer(bits: 1 << 0)
+
+    public init(bits: UInt32) {
+        self.bits = bits
+    }
+}
+
+public struct CollisionFilter {
+    public var layer: CollisionLayer
+    public var mask: UInt32
+
+    public static let `default` = CollisionFilter(layer: .default, mask: UInt32.max)
+
+    public init(layer: CollisionLayer = .default, mask: UInt32 = UInt32.max) {
+        self.layer = layer
+        self.mask = mask
+    }
+
+    public func canCollide(with other: CollisionFilter) -> Bool {
+        (layer.bits & other.mask) != 0 && (other.layer.bits & mask) != 0
+    }
+}
+
 public enum ColliderShape {
     case box(halfExtents: SIMD3<Float>)
 }
 
 public struct ColliderComponent {
     public var shape: ColliderShape
+    public var material: PhysicsMaterial
+    public var filter: CollisionFilter
 
-    public init(shape: ColliderShape) {
+    public init(shape: ColliderShape,
+                material: PhysicsMaterial = .default,
+                filter: CollisionFilter = .default) {
         self.shape = shape
+        self.material = material
+        self.filter = filter
     }
 
     public struct AABB {
