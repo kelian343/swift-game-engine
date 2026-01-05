@@ -8,6 +8,8 @@
 import simd
 
 public final class PhysicsWorld {
+    public typealias ProxyHandle = Int
+
     public struct Pair: Hashable {
         public let a: Entity
         public let b: Entity
@@ -29,6 +31,8 @@ public final class PhysicsWorld {
         public var aabbMax: SIMD3<Float>
         public var bodyType: BodyType
         public var collider: ColliderComponent
+        public var position: SIMD3<Float>
+        public var rotation: simd_quatf
     }
 
     public enum ContactEventType {
@@ -42,26 +46,31 @@ public final class PhysicsWorld {
         public var type: ContactEventType
     }
 
-    private(set) var proxies: [Proxy] = []
-    private var proxyIndexForEntity: [Entity: Int] = [:]
+    public struct ContactManifold {
+        public var pair: Pair
+        // TODO: add contact points, normal, penetration depth, friction, restitution.
+    }
+
+    private var proxies: [Proxy?] = []
+    private var freeProxies: [ProxyHandle] = []
+    private(set) var proxyByEntity: [Entity: ProxyHandle] = [:]
+    private(set) var dirtyProxies: Set<ProxyHandle> = []
+
     private(set) var broadphasePairs: [Pair] = []
+    private(set) var broadphaseProxyPairs: [(ProxyHandle, ProxyHandle)] = []
+    private(set) var manifolds: [ContactManifold] = []
     private(set) var contactEvents: [ContactEvent] = []
     private var contactPairs: Set<Pair> = []
 
     public init() {}
 
     public func sync(world: World) {
-        proxies.removeAll(keepingCapacity: true)
-        proxyIndexForEntity.removeAll(keepingCapacity: true)
-        broadphasePairs.removeAll(keepingCapacity: true)
-
         let entities = world.query(TransformComponent.self, ColliderComponent.self)
         let tStore = world.store(TransformComponent.self)
         let cStore = world.store(ColliderComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
 
-        proxies.reserveCapacity(entities.count)
-
+        let entitySet = Set(entities)
         for e in entities {
             guard let t = tStore[e], let c = cStore[e] else { continue }
 
@@ -70,31 +79,52 @@ public final class PhysicsWorld {
             let rot = body?.rotation ?? t.rotation
             let bodyType = body?.bodyType ?? .static
 
-            let aabb = ColliderComponent.computeAABB(position: pos, rotation: rot, collider: c)
-            let proxy = Proxy(entity: e,
-                              aabbMin: aabb.min,
-                              aabbMax: aabb.max,
-                              bodyType: bodyType,
-                              collider: c)
-            proxyIndexForEntity[e] = proxies.count
-            proxies.append(proxy)
+            if let handle = proxyByEntity[e] {
+                updateProxy(handle: handle,
+                            entity: e,
+                            position: pos,
+                            rotation: rot,
+                            bodyType: bodyType,
+                            collider: c)
+            } else {
+                _ = createProxy(entity: e,
+                                position: pos,
+                                rotation: rot,
+                                bodyType: bodyType,
+                                collider: c)
+            }
+        }
+
+        // Remove proxies whose entities no longer have colliders.
+        for (entity, handle) in proxyByEntity where !entitySet.contains(entity) {
+            removeProxy(handle: handle, entity: entity)
         }
     }
 
     public func buildBroadphasePairs() {
         broadphasePairs.removeAll(keepingCapacity: true)
-        guard proxies.count > 1 else { return }
+        broadphaseProxyPairs.removeAll(keepingCapacity: true)
 
-        let order = proxies.indices.sorted { proxies[$0].aabbMin.x < proxies[$1].aabbMin.x }
+        let activeHandles: [ProxyHandle] = proxies.indices.compactMap { idx in
+            proxies[idx] == nil ? nil : idx
+        }
+        guard activeHandles.count > 1 else { return }
+
+        let order = activeHandles.sorted {
+            let a = proxies[$0]!
+            let b = proxies[$1]!
+            return a.aabbMin.x < b.aabbMin.x
+        }
 
         for i in 0..<order.count {
-            let a = proxies[order[i]]
+            let a = proxies[order[i]]!
             for j in (i + 1)..<order.count {
-                let b = proxies[order[j]]
+                let b = proxies[order[j]]!
                 if b.aabbMin.x > a.aabbMax.x { break }
                 if !a.collider.filter.canCollide(with: b.collider.filter) { continue }
                 if overlaps(a, b) {
                     broadphasePairs.append(Pair(a: a.entity, b: b.entity))
+                    broadphaseProxyPairs.append((order[i], order[j]))
                 }
             }
         }
@@ -119,10 +149,88 @@ public final class PhysicsWorld {
         contactPairs = newPairs
     }
 
+    public func setManifolds(_ newManifolds: [ContactManifold]) {
+        manifolds = newManifolds
+    }
+
+    public func clearManifolds(keepingCapacity: Bool = true) {
+        manifolds.removeAll(keepingCapacity: keepingCapacity)
+    }
+
     private func overlaps(_ a: Proxy, _ b: Proxy) -> Bool {
         if a.aabbMax.x < b.aabbMin.x || a.aabbMin.x > b.aabbMax.x { return false }
         if a.aabbMax.y < b.aabbMin.y || a.aabbMin.y > b.aabbMax.y { return false }
         if a.aabbMax.z < b.aabbMin.z || a.aabbMin.z > b.aabbMax.z { return false }
         return true
+    }
+
+    // MARK: - Proxy Management
+
+    private func createProxy(entity: Entity,
+                             position: SIMD3<Float>,
+                             rotation: simd_quatf,
+                             bodyType: BodyType,
+                             collider: ColliderComponent) -> ProxyHandle {
+        let aabb = ColliderComponent.computeAABB(position: position, rotation: rotation, collider: collider)
+        let proxy = Proxy(entity: entity,
+                          aabbMin: aabb.min,
+                          aabbMax: aabb.max,
+                          bodyType: bodyType,
+                          collider: collider,
+                          position: position,
+                          rotation: rotation)
+
+        let handle: ProxyHandle
+        if let reused = freeProxies.popLast() {
+            handle = reused
+            proxies[handle] = proxy
+        } else {
+            handle = proxies.count
+            proxies.append(proxy)
+        }
+
+        proxyByEntity[entity] = handle
+        dirtyProxies.insert(handle)
+        return handle
+    }
+
+    private func updateProxy(handle: ProxyHandle,
+                             entity: Entity,
+                             position: SIMD3<Float>,
+                             rotation: simd_quatf,
+                             bodyType: BodyType,
+                             collider: ColliderComponent) {
+        guard var proxy = proxies[handle] else {
+            _ = createProxy(entity: entity,
+                            position: position,
+                            rotation: rotation,
+                            bodyType: bodyType,
+                            collider: collider)
+            return
+        }
+
+        let posChanged = simd_length(proxy.position - position) > 0.00001
+        let rotChanged = simd_length(proxy.rotation.vector - rotation.vector) > 0.00001
+        let colChanged = proxy.collider != collider
+        let bodyChanged = proxy.bodyType != bodyType
+
+        if posChanged || rotChanged || colChanged || bodyChanged {
+            let aabb = ColliderComponent.computeAABB(position: position, rotation: rotation, collider: collider)
+            proxy.aabbMin = aabb.min
+            proxy.aabbMax = aabb.max
+            proxy.position = position
+            proxy.rotation = rotation
+            proxy.collider = collider
+            proxy.bodyType = bodyType
+            proxies[handle] = proxy
+            dirtyProxies.insert(handle)
+        }
+    }
+
+    private func removeProxy(handle: ProxyHandle, entity: Entity) {
+        proxies[handle] = nil
+        freeProxies.append(handle)
+        dirtyProxies.remove(handle)
+        proxyByEntity.removeValue(forKey: entity)
     }
 }

@@ -165,7 +165,7 @@ public struct MovementComponent {
     }
 }
 
-public struct PhysicsMaterial {
+public struct PhysicsMaterial: Equatable {
     public var friction: Float
     public var restitution: Float
 
@@ -177,7 +177,7 @@ public struct PhysicsMaterial {
     }
 }
 
-public struct CollisionLayer {
+public struct CollisionLayer: Equatable {
     public var bits: UInt32
 
     public static let `default` = CollisionLayer(bits: 1 << 0)
@@ -187,7 +187,7 @@ public struct CollisionLayer {
     }
 }
 
-public struct CollisionFilter {
+public struct CollisionFilter: Equatable {
     public var layer: CollisionLayer
     public var mask: UInt32
 
@@ -203,11 +203,14 @@ public struct CollisionFilter {
     }
 }
 
-public enum ColliderShape {
+public enum ColliderShape: Equatable {
     case box(halfExtents: SIMD3<Float>)
+    case sphere(radius: Float)
+    /// Capsule aligned to local Y axis (center at origin)
+    case capsule(halfHeight: Float, radius: Float)
 }
 
-public struct ColliderComponent {
+public struct ColliderComponent: Equatable {
     public var shape: ColliderShape
     public var material: PhysicsMaterial
     public var filter: CollisionFilter
@@ -230,9 +233,27 @@ public struct ColliderComponent {
                                    collider: ColliderComponent) -> AABB {
         switch collider.shape {
         case .box(let he):
-            // TODO: rotate extents for OBB -> AABB; for now assume axis-aligned.
-            _ = rotation
-            return AABB(min: position - he, max: position + he)
+            // OBB -> world AABB using |R| * he
+            let r = simd_float3x3(rotation)
+            let absR = simd_float3x3(columns: (
+                simd_abs(r.columns.0),
+                simd_abs(r.columns.1),
+                simd_abs(r.columns.2)
+            ))
+            let worldHe = simd_mul(absR, he)
+            return AABB(min: position - worldHe, max: position + worldHe)
+        case .sphere(let radius):
+            let ext = SIMD3<Float>(repeating: radius)
+            return AABB(min: position - ext, max: position + ext)
+        case .capsule(let halfHeight, let radius):
+            let localA = SIMD3<Float>(0, -halfHeight, 0)
+            let localB = SIMD3<Float>(0, halfHeight, 0)
+            let worldA = position + rotation.act(localA)
+            let worldB = position + rotation.act(localB)
+            let minBase = simd_min(worldA, worldB)
+            let maxBase = simd_max(worldA, worldB)
+            let ext = SIMD3<Float>(repeating: radius)
+            return AABB(min: minBase - ext, max: maxBase + ext)
         }
     }
 }

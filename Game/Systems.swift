@@ -113,6 +113,26 @@ public final class SpinSystem: FixedStepSystem {
     }
 }
 
+/// Lock previous transforms at the start of a physics fixed step.
+public final class PhysicsBeginStepSystem: FixedStepSystem {
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = dt
+        let bodies = world.query(PhysicsBodyComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+
+        for e in bodies {
+            guard var body = pStore[e] else { continue }
+            if body.bodyType == .dynamic || body.bodyType == .kinematic {
+                body.prevPosition = body.position
+                body.prevRotation = body.rotation
+                pStore[e] = body
+            }
+        }
+    }
+}
+
 /// Sync ECS transforms/colliders to PhysicsWorld proxies.
 public final class PhysicsSyncSystem: FixedStepSystem {
     private let physicsWorld: PhysicsWorld
@@ -139,6 +159,38 @@ public final class PhysicsBroadphaseSystem: FixedStepSystem {
         _ = world
         _ = dt
         physicsWorld.buildBroadphasePairs()
+    }
+}
+
+/// Narrowphase placeholder: build contact manifolds from broadphase pairs.
+public final class PhysicsNarrowphaseSystem: FixedStepSystem {
+    private let physicsWorld: PhysicsWorld
+
+    public init(physicsWorld: PhysicsWorld) {
+        self.physicsWorld = physicsWorld
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = world
+        _ = dt
+        // TODO: Replace with GJK/EPA (convex) and mesh BVH queries.
+        physicsWorld.clearManifolds(keepingCapacity: true)
+    }
+}
+
+/// Solver placeholder: resolve contacts and apply impulses.
+public final class PhysicsSolverSystem: FixedStepSystem {
+    private let physicsWorld: PhysicsWorld
+
+    public init(physicsWorld: PhysicsWorld) {
+        self.physicsWorld = physicsWorld
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = world
+        _ = dt
+        _ = physicsWorld
+        // TODO: Sequential impulse / PGS using physicsWorld.manifolds.
     }
 }
 
@@ -181,7 +233,7 @@ private func approachVec(current: SIMD3<Float>, target: SIMD3<Float>, maxDelta: 
 }
 
 /// Minimal physics integration step (authoritative for entities with PhysicsBodyComponent).
-public final class PhysicsSystem: FixedStepSystem {
+public final class PhysicsIntegrateSystem: FixedStepSystem {
     public init() {}
 
     public func fixedUpdate(world: World, dt: Float) {
@@ -190,8 +242,6 @@ public final class PhysicsSystem: FixedStepSystem {
 
         for e in bodies {
             guard var body = pStore[e] else { continue }
-            body.prevPosition = body.position
-            body.prevRotation = body.rotation
 
             switch body.bodyType {
             case .static:
@@ -228,6 +278,22 @@ public final class PhysicsWritebackSystem: FixedStepSystem {
             t.rotation = body.rotation
             tStore[e] = t
         }
+    }
+}
+
+/// Events placeholder: update enter/stay/exit sets after physics step.
+public final class PhysicsEventsSystem: FixedStepSystem {
+    private let physicsWorld: PhysicsWorld
+
+    public init(physicsWorld: PhysicsWorld) {
+        self.physicsWorld = physicsWorld
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = world
+        _ = dt
+        // TODO: Use real contact manifolds once narrowphase is in place.
+        physicsWorld.updateContactCache(from: physicsWorld.broadphasePairs)
     }
 }
 

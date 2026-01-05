@@ -22,9 +22,13 @@ public final class DemoScene: RenderScene {
     private let physicsWorld = PhysicsWorld()
     private let physicsSyncSystem: PhysicsSyncSystem
     private let physicsBroadphaseSystem: PhysicsBroadphaseSystem
+    private let physicsBeginStepSystem = PhysicsBeginStepSystem()
+    private let physicsNarrowphaseSystem: PhysicsNarrowphaseSystem
+    private let physicsSolverSystem: PhysicsSolverSystem
     private let physicsIntentSystem = PhysicsIntentSystem()
-    private let physicsSystem = PhysicsSystem()
+    private let physicsIntegrateSystem = PhysicsIntegrateSystem()
     private let physicsWritebackSystem = PhysicsWritebackSystem()
+    private let physicsEventsSystem: PhysicsEventsSystem
     private let fixedRunner: FixedStepRunner
     private let extractSystem = RenderExtractSystem()
 
@@ -32,10 +36,13 @@ public final class DemoScene: RenderScene {
         self.inputSystem = InputSystem(camera: camera)
         self.physicsSyncSystem = PhysicsSyncSystem(physicsWorld: physicsWorld)
         self.physicsBroadphaseSystem = PhysicsBroadphaseSystem(physicsWorld: physicsWorld)
+        self.physicsNarrowphaseSystem = PhysicsNarrowphaseSystem(physicsWorld: physicsWorld)
+        self.physicsSolverSystem = PhysicsSolverSystem(physicsWorld: physicsWorld)
+        self.physicsEventsSystem = PhysicsEventsSystem(physicsWorld: physicsWorld)
         self.fixedRunner = FixedStepRunner(
-            preFixed: [spinSystem, physicsIntentSystem, physicsSyncSystem],
-            fixed: [physicsBroadphaseSystem, physicsSystem],
-            postFixed: [physicsWritebackSystem]
+            preFixed: [spinSystem, physicsIntentSystem, physicsSyncSystem, physicsBeginStepSystem],
+            fixed: [physicsBroadphaseSystem, physicsNarrowphaseSystem, physicsSolverSystem, physicsIntegrateSystem],
+            postFixed: [physicsWritebackSystem, physicsEventsSystem]
         )
     }
 
