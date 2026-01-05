@@ -46,9 +46,36 @@ public final class PhysicsWorld {
         public var type: ContactEventType
     }
 
+    public struct ContactPoint {
+        public var position: SIMD3<Float>
+        public var normal: SIMD3<Float>
+        public var penetration: Float
+
+        public init(position: SIMD3<Float>, normal: SIMD3<Float>, penetration: Float) {
+            self.position = position
+            self.normal = normal
+            self.penetration = penetration
+        }
+    }
+
     public struct ContactManifold {
         public var pair: Pair
-        // TODO: add contact points, normal, penetration depth, friction, restitution.
+        public var normal: SIMD3<Float>
+        public var points: [ContactPoint]
+        public var friction: Float
+        public var restitution: Float
+
+        public init(pair: Pair,
+                    normal: SIMD3<Float>,
+                    points: [ContactPoint],
+                    friction: Float,
+                    restitution: Float) {
+            self.pair = pair
+            self.normal = normal
+            self.points = points
+            self.friction = friction
+            self.restitution = restitution
+        }
     }
 
     private var proxies: [Proxy?] = []
@@ -155,6 +182,11 @@ public final class PhysicsWorld {
 
     public func clearManifolds(keepingCapacity: Bool = true) {
         manifolds.removeAll(keepingCapacity: keepingCapacity)
+    }
+
+    public func proxy(for handle: ProxyHandle) -> Proxy? {
+        guard handle >= 0 && handle < proxies.count else { return nil }
+        return proxies[handle]
     }
 
     private func overlaps(_ a: Proxy, _ b: Proxy) -> Bool {

@@ -15,6 +15,23 @@ public protocol FixedStepSystem {
     func fixedUpdate(world: World, dt: Float)
 }
 
+public protocol Narrowphase {
+    func generateManifolds(world: PhysicsWorld,
+                           pairs: [(PhysicsWorld.ProxyHandle, PhysicsWorld.ProxyHandle)])
+    -> [PhysicsWorld.ContactManifold]
+}
+
+public struct NullNarrowphase: Narrowphase {
+    public init() {}
+    public func generateManifolds(world: PhysicsWorld,
+                                  pairs: [(PhysicsWorld.ProxyHandle, PhysicsWorld.ProxyHandle)])
+    -> [PhysicsWorld.ContactManifold] {
+        _ = world
+        _ = pairs
+        return []
+    }
+}
+
 /// Tracks global time inside ECS via a singleton TimeComponent.
 public final class TimeSystem: System {
     private var timeEntity: Entity?
@@ -165,16 +182,19 @@ public final class PhysicsBroadphaseSystem: FixedStepSystem {
 /// Narrowphase placeholder: build contact manifolds from broadphase pairs.
 public final class PhysicsNarrowphaseSystem: FixedStepSystem {
     private let physicsWorld: PhysicsWorld
+    private let narrowphase: Narrowphase
 
-    public init(physicsWorld: PhysicsWorld) {
+    public init(physicsWorld: PhysicsWorld, narrowphase: Narrowphase = NullNarrowphase()) {
         self.physicsWorld = physicsWorld
+        self.narrowphase = narrowphase
     }
 
     public func fixedUpdate(world: World, dt: Float) {
         _ = world
         _ = dt
-        // TODO: Replace with GJK/EPA (convex) and mesh BVH queries.
-        physicsWorld.clearManifolds(keepingCapacity: true)
+        let manifolds = narrowphase.generateManifolds(world: physicsWorld,
+                                                      pairs: physicsWorld.broadphaseProxyPairs)
+        physicsWorld.setManifolds(manifolds)
     }
 }
 
