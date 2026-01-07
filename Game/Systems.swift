@@ -301,7 +301,14 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             if body.bodyType == .static { continue }
 
             var position = body.position
+            let wasGrounded = controller.grounded
+            if wasGrounded && body.linearVelocity.y < 0 {
+                body.linearVelocity.y = 0
+            }
             var remaining = body.linearVelocity * dt
+            if wasGrounded && remaining.y < 0 {
+                remaining.y = 0
+            }
             var isGrounded = false
 
             for _ in 0..<controller.maxSlideIterations {
@@ -331,6 +338,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
 
                     var leftover = remaining - dir * moveDist
                     leftover -= hit.normal * simd_dot(leftover, hit.normal)
+                    if wasGrounded && leftover.y < 0 {
+                        leftover.y = 0
+                    }
                     let residual = simd_dot(leftover, hit.normal)
                     if abs(residual) < 1e-5 {
                         leftover -= hit.normal * residual
