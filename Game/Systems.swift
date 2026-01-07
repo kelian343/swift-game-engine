@@ -230,8 +230,27 @@ public final class PhysicsIntentSystem: FixedStepSystem {
             guard let intent = mStore[e] else { continue }
             if body.bodyType == .dynamic || body.bodyType == .kinematic {
                 let move = mvStore[e] ?? MovementComponent()
-                if cStore.contains(e) {
-                    let target = SIMD3<Float>(intent.desiredVelocity.x, 0, intent.desiredVelocity.z)
+                if let controller = cStore[e] {
+                    let input = SIMD3<Float>(intent.desiredVelocity.x, 0, intent.desiredVelocity.z)
+                    var target = input
+                    if controller.groundedNear {
+                        let n = simd_normalize(controller.groundNormal)
+                        let g = SIMD3<Float>(0, -1, 0)
+                        let gTan = g - n * simd_dot(g, n)
+                        let gTanLen = simd_length(gTan)
+                        if gTanLen > 1e-5 {
+                            let downhill = gTan / gTanLen
+                            var uphill2D = SIMD3<Float>(-downhill.x, 0, -downhill.z)
+                            let uphill2DLen = simd_length(uphill2D)
+                            if uphill2DLen > 1e-5 {
+                                uphill2D /= uphill2DLen
+                                let uphillSpeed = simd_dot(target, uphill2D)
+                                if uphillSpeed > 0 {
+                                    target += uphill2D * (uphillSpeed * controller.uphillBoostScale)
+                                }
+                            }
+                        }
+                    }
                     let current = SIMD3<Float>(body.linearVelocity.x, 0, body.linearVelocity.z)
                     let accel = simd_length(target) >= simd_length(current) ? move.maxAcceleration : move.maxDeceleration
                     let next = approachVec(current: current, target: target, maxDelta: accel * dt)
@@ -323,10 +342,6 @@ public final class GravitySystem: FixedStepSystem {
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
     private let gravity: SIMD3<Float>
-    public var frictionDebugEnabled: Bool = false
-    private var debugFrameIndex: Int = 0
-    private let frictionDebugEveryN: Int = 30
-    private let frictionDebugNormalYThreshold: Float = 0.995
 
     public init(gravity: SIMD3<Float> = SIMD3<Float>(0, -98.0, 0)) {
         self.gravity = gravity
@@ -338,9 +353,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
 
     public func fixedUpdate(world: World, dt: Float) {
         guard let query = query else { return }
-        if frictionDebugEnabled {
-            debugFrameIndex &+= 1
-        }
         let bodies = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
@@ -476,50 +488,30 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 }
             }
 
-            var didStick = false
-            var didSlide = false
-            var debugNormal = SIMD3<Float>.zero
-            var debugGTanLen: Float = 0
-            var debugStickLimit: Float = 0
-            var debugDownhillSpeed: Float = 0
             if isGrounded, let n = groundNormal {
                 let normal = simd_normalize(n)
-                debugNormal = normal
                 let g = gravity
                 let gN = simd_dot(g, normal)
                 let gTan = g - normal * gN
                 let gTanLen = simd_length(gTan)
-                debugGTanLen = gTanLen
                 let slopeAccelEps: Float = 0.5
                 if gTanLen > slopeAccelEps {
                     let gNMag = abs(gN)
                     let gTanDir = gTan / gTanLen
                     let stickLimit = groundMaterial.muS * gNMag
-                    debugStickLimit = stickLimit
                     if gTanLen <= stickLimit {
                         let v = body.linearVelocity
                         let vTan = v - normal * simd_dot(v, normal)
                         let downhillSpeed = simd_dot(vTan, gTanDir)
-                        debugDownhillSpeed = downhillSpeed
                         if downhillSpeed > 0 {
                             body.linearVelocity -= gTanDir * downhillSpeed
-                            didStick = true
                         }
                     } else {
                         let slideAccelMag = max(gTanLen - groundMaterial.muK * gNMag, 0)
                         if slideAccelMag > 0 {
                             body.linearVelocity += gTanDir * slideAccelMag * dt
-                            didSlide = true
                         }
                     }
-                }
-            }
-
-            if frictionDebugEnabled && isGrounded {
-                let shouldLog = (debugFrameIndex % frictionDebugEveryN == 0) ||
-                    (debugNormal.y < frictionDebugNormalYThreshold)
-                if shouldLog {
-                    print("SlopeFrictionDebug e=\(e.id) n=\(debugNormal) nY=\(debugNormal.y) gTanLen=\(debugGTanLen) muS=\(groundMaterial.muS) muK=\(groundMaterial.muK) stickLimit=\(debugStickLimit) downhillSpeed=\(debugDownhillSpeed) stick=\(didStick) slide=\(didSlide)")
                 }
             }
 
@@ -527,6 +519,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             pStore[e] = body
             controller.grounded = isGrounded
             controller.groundedNear = isGroundedNear
+            controller.groundNormal = groundNormal ?? SIMD3<Float>(0, 1, 0)
             cStore[e] = controller
 
         }

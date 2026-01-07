@@ -213,7 +213,6 @@ public final class DemoScene: RenderScene {
         if let query = collisionQuery {
             kinematicMoveSystem.setQuery(query)
         }
-        kinematicMoveSystem.frictionDebugEnabled = true
 
         // New resources were created -> bump revision once
         revision &+= 1

@@ -82,6 +82,8 @@ public struct CharacterControllerComponent {
     public var groundSweepMaxStep: Float
     public var maxSlideIterations: Int
     public var minGroundDot: Float
+    public var groundNormal: SIMD3<Float>
+    public var uphillBoostScale: Float
     public var grounded: Bool
     public var groundedNear: Bool
 
@@ -96,6 +98,8 @@ public struct CharacterControllerComponent {
                 groundSweepMaxStep: Float = 0.1,
                 maxSlideIterations: Int = 4,
                 minGroundDot: Float = 0.5,
+                groundNormal: SIMD3<Float> = SIMD3<Float>(0, 1, 0),
+                uphillBoostScale: Float = 1.0,
                 grounded: Bool = false,
                 groundedNear: Bool = false) {
         self.radius = radius
@@ -109,6 +113,8 @@ public struct CharacterControllerComponent {
         self.groundSweepMaxStep = groundSweepMaxStep
         self.maxSlideIterations = maxSlideIterations
         self.minGroundDot = minGroundDot
+        self.groundNormal = groundNormal
+        self.uphillBoostScale = uphillBoostScale
         self.grounded = grounded
         self.groundedNear = groundedNear
     }
