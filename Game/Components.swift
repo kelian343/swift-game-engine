@@ -56,6 +56,14 @@ public struct RenderComponent {
     }
 }
 
+public struct StaticMeshComponent {
+    public var mesh: MeshData
+
+    public init(mesh: MeshData) {
+        self.mesh = mesh
+    }
+}
+
 // MARK: - Optional: Simple rotation driver (demo)
 
 public struct SpinComponent {
