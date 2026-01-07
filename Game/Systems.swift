@@ -390,7 +390,6 @@ public final class GravitySystem: FixedStepSystem {
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
     private let gravity: SIMD3<Float>
-    private let debugPlatformCarry = true
 
     public init(gravity: SIMD3<Float> = SIMD3<Float>(0, -98.0, 0)) {
         self.gravity = gravity
@@ -453,9 +452,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     let topTol = controller.snapDistance + max(controller.skinWidth, controller.groundSnapSkin) + 0.05
                     let onTop = withinXZ && baseY >= topY - topTol && baseY <= topY + topTol
 
-                    if debugPlatformCarry {
-                        print("PlatformTest e=\(e.id) pe=\(pe.id) onTop=\(onTop) withinXZ=\(withinXZ) baseY=\(baseY) topY=\(topY) pDelta=\(pDelta)")
-                    }
                     if onTop {
                         if simd_length_squared(pDelta) > simd_length_squared(bestCarry) {
                             bestCarry = pDelta
@@ -477,9 +473,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                             let dz = position.z - cz
                             let sideDistSq = dx * dx + dz * dz
                             let sidePushTol = controller.radius + sideTol
-                            if debugPlatformCarry {
-                                print("PlatformSide e=\(e.id) pe=\(pe.id) sideDistSq=\(sideDistSq) sidePushTol=\(sidePushTol) yRange=\(yMin)...\(yMax)")
-                            }
                             if sideDistSq <= sidePushTol * sidePushTol {
                                 pushDelta += SIMD3<Float>(pDelta.x, 0, pDelta.z)
                             }
@@ -488,14 +481,8 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 }
 
                 if simd_length_squared(bestCarry) > 1e-8 {
-                    if debugPlatformCarry {
-                        print("PlatformCarryApply e=\(e.id) delta=\(bestCarry)")
-                    }
                     position += bestCarry
                 } else if simd_length_squared(pushDelta) > 1e-8 {
-                    if debugPlatformCarry {
-                        print("PlatformPushApply e=\(e.id) delta=\(pushDelta)")
-                    }
                     position += pushDelta
                 }
             }
