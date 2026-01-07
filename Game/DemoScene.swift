@@ -26,6 +26,7 @@ public final class DemoScene: RenderScene {
     private let physicsNarrowphaseSystem: PhysicsNarrowphaseSystem
     private let physicsSolverSystem: PhysicsSolverSystem
     private let physicsIntentSystem = PhysicsIntentSystem()
+    private let kinematicMoveSystem = KinematicMoveStopSystem()
     private let physicsIntegrateSystem = PhysicsIntegrateSystem()
     private let physicsWritebackSystem = PhysicsWritebackSystem()
     private let physicsEventsSystem: PhysicsEventsSystem
@@ -43,7 +44,11 @@ public final class DemoScene: RenderScene {
         self.physicsEventsSystem = PhysicsEventsSystem(physicsWorld: physicsWorld)
         self.fixedRunner = FixedStepRunner(
             preFixed: [spinSystem, physicsIntentSystem, physicsSyncSystem, physicsBeginStepSystem],
-            fixed: [physicsBroadphaseSystem, physicsNarrowphaseSystem, physicsSolverSystem, physicsIntegrateSystem],
+            fixed: [physicsBroadphaseSystem,
+                    physicsNarrowphaseSystem,
+                    physicsSolverSystem,
+                    kinematicMoveSystem,
+                    physicsIntegrateSystem],
             postFixed: [physicsWritebackSystem, physicsEventsSystem]
         )
     }
@@ -102,6 +107,9 @@ public final class DemoScene: RenderScene {
             world.add(e, MovementComponent(maxAcceleration: 16.0, maxDeceleration: 24.0))
             world.add(e, ColliderComponent(shape: .capsule(halfHeight: playerHalfHeight,
                                                           radius: playerRadius)))
+            world.add(e, CharacterControllerComponent(radius: playerRadius,
+                                                      halfHeight: playerHalfHeight,
+                                                      skinWidth: 0.3))
         }
 
         // --- Test Wall: large static blocker
@@ -170,6 +178,10 @@ public final class DemoScene: RenderScene {
         // Extract initial draw calls
         renderItems = extractSystem.extract(world: world)
         collisionQuery = CollisionQuery(world: world)
+        if let query = collisionQuery {
+            kinematicMoveSystem.setQuery(query)
+            kinematicMoveSystem.debugLogs = true
+        }
 
         // New resources were created -> bump revision once
         revision &+= 1

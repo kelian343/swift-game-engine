@@ -252,6 +252,62 @@ private func approachVec(current: SIMD3<Float>, target: SIMD3<Float>, maxDelta: 
     return current + delta / len * maxDelta
 }
 
+/// Kinematic capsule sweep: move to TOI and stop (no slide yet).
+public final class KinematicMoveStopSystem: FixedStepSystem {
+    private var query: CollisionQuery?
+    public var debugLogs: Bool = false
+
+    public init() {}
+
+    public func setQuery(_ query: CollisionQuery) {
+        self.query = query
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        guard let query = query else { return }
+        let bodies = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let cStore = world.store(CharacterControllerComponent.self)
+        let tStore = world.store(TimeComponent.self)
+        let timeEntity = world.query(TimeComponent.self).first
+        let frame = timeEntity.flatMap { tStore[$0]?.frame } ?? 0
+
+        for e in bodies {
+            guard var body = pStore[e], let controller = cStore[e] else { continue }
+            if body.bodyType == .static { continue }
+
+            let delta = body.linearVelocity * dt
+            let len = simd_length(delta)
+            if len < 1e-6 { continue }
+
+            if let hit = query.capsuleCast(from: body.position,
+                                           delta: delta,
+                                           radius: controller.radius,
+                                           halfHeight: controller.halfHeight) {
+                let into = simd_dot(delta, hit.normal)
+                if into < 0 {
+                    let moveDist = max(hit.toi - controller.skinWidth, 0)
+                    let dir = delta / len
+                    body.position += dir * moveDist
+                    let vInto = simd_dot(body.linearVelocity, hit.normal)
+                    if vInto < 0 {
+                        body.linearVelocity -= hit.normal * vInto
+                    }
+                    if debugLogs && frame % 10 == 0 {
+                        print("KinematicHit e=\(e.id) toi=\(hit.toi) move=\(moveDist) n=\(hit.normal) v=\(body.linearVelocity)")
+                    }
+                } else {
+                    body.position += delta
+                }
+            } else {
+                body.position += delta
+            }
+
+            pStore[e] = body
+        }
+    }
+}
+
 /// Minimal physics integration step (authoritative for entities with PhysicsBodyComponent).
 public final class PhysicsIntegrateSystem: FixedStepSystem {
     public init() {}
@@ -259,9 +315,11 @@ public final class PhysicsIntegrateSystem: FixedStepSystem {
     public func fixedUpdate(world: World, dt: Float) {
         let bodies = world.query(PhysicsBodyComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
+        let cStore = world.store(CharacterControllerComponent.self)
 
         for e in bodies {
             guard var body = pStore[e] else { continue }
+            if cStore.contains(e) { continue }
 
             switch body.bodyType {
             case .static:

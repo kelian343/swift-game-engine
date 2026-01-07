@@ -64,6 +64,20 @@ public struct StaticMeshComponent {
     }
 }
 
+public struct CharacterControllerComponent {
+    public var radius: Float
+    public var halfHeight: Float
+    public var skinWidth: Float
+
+    public init(radius: Float = 1.5,
+                halfHeight: Float = 1.0,
+                skinWidth: Float = 0.3) {
+        self.radius = radius
+        self.halfHeight = halfHeight
+        self.skinWidth = skinWidth
+    }
+}
+
 // MARK: - Optional: Simple rotation driver (demo)
 
 public struct SpinComponent {

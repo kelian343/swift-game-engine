@@ -38,7 +38,7 @@ public final class CollisionQuery {
                             delta: SIMD3<Float>,
                             radius: Float,
                             halfHeight: Float) -> CapsuleCastHit? {
-        staticMesh.capsuleCastApprox(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
+        staticMesh.capsuleCast(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
     }
 }
 
@@ -129,6 +129,20 @@ public struct StaticTriMesh {
             return raycastGrid(origin: origin, direction: direction, maxDistance: maxDistance, grid: grid)
         }
         return raycastBrute(origin: origin, direction: direction, maxDistance: maxDistance)
+    }
+
+    public func capsuleCast(from: SIMD3<Float>,
+                            delta: SIMD3<Float>,
+                            radius: Float,
+                            halfHeight: Float) -> CapsuleCastHit? {
+        if let grid {
+            return capsuleCastGrid(from: from,
+                                   delta: delta,
+                                   radius: radius,
+                                   halfHeight: halfHeight,
+                                   grid: grid)
+        }
+        return capsuleCastApprox(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
     }
 
     public func capsuleCastApprox(from: SIMD3<Float>,
@@ -331,6 +345,294 @@ private extension StaticTriMesh {
         }
 
         return hit
+    }
+
+    private func capsuleCastGrid(from: SIMD3<Float>,
+                                 delta: SIMD3<Float>,
+                                 radius: Float,
+                                 halfHeight: Float,
+                                 grid: UniformGrid) -> CapsuleCastHit? {
+        let len = simd_length(delta)
+        if len < 1e-6 { return nil }
+        let dir = delta / len
+
+        let up = SIMD3<Float>(0, 1, 0)
+        let a0 = from + up * halfHeight
+        let b0 = from - up * halfHeight
+        let a1 = a0 + delta
+        let b1 = b0 + delta
+
+        var minP = simd_min(simd_min(a0, b0), simd_min(a1, b1))
+        var maxP = simd_max(simd_max(a0, b0), simd_max(a1, b1))
+        let ext = SIMD3<Float>(repeating: radius)
+        minP -= ext
+        maxP += ext
+
+        let minCell = StaticTriMesh.cellCoord(position: minP, origin: grid.origin, cellSize: grid.cellSize)
+        let maxCell = StaticTriMesh.cellCoord(position: maxP, origin: grid.origin, cellSize: grid.cellSize)
+
+        var candidates = Set<Int>()
+        for z in minCell.z...maxCell.z {
+            for y in minCell.y...maxCell.y {
+                for x in minCell.x...maxCell.x {
+                    let key = CellCoord(x: x, y: y, z: z)
+                    if let tris = grid.cells[key] {
+                        for tri in tris {
+                            candidates.insert(tri)
+                        }
+                    }
+                }
+            }
+        }
+
+        if candidates.isEmpty { return nil }
+
+        var bestHit: CapsuleCastHit?
+        var bestT = len
+
+        for triIndex in candidates {
+            let base = triIndex * 3
+            if base + 2 >= indices.count { continue }
+            let v0 = positions[Int(indices[base])]
+            let v1 = positions[Int(indices[base + 1])]
+            let v2 = positions[Int(indices[base + 2])]
+
+            if let hit = sweepCapsuleTriangle(from: from,
+                                              dir: dir,
+                                              maxDistance: len,
+                                              radius: radius,
+                                              halfHeight: halfHeight,
+                                              v0: v0,
+                                              v1: v1,
+                                              v2: v2,
+                                              triangleIndex: triIndex),
+               hit.toi < bestT {
+                bestT = hit.toi
+                bestHit = hit
+            }
+        }
+
+        return bestHit
+    }
+
+    private func sweepCapsuleTriangle(from: SIMD3<Float>,
+                                      dir: SIMD3<Float>,
+                                      maxDistance: Float,
+                                      radius: Float,
+                                      halfHeight: Float,
+                                      v0: SIMD3<Float>,
+                                      v1: SIMD3<Float>,
+                                      v2: SIMD3<Float>,
+                                      triangleIndex: Int) -> CapsuleCastHit? {
+        let maxIter = 24
+        var t: Float = 0
+        let triNormal = simd_normalize(simd_cross(v1 - v0, v2 - v0))
+
+        for _ in 0..<maxIter {
+            if t > maxDistance { return nil }
+            let center = from + dir * t
+            let (dist, segPoint, triPoint) = segmentTriangleDistance(center: center,
+                                                                     halfHeight: halfHeight,
+                                                                     v0: v0,
+                                                                     v1: v1,
+                                                                     v2: v2)
+            if dist <= radius {
+                let n: SIMD3<Float>
+                if dist < 1e-6 {
+                    n = simd_dot(triNormal, dir) > 0 ? -triNormal : triNormal
+                } else {
+                    n = simd_normalize(segPoint - triPoint)
+                }
+                return CapsuleCastHit(toi: t,
+                                      position: triPoint,
+                                      normal: n,
+                                      triangleIndex: triangleIndex)
+            }
+
+            let advance = max(dist - radius, 0.001)
+            t += advance
+        }
+
+        return nil
+    }
+
+    private func segmentTriangleDistance(center: SIMD3<Float>,
+                                         halfHeight: Float,
+                                         v0: SIMD3<Float>,
+                                         v1: SIMD3<Float>,
+                                         v2: SIMD3<Float>) -> (Float, SIMD3<Float>, SIMD3<Float>) {
+        let up = SIMD3<Float>(0, 1, 0)
+        let a = center + up * halfHeight
+        let b = center - up * halfHeight
+
+        if let hit = segmentTriangleIntersect(a: a, b: b, v0: v0, v1: v1, v2: v2) {
+            return (0, hit, hit)
+        }
+
+        var bestDistSq = Float.greatestFiniteMagnitude
+        var bestSeg = a
+        var bestTri = v0
+
+        let (d0, p0) = closestPointOnTriangle(p: a, a: v0, b: v1, c: v2)
+        if d0 < bestDistSq {
+            bestDistSq = d0
+            bestSeg = a
+            bestTri = p0
+        }
+
+        let (d1, p1) = closestPointOnTriangle(p: b, a: v0, b: v1, c: v2)
+        if d1 < bestDistSq {
+            bestDistSq = d1
+            bestSeg = b
+            bestTri = p1
+        }
+
+        let edges = [(v0, v1), (v1, v2), (v2, v0)]
+        for (e0, e1) in edges {
+            let (d, s, t) = segmentSegmentDistanceSq(p1: a, q1: b, p2: e0, q2: e1)
+            if d < bestDistSq {
+                bestDistSq = d
+                bestSeg = s
+                bestTri = t
+            }
+        }
+
+        return (sqrt(max(bestDistSq, 0)), bestSeg, bestTri)
+    }
+
+    private func segmentTriangleIntersect(a: SIMD3<Float>,
+                                          b: SIMD3<Float>,
+                                          v0: SIMD3<Float>,
+                                          v1: SIMD3<Float>,
+                                          v2: SIMD3<Float>) -> SIMD3<Float>? {
+        let dir = b - a
+        let eps: Float = 1e-6
+        let e1 = v1 - v0
+        let e2 = v2 - v0
+        let pvec = simd_cross(dir, e2)
+        let det = simd_dot(e1, pvec)
+        if abs(det) < eps { return nil }
+        let invDet = 1.0 / det
+        let tvec = a - v0
+        let u = simd_dot(tvec, pvec) * invDet
+        if u < 0 || u > 1 { return nil }
+        let qvec = simd_cross(tvec, e1)
+        let v = simd_dot(dir, qvec) * invDet
+        if v < 0 || (u + v) > 1 { return nil }
+        let t = simd_dot(e2, qvec) * invDet
+        if t < 0 || t > 1 { return nil }
+        return a + dir * t
+    }
+
+    private func closestPointOnTriangle(p: SIMD3<Float>,
+                                        a: SIMD3<Float>,
+                                        b: SIMD3<Float>,
+                                        c: SIMD3<Float>) -> (Float, SIMD3<Float>) {
+        let ab = b - a
+        let ac = c - a
+        let ap = p - a
+        let d1 = simd_dot(ab, ap)
+        let d2 = simd_dot(ac, ap)
+        if d1 <= 0 && d2 <= 0 {
+            return (simd_length_squared(p - a), a)
+        }
+
+        let bp = p - b
+        let d3 = simd_dot(ab, bp)
+        let d4 = simd_dot(ac, bp)
+        if d3 >= 0 && d4 <= d3 {
+            return (simd_length_squared(p - b), b)
+        }
+
+        let vc = d1 * d4 - d3 * d2
+        if vc <= 0 && d1 >= 0 && d3 <= 0 {
+            let v = d1 / (d1 - d3)
+            let point = a + ab * v
+            return (simd_length_squared(p - point), point)
+        }
+
+        let cp = p - c
+        let d5 = simd_dot(ab, cp)
+        let d6 = simd_dot(ac, cp)
+        if d6 >= 0 && d5 <= d6 {
+            return (simd_length_squared(p - c), c)
+        }
+
+        let vb = d5 * d2 - d1 * d6
+        if vb <= 0 && d2 >= 0 && d6 <= 0 {
+            let w = d2 / (d2 - d6)
+            let point = a + ac * w
+            return (simd_length_squared(p - point), point)
+        }
+
+        let va = d3 * d6 - d5 * d4
+        if va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0 {
+            let w = (d4 - d3) / ((d4 - d3) + (d5 - d6))
+            let point = b + (c - b) * w
+            return (simd_length_squared(p - point), point)
+        }
+
+        let denom = 1.0 / (va + vb + vc)
+        let v = vb * denom
+        let w = vc * denom
+        let point = a + ab * v + ac * w
+        return (simd_length_squared(p - point), point)
+    }
+
+    private func segmentSegmentDistanceSq(p1: SIMD3<Float>,
+                                          q1: SIMD3<Float>,
+                                          p2: SIMD3<Float>,
+                                          q2: SIMD3<Float>) -> (Float, SIMD3<Float>, SIMD3<Float>) {
+        let d1 = q1 - p1
+        let d2 = q2 - p2
+        let r = p1 - p2
+        let a = simd_dot(d1, d1)
+        let e = simd_dot(d2, d2)
+        let f = simd_dot(d2, r)
+
+        var s: Float = 0
+        var t: Float = 0
+
+        let eps: Float = 1e-6
+        if a <= eps && e <= eps {
+            return (simd_length_squared(p1 - p2), p1, p2)
+        }
+        if a <= eps {
+            t = clamp(f / e, 0, 1)
+            let c2 = p2 + d2 * t
+            return (simd_length_squared(p1 - c2), p1, c2)
+        }
+        let c = simd_dot(d1, r)
+        if e <= eps {
+            s = clamp(-c / a, 0, 1)
+            let c1 = p1 + d1 * s
+            return (simd_length_squared(c1 - p2), c1, p2)
+        }
+        let b = simd_dot(d1, d2)
+        let denom = a * e - b * b
+        if denom != 0 {
+            s = clamp((b * f - c * e) / denom, 0, 1)
+        } else {
+            s = 0
+        }
+        let tNom = b * s + f
+        if tNom < 0 {
+            t = 0
+            s = clamp(-c / a, 0, 1)
+        } else if tNom > e {
+            t = 1
+            s = clamp((b - c) / a, 0, 1)
+        } else {
+            t = tNom / e
+        }
+
+        let c1 = p1 + d1 * s
+        let c2 = p2 + d2 * t
+        return (simd_length_squared(c1 - c2), c1, c2)
+    }
+
+    private func clamp(_ v: Float, _ minV: Float, _ maxV: Float) -> Float {
+        return min(max(v, minV), maxV)
     }
 
     private func rayTriangle(origin: SIMD3<Float>,
