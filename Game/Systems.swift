@@ -223,16 +223,25 @@ public final class PhysicsIntentSystem: FixedStepSystem {
         let pStore = world.store(PhysicsBodyComponent.self)
         let mStore = world.store(MoveIntentComponent.self)
         let mvStore = world.store(MovementComponent.self)
+        let cStore = world.store(CharacterControllerComponent.self)
 
         for e in bodies {
             guard var body = pStore[e] else { continue }
             guard let intent = mStore[e] else { continue }
             if body.bodyType == .dynamic || body.bodyType == .kinematic {
                 let move = mvStore[e] ?? MovementComponent()
-                let target = intent.desiredVelocity
-                let current = body.linearVelocity
-                let accel = simd_length(target) >= simd_length(current) ? move.maxAcceleration : move.maxDeceleration
-                body.linearVelocity = approachVec(current: current, target: target, maxDelta: accel * dt)
+                if cStore.contains(e) {
+                    let target = SIMD3<Float>(intent.desiredVelocity.x, 0, intent.desiredVelocity.z)
+                    let current = SIMD3<Float>(body.linearVelocity.x, 0, body.linearVelocity.z)
+                    let accel = simd_length(target) >= simd_length(current) ? move.maxAcceleration : move.maxDeceleration
+                    let next = approachVec(current: current, target: target, maxDelta: accel * dt)
+                    body.linearVelocity = SIMD3<Float>(next.x, body.linearVelocity.y, next.z)
+                } else {
+                    let target = intent.desiredVelocity
+                    let current = body.linearVelocity
+                    let accel = simd_length(target) >= simd_length(current) ? move.maxAcceleration : move.maxDeceleration
+                    body.linearVelocity = approachVec(current: current, target: target, maxDelta: accel * dt)
+                }
                 if intent.hasFacingYaw {
                     body.rotation = simd_quatf(angle: intent.desiredFacingYaw,
                                                axis: SIMD3<Float>(0, 1, 0))
@@ -415,20 +424,24 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 }
             }
 
-            if controller.snapDistance > 0 && body.linearVelocity.y <= 0 {
+            if controller.snapDistance > 0 {
                 let down = SIMD3<Float>(0, -1, 0)
                 let snapDelta = down * controller.snapDistance
                 if let hit = query.capsuleCastGround(from: position,
                                                      delta: snapDelta,
                                                      radius: controller.radius,
                                                      halfHeight: controller.halfHeight,
-                                                     minNormalY: controller.minGroundDot) {
-                    let moveDist = max(hit.toi - controller.groundSnapSkin, 0)
-                    position += down * moveDist
+                                                     minNormalY: controller.minGroundDot),
+                   hit.toi <= controller.snapDistance {
                     isGrounded = true
-                    let vInto = simd_dot(body.linearVelocity, hit.normal)
-                    if vInto < 0 {
-                        body.linearVelocity -= hit.normal * vInto
+                    if body.linearVelocity.y <= 0 &&
+                        (body.linearVelocity.y >= -controller.groundSnapMaxSpeed || hit.toi <= controller.groundSnapMaxToi) {
+                        let moveDist = max(hit.toi - controller.groundSnapSkin, 0)
+                        position += down * moveDist
+                        let vInto = simd_dot(body.linearVelocity, hit.normal)
+                        if vInto < 0 {
+                            body.linearVelocity -= hit.normal * vInto
+                        }
                     }
                 }
             }
