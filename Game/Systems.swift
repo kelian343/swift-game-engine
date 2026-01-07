@@ -266,7 +266,7 @@ public final class JumpSystem: FixedStepSystem {
     public var jumpSpeed: Float
     public var debugLogs: Bool = false
 
-    public init(jumpSpeed: Float = 24.0) {
+    public init(jumpSpeed: Float = 34.0) {
         self.jumpSpeed = jumpSpeed
     }
 
@@ -385,6 +385,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     if debugFall {
                         print("SweepHit e=\(e.id) tri=\(hit.triangleIndex) toi=\(hit.toi) n=\(hit.normal) len=\(len) rem=\(remaining)")
                     }
+                    let contactSkin = hit.normal.y >= controller.minGroundDot ? controller.groundSnapSkin : controller.skinWidth
                     var slideNormal = hit.normal
                     if slideNormal.y < controller.minGroundDot {
                         slideNormal.y = 0
@@ -404,7 +405,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                         remaining = .zero
                         break
                     }
-                    if hit.toi <= controller.skinWidth && abs(into) <= intoEps {
+                    if hit.toi <= contactSkin && abs(into) <= intoEps {
                         position += remaining
                         remaining = .zero
                         break
@@ -415,7 +416,15 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                         break
                     }
 
-                    let moveDist = max(hit.toi - controller.skinWidth, 0)
+                    let rawMoveDist = max(hit.toi - contactSkin, 0)
+                    var moveDist = rawMoveDist
+                    if hit.normal.y >= controller.minGroundDot && remaining.y < 0 &&
+                        moveDist > controller.groundSweepMaxStep {
+                        moveDist = controller.groundSweepMaxStep
+                        if debugFall {
+                            print("SweepSoftLimit e=\(e.id) raw=\(rawMoveDist) capped=\(moveDist)")
+                        }
+                    }
                     let dir = remaining / len
                     position += dir * moveDist
 
@@ -479,7 +488,14 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                         print("GroundedFromSnapHit e=\(e.id) grounded=\(isGrounded) canSnap=\(canSnap)")
                     }
                     if canSnap {
-                        let moveDist = max(hit.toi - controller.groundSnapSkin, 0)
+                        let rawMove = max(hit.toi - controller.groundSnapSkin, 0)
+                        var moveDist = rawMove
+                        if nearGround && moveDist > controller.groundSnapMaxStep {
+                            moveDist = controller.groundSnapMaxStep
+                            if debugFall {
+                                print("SnapSoftLimit e=\(e.id) raw=\(rawMove) capped=\(moveDist)")
+                            }
+                        }
                         position += down * moveDist
                         let postBottomY = position.y - controller.halfHeight - controller.radius
                         let vInto = simd_dot(body.linearVelocity, hit.normal)

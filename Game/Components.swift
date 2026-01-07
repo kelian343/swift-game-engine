@@ -72,6 +72,8 @@ public struct CharacterControllerComponent {
     public var snapDistance: Float
     public var groundSnapMaxSpeed: Float
     public var groundSnapMaxToi: Float
+    public var groundSnapMaxStep: Float
+    public var groundSweepMaxStep: Float
     public var maxSlideIterations: Int
     public var minGroundDot: Float
     public var grounded: Bool
@@ -84,6 +86,8 @@ public struct CharacterControllerComponent {
                 snapDistance: Float = 0.8,
                 groundSnapMaxSpeed: Float = 5.0,
                 groundSnapMaxToi: Float = 0.1,
+                groundSnapMaxStep: Float = 0.1,
+                groundSweepMaxStep: Float = 0.1,
                 maxSlideIterations: Int = 4,
                 minGroundDot: Float = 0.5,
                 grounded: Bool = false,
@@ -95,6 +99,8 @@ public struct CharacterControllerComponent {
         self.snapDistance = snapDistance
         self.groundSnapMaxSpeed = groundSnapMaxSpeed
         self.groundSnapMaxToi = groundSnapMaxToi
+        self.groundSnapMaxStep = groundSnapMaxStep
+        self.groundSweepMaxStep = groundSweepMaxStep
         self.maxSlideIterations = maxSlideIterations
         self.minGroundDot = minGroundDot
         self.grounded = grounded
