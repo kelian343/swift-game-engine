@@ -309,6 +309,12 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                        radius: controller.radius,
                                                        halfHeight: controller.halfHeight) {
                     let into = simd_dot(remaining, hit.normal)
+                    let intoEps = 1e-4 * len
+                    if into >= -intoEps {
+                        position += remaining
+                        remaining = .zero
+                        break
+                    }
                     if into >= 0 {
                         position += remaining
                         remaining = .zero
@@ -321,6 +327,10 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
 
                     var leftover = remaining - dir * moveDist
                     leftover -= hit.normal * simd_dot(leftover, hit.normal)
+                    let residual = simd_dot(leftover, hit.normal)
+                    if abs(residual) < 1e-5 {
+                        leftover -= hit.normal * residual
+                    }
                     if simd_length_squared(leftover) < 1e-8 {
                         remaining = .zero
                         break
