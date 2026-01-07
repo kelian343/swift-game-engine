@@ -13,13 +13,16 @@ final class InputSystem: System {
     private var player: Entity?
     private var controller: GCController?
 
+    // Camera yaw/pitch (yaw will be kept aligned to facingYaw)
     private var yaw: Float = 0
     private var pitch: Float = -0.1
+
+    // Character facing (driven only by RIGHT stick X)
     private var facingYaw: Float = 0
 
     var moveSpeed: Float = 5.0
-    var lookSpeed: Float = 2.5
-    var turnSpeed: Float = 3.0
+    var lookSpeed: Float = 2.5      // used for right stick rotation + pitch
+    var turnSpeed: Float = 3.0      // (kept, but no longer used for auto-turn; can be removed)
     var cameraDistance: Float = 8.0
     var cameraHeight: Float = 1.5
     var deadzone: Float = 0.12
@@ -64,6 +67,7 @@ final class InputSystem: System {
 
     func update(world: World, dt: Float) {
         guard let player = player else { return }
+
         if controller == nil {
             controller = GCController.controllers().first
         }
@@ -72,42 +76,66 @@ final class InputSystem: System {
             return
         }
 
-        let lx = axis(pad.leftThumbstick.xAxis.value)
-        let ly = axis(-pad.leftThumbstick.yAxis.value)
-        let rx = axis(-pad.rightThumbstick.xAxis.value)
-        let ry = axis(-pad.rightThumbstick.yAxis.value)
+        // RAW axes
+        let rawLX = pad.leftThumbstick.xAxis.value
+        let rawLY = pad.leftThumbstick.yAxis.value
+        let rawRX = pad.rightThumbstick.xAxis.value
+        let rawRY = pad.rightThumbstick.yAxis.value
 
-        yaw += rx * lookSpeed * dt
+        // Match the "correct version" axis sign convention
+        let lx = axis(-rawLX)
+        let ly = axis(rawLY)
+        let rx = axis(-rawRX)
+        let ry = axis(-rawRY)
+
+        // Right stick X rotates character; camera yaw stays aligned with facing.
+        facingYaw = wrapAngle(facingYaw + rx * lookSpeed * dt)
+        yaw = facingYaw
+
+        // Right stick Y controls camera pitch.
         pitch += ry * lookSpeed * dt
         pitch = min(max(pitch, pitchMin), pitchMax)
 
-        let forward = SIMD3<Float>(sinf(yaw), 0, cosf(yaw))
-        let right = SIMD3<Float>(cosf(yaw), 0, -sinf(yaw))
+        // Movement is relative to facing (third-person feel).
+        let forward = forwardFromYaw(facingYaw)
+        let right = SIMD3<Float>(forward.z, 0, -forward.x)
 
         let move = forward * ly + right * lx
         let moveLen = simd_length(move)
+
         var intent = MoveIntentComponent()
         if moveLen > deadzone {
             let dir = move / moveLen
-            let targetYaw = atan2f(dir.x, dir.z)
-            facingYaw = approachAngle(current: facingYaw, target: targetYaw, maxDelta: turnSpeed * dt)
             intent.desiredVelocity = dir * moveSpeed
-            intent.desiredFacingYaw = facingYaw
-            intent.hasFacingYaw = true
         }
+
+        // Always apply facing yaw from right stick (allows backpedal/strafe).
+        intent.desiredFacingYaw = facingYaw
+        intent.hasFacingYaw = true
+
         world.store(MoveIntentComponent.self)[player] = intent
 
+        // Camera follow (simple version, no interpolation)
         let tStore = world.store(TransformComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let basePos = pStore[player]?.position ?? tStore[player]?.translation ?? .zero
+
         if let camera = camera {
             let target = basePos + SIMD3<Float>(0, cameraHeight, 0)
-            let dir = SIMD3<Float>(sinf(yaw) * cosf(pitch),
-                                   sinf(pitch),
-                                   cosf(yaw) * cosf(pitch))
+            let dir = SIMD3<Float>(
+                sinf(yaw) * cosf(pitch),
+                sinf(pitch),
+                cosf(yaw) * cosf(pitch)
+            )
             camera.position = target + dir * cameraDistance
             camera.target = target
         }
+    }
+
+    // Same yaw convention as your correct version:
+    // forward = (-sin(yaw), 0, -cos(yaw))
+    private func forwardFromYaw(_ yaw: Float) -> SIMD3<Float> {
+        SIMD3<Float>(-sinf(yaw), 0, -cosf(yaw))
     }
 
     private func axis(_ v: Float) -> Float {
@@ -116,6 +144,13 @@ final class InputSystem: System {
         return v
     }
 
+    private func wrapAngle(_ a: Float) -> Float {
+        var v = fmodf(a, 2 * .pi)
+        if v < 0 { v += 2 * .pi }
+        return v
+    }
+
+    // --- below are kept only because your old file had them; not used now ---
     private func approachAngle(current: Float, target: Float, maxDelta: Float) -> Float {
         let delta = shortestAngle(from: current, to: target)
         let step = max(-maxDelta, min(maxDelta, delta))
@@ -125,11 +160,5 @@ final class InputSystem: System {
     private func shortestAngle(from: Float, to: Float) -> Float {
         let diff = wrapAngle(to - from)
         return diff > .pi ? diff - 2 * .pi : diff
-    }
-
-    private func wrapAngle(_ a: Float) -> Float {
-        var v = fmodf(a, 2 * .pi)
-        if v < 0 { v += 2 * .pi }
-        return v
     }
 }
