@@ -35,7 +35,6 @@ public final class DemoScene: RenderScene {
     private let fixedRunner: FixedStepRunner
     private let extractSystem = RenderExtractSystem()
     private var collisionQuery: CollisionQuery?
-    private var lastRayHitTriangle: Int?
 
     public init() {
         self.inputSystem = InputSystem(camera: camera)
@@ -58,10 +57,6 @@ public final class DemoScene: RenderScene {
 
     public func build(context: SceneContext) {
         let device = context.device
-        inputSystem.debugLogs = true
-        jumpSystem.debugLogs = true
-        gravitySystem.debugLogs = true
-        kinematicMoveSystem.debugLogs = true
 
         // Camera initial state
         camera.position = SIMD3<Float>(0, 0, 8)
@@ -204,30 +199,8 @@ public final class DemoScene: RenderScene {
         fixedRunner.update(world: world)
 
         camera.updateView()
-        debugRaycast()
 
         // Render extraction (derived every frame)
         renderItems = extractSystem.extract(world: world)
-    }
-
-    private func debugRaycast() {
-        guard let query = collisionQuery else { return }
-        let dir = camera.target - camera.position
-        let lenSq = simd_length_squared(dir)
-        if lenSq < 1e-6 {
-            return
-        }
-        let hit = query.raycast(origin: camera.position,
-                                direction: simd_normalize(dir),
-                                maxDistance: 100.0)
-        let tri = hit?.triangleIndex
-        if tri != lastRayHitTriangle {
-            if let hit = hit {
-                print("Ray hit tri \(hit.triangleIndex) at \(hit.distance)")
-            } else {
-                print("Ray miss")
-            }
-            lastRayHitTriangle = tri
-        }
     }
 }

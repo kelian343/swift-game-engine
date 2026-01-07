@@ -12,7 +12,6 @@ final class InputSystem: System {
     private weak var camera: Camera?
     private var player: Entity?
     private var controller: GCController?
-    var debugLogs: Bool = false
 
     // Camera yaw/pitch (yaw will be kept aligned to facingYaw)
     private var yaw: Float = 0
@@ -121,9 +120,6 @@ final class InputSystem: System {
         intent.hasFacingYaw = true
         if jumpPressed && !lastJumpPressed {
             intent.jumpRequested = true
-            if debugLogs {
-                print("JumpInput requested")
-            }
         }
         lastJumpPressed = jumpPressed
 
