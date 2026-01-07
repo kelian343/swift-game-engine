@@ -54,9 +54,9 @@ public final class DemoScene: RenderScene {
         camera.target = SIMD3<Float>(0, 0, 0)
         camera.updateView()
 
-        // --- Ground: platform plane
+        // --- Ground: platform plane (4x area)
         do {
-            let mesh = GPUMesh(device: device, data: ProceduralMeshes.plane(size: 20.0), label: "Ground")
+            let mesh = GPUMesh(device: device, data: ProceduralMeshes.plane(size: 40.0), label: "Ground")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 80, g: 80, b: 80, a: 255),
                                       label: "GroundTex")
@@ -70,30 +70,10 @@ public final class DemoScene: RenderScene {
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
-            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(10, 0.1, 10))))
+            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(20, 0.1, 20))))
         }
 
-        // --- Entity A: tetrahedron + fine checkerboard
-        do {
-            let mesh = GPUMesh(device: device, data: ProceduralMeshes.tetrahedron(size: 3.0), label: "TetraA")
-            let tex = TextureResource(device: device,
-                                      source: ProceduralTextures.checkerboard(width: 256, height: 256, cell: 16),
-                                      label: "TexA")
-            let mat = Material(baseColorTexture: tex, metallic: 0.1, roughness: 0.6)
-
-            let e = world.createEntity()
-            var t = TransformComponent()
-            t.translation = SIMD3<Float>(-5, 0, 0)
-            world.add(e, t)
-            world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, SpinComponent(speed: 0.9, axis: SIMD3<Float>(1, 1, 0)))
-            world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
-                                              position: t.translation,
-                                              rotation: t.rotation))
-            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(1.5, 1.5, 1.5))))
-        }
-
-        // --- Entity B: medium box + coarse checkerboard
+        // --- Player: medium box + coarse checkerboard
         do {
             let mesh = GPUMesh(device: device, data: ProceduralMeshes.box(size: 4.0), label: "BoxB")
             let tex = TextureResource(device: device,
@@ -115,24 +95,61 @@ public final class DemoScene: RenderScene {
             world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(2, 2, 2))))
         }
 
-        // --- Entity C: prism + solid color texture
+        // --- Test Wall: large static blocker
         do {
-            let mesh = GPUMesh(device: device, data: ProceduralMeshes.triangularPrism(size: 4.5, height: 4.0), label: "PrismC")
+            let mesh = GPUMesh(device: device, data: ProceduralMeshes.box(size: 6.0), label: "TestWall")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 255, g: 80, b: 80, a: 255),
-                                      label: "TexC")
-            let mat = Material(baseColorTexture: tex, metallic: 0.2, roughness: 0.5)
+                                      label: "WallTex")
+            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.7)
 
             let e = world.createEntity()
             var t = TransformComponent()
-            t.translation = SIMD3<Float>(5, 0, 0)
+            t.translation = SIMD3<Float>(0, 0, -10)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, SpinComponent(speed: 0.7, axis: SIMD3<Float>(1, 0, 1)))
-            world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
+            world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
-            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(2.25, 2.0, 2.25))))
+            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(3, 3, 3))))
+        }
+
+        // --- Test Ramp: sloped obstacle
+        do {
+            let mesh = GPUMesh(device: device, data: ProceduralMeshes.triangularPrism(size: 8.0, height: 4.0), label: "TestRamp")
+            let tex = TextureResource(device: device,
+                                      source: .solid(width: 4, height: 4, r: 80, g: 160, b: 255, a: 255),
+                                      label: "RampTex")
+            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.6)
+
+            let e = world.createEntity()
+            var t = TransformComponent()
+            t.translation = SIMD3<Float>(8, 0, 0)
+            world.add(e, t)
+            world.add(e, RenderComponent(mesh: mesh, material: mat))
+            world.add(e, PhysicsBodyComponent(bodyType: .static,
+                                              position: t.translation,
+                                              rotation: t.rotation))
+            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(4, 2, 4))))
+        }
+
+        // --- Test Step: small ledge
+        do {
+            let mesh = GPUMesh(device: device, data: ProceduralMeshes.box(size: 2.0), label: "TestStep")
+            let tex = TextureResource(device: device,
+                                      source: .solid(width: 4, height: 4, r: 255, g: 220, b: 120, a: 255),
+                                      label: "StepTex")
+            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.8)
+
+            let e = world.createEntity()
+            var t = TransformComponent()
+            t.translation = SIMD3<Float>(-6, -2, 4)
+            world.add(e, t)
+            world.add(e, RenderComponent(mesh: mesh, material: mat))
+            world.add(e, PhysicsBodyComponent(bodyType: .static,
+                                              position: t.translation,
+                                              rotation: t.rotation))
+            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(1, 1, 1))))
         }
 
         // Extract initial draw calls
