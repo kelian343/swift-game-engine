@@ -390,6 +390,7 @@ public final class GravitySystem: FixedStepSystem {
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
     private let gravity: SIMD3<Float>
+    private let debugPlatformCarry = true
 
     public init(gravity: SIMD3<Float> = SIMD3<Float>(0, -98.0, 0)) {
         self.gravity = gravity
@@ -404,11 +405,100 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
         let bodies = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
+        let platBodies = world.store(PhysicsBodyComponent.self)
+        let platCols = world.store(ColliderComponent.self)
+        let platformEntities = world.query(PhysicsBodyComponent.self,
+                                           ColliderComponent.self,
+                                           KinematicPlatformComponent.self)
         for e in bodies {
             guard var body = pStore[e], var controller = cStore[e] else { continue }
             if body.bodyType == .static { continue }
 
             var position = body.position
+            // Apply platform motion carry/push before character sweep.
+            if !platformEntities.isEmpty {
+                let capsuleHalf = controller.halfHeight + controller.radius
+                let baseY = position.y - capsuleHalf
+                let capMin = SIMD3<Float>(position.x - controller.radius,
+                                          position.y - capsuleHalf,
+                                          position.z - controller.radius)
+                let capMax = SIMD3<Float>(position.x + controller.radius,
+                                          position.y + capsuleHalf,
+                                          position.z + controller.radius)
+                let sideTol = max(controller.skinWidth, controller.groundSnapSkin)
+                var bestCarry: SIMD3<Float> = .zero
+                var pushDelta: SIMD3<Float> = .zero
+
+                for pe in platformEntities {
+                    guard let pBody = platBodies[pe], let pCol = platCols[pe] else { continue }
+                    if pBody.bodyType != .kinematic { continue }
+                    let pDelta = pBody.position - pBody.prevPosition
+                    if simd_length_squared(pDelta) < 1e-8 { continue }
+
+                    let aabb = ColliderComponent.computeAABB(position: pBody.position,
+                                                             rotation: pBody.rotation,
+                                                             collider: pCol)
+                    let expandedMin = aabb.min - SIMD3<Float>(repeating: sideTol)
+                    let expandedMax = aabb.max + SIMD3<Float>(repeating: sideTol)
+                    let overlap = capMin.x <= expandedMax.x && capMax.x >= expandedMin.x &&
+                                  capMin.y <= expandedMax.y && capMax.y >= expandedMin.y &&
+                                  capMin.z <= expandedMax.z && capMax.z >= expandedMin.z
+                    if !overlap { continue }
+
+                    let withinXZ = position.x >= aabb.min.x - controller.radius &&
+                                   position.x <= aabb.max.x + controller.radius &&
+                                   position.z >= aabb.min.z - controller.radius &&
+                                   position.z <= aabb.max.z + controller.radius
+                    let topY = aabb.max.y
+                    let topTol = controller.snapDistance + max(controller.skinWidth, controller.groundSnapSkin) + 0.05
+                    let onTop = withinXZ && baseY >= topY - topTol && baseY <= topY + topTol
+
+                    if debugPlatformCarry {
+                        print("PlatformTest e=\(e.id) pe=\(pe.id) onTop=\(onTop) withinXZ=\(withinXZ) baseY=\(baseY) topY=\(topY) pDelta=\(pDelta)")
+                    }
+                    if onTop {
+                        if simd_length_squared(pDelta) > simd_length_squared(bestCarry) {
+                            bestCarry = pDelta
+                        }
+                    } else {
+                        let yMin = aabb.min.y - capsuleHalf
+                        let yMax = aabb.max.y + capsuleHalf
+                        if position.y >= yMin && position.y <= yMax {
+                            let outsideX = position.x < aabb.min.x - controller.radius ||
+                                           position.x > aabb.max.x + controller.radius
+                            let outsideZ = position.z < aabb.min.z - controller.radius ||
+                                           position.z > aabb.max.z + controller.radius
+                            if !outsideX && !outsideZ {
+                                continue
+                            }
+                            let cx = max(aabb.min.x, min(position.x, aabb.max.x))
+                            let cz = max(aabb.min.z, min(position.z, aabb.max.z))
+                            let dx = position.x - cx
+                            let dz = position.z - cz
+                            let sideDistSq = dx * dx + dz * dz
+                            let sidePushTol = controller.radius + sideTol
+                            if debugPlatformCarry {
+                                print("PlatformSide e=\(e.id) pe=\(pe.id) sideDistSq=\(sideDistSq) sidePushTol=\(sidePushTol) yRange=\(yMin)...\(yMax)")
+                            }
+                            if sideDistSq <= sidePushTol * sidePushTol {
+                                pushDelta += SIMD3<Float>(pDelta.x, 0, pDelta.z)
+                            }
+                        }
+                    }
+                }
+
+                if simd_length_squared(bestCarry) > 1e-8 {
+                    if debugPlatformCarry {
+                        print("PlatformCarryApply e=\(e.id) delta=\(bestCarry)")
+                    }
+                    position += bestCarry
+                } else if simd_length_squared(pushDelta) > 1e-8 {
+                    if debugPlatformCarry {
+                        print("PlatformPushApply e=\(e.id) delta=\(pushDelta)")
+                    }
+                    position += pushDelta
+                }
+            }
             let wasGrounded = controller.grounded
             let wasGroundedNear = controller.groundedNear
             if wasGrounded && wasGroundedNear && body.linearVelocity.y < 0 {
