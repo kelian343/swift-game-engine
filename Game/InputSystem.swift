@@ -20,7 +20,7 @@ final class InputSystem: System {
     // Character facing (driven only by RIGHT stick X)
     private var facingYaw: Float = 0
 
-    var moveSpeed: Float = 5.0
+    var moveSpeed: Float = 10.0
     var lookSpeed: Float = 2.5      // used for right stick rotation + pitch
     var turnSpeed: Float = 3.0      // (kept, but no longer used for auto-turn; can be removed)
     var cameraDistance: Float = 8.0
