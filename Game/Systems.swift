@@ -479,11 +479,17 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     groundNear = nearGround
                     isGroundedNear = nearGround
                     groundGateVel = body.linearVelocity.y <= 0
-                    groundGateSpeed = body.linearVelocity.y >= -controller.groundSnapMaxSpeed
+                    let vInto = simd_dot(body.linearVelocity, hit.normal)
+                    groundGateSpeed = vInto >= -controller.groundSnapMaxSpeed
                     groundGateToi = hit.toi <= controller.groundSnapMaxToi
-                    let canSnap = groundGateVel && (nearGround || groundGateSpeed || groundGateToi)
+                    var canSnap = groundGateVel && (nearGround || groundGateSpeed || groundGateToi)
+                    if wasGroundedNear && hit.toi <= controller.snapDistance {
+                        canSnap = true
+                    }
                     groundCanSnap = canSnap
-                    isGrounded = true
+                    if nearGround || canSnap {
+                        isGrounded = true
+                    }
                     if canSnap {
                         let rawMove = max(hit.toi - controller.groundSnapSkin, 0)
                         var moveDist = rawMove
