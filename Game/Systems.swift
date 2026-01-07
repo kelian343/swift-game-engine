@@ -292,7 +292,7 @@ public final class JumpSystem: FixedStepSystem {
             }
             if intent.jumpRequested {
                 if debugLogs && !controller.grounded {
-                    print("JumpQueued e=\(e.id) grounded=false")
+                    print("JumpDenied e=\(e.id) grounded=false pos=\(body.position) v=\(body.linearVelocity)")
                 }
                 intent.jumpRequested = false
                 mStore[e] = intent
@@ -304,6 +304,7 @@ public final class JumpSystem: FixedStepSystem {
 /// Apply constant gravity acceleration to physics bodies.
 public final class GravitySystem: FixedStepSystem {
     public var gravity: SIMD3<Float>
+    public var debugLogs: Bool = false
 
     public init(gravity: SIMD3<Float> = SIMD3<Float>(0, -98.0, 0)) {
         self.gravity = gravity
@@ -317,7 +318,10 @@ public final class GravitySystem: FixedStepSystem {
         for e in bodies {
             guard var body = pStore[e] else { continue }
             if body.bodyType == .static { continue }
-            if let controller = cStore[e], controller.grounded {
+            if let controller = cStore[e], controller.grounded, controller.groundedNear {
+                if debugLogs {
+                    print("GravitySkip e=\(e.id) grounded=true pos=\(body.position) v=\(body.linearVelocity)")
+                }
                 continue
             }
             body.linearVelocity += gravity * dt
@@ -346,16 +350,30 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             guard var body = pStore[e], var controller = cStore[e] else { continue }
             if body.bodyType == .static { continue }
 
+            let startPos = body.position
+            let startVel = body.linearVelocity
             var position = body.position
             let wasGrounded = controller.grounded
-            if wasGrounded && body.linearVelocity.y < 0 {
+            let wasGroundedNear = controller.groundedNear
+            let debugFall = debugLogs && body.linearVelocity.y < -5
+            if debugFall {
+                print("KinematicFall e=\(e.id) start pos=\(position) v=\(body.linearVelocity) grounded=\(wasGrounded) near=\(wasGroundedNear)")
+            }
+            if wasGrounded && wasGroundedNear && body.linearVelocity.y < 0 {
+                if debugFall {
+                    print("GroundedClamp e=\(e.id) vY=\(body.linearVelocity.y) near=\(wasGroundedNear)")
+                }
                 body.linearVelocity.y = 0
             }
             var remaining = body.linearVelocity * dt
-            if wasGrounded && remaining.y < 0 {
+            if wasGrounded && wasGroundedNear && remaining.y < 0 {
+                if debugFall {
+                    print("GroundedRemainingClamp e=\(e.id) remaining=\(remaining) near=\(wasGroundedNear)")
+                }
                 remaining.y = 0
             }
             var isGrounded = false
+            var isGroundedNear = false
             for _ in 0..<controller.maxSlideIterations {
                 let len = simd_length(remaining)
                 if len < 1e-6 { break }
@@ -364,6 +382,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                        delta: remaining,
                                                        radius: controller.radius,
                                                        halfHeight: controller.halfHeight) {
+                    if debugFall {
+                        print("SweepHit e=\(e.id) tri=\(hit.triangleIndex) toi=\(hit.toi) n=\(hit.normal) len=\(len) rem=\(remaining)")
+                    }
                     var slideNormal = hit.normal
                     if slideNormal.y < controller.minGroundDot {
                         slideNormal.y = 0
@@ -400,7 +421,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
 
                     var leftover = remaining - dir * moveDist
                     leftover -= slideNormal * simd_dot(leftover, slideNormal)
-                    if wasGrounded && leftover.y < 0 {
+                    if wasGrounded && wasGroundedNear && leftover.y < 0 {
                         leftover.y = 0
                     }
                     let residual = simd_dot(leftover, slideNormal)
@@ -418,6 +439,11 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                         body.linearVelocity -= slideNormal * vInto
                     }
                 } else {
+                    if debugFall {
+                        let bottomY = position.y - controller.halfHeight - controller.radius
+                        let topY = position.y + controller.halfHeight + controller.radius
+                        print("SweepMiss e=\(e.id) pos=\(position) len=\(len) rem=\(remaining) bottomY=\(bottomY) topY=\(topY)")
+                    }
                     position += remaining
                     remaining = .zero
                     break
@@ -427,21 +453,44 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             if controller.snapDistance > 0 {
                 let down = SIMD3<Float>(0, -1, 0)
                 let snapDelta = down * controller.snapDistance
+                if debugFall {
+                    print("SnapCheck e=\(e.id) pos=\(position) snapDist=\(controller.snapDistance) vY=\(body.linearVelocity.y)")
+                }
                 if let hit = query.capsuleCastGround(from: position,
                                                      delta: snapDelta,
                                                      radius: controller.radius,
                                                      halfHeight: controller.halfHeight,
                                                      minNormalY: controller.minGroundDot),
                    hit.toi <= controller.snapDistance {
+                    let preSnapPos = position
+                    let preBottomY = position.y - controller.halfHeight - controller.radius
+                    let nearGround = hit.toi <= max(controller.groundSnapSkin, controller.skinWidth)
+                    isGroundedNear = nearGround
+                    let canSnap = body.linearVelocity.y <= 0 &&
+                        (nearGround || body.linearVelocity.y >= -controller.groundSnapMaxSpeed || hit.toi <= controller.groundSnapMaxToi)
                     isGrounded = true
-                    if body.linearVelocity.y <= 0 &&
-                        (body.linearVelocity.y >= -controller.groundSnapMaxSpeed || hit.toi <= controller.groundSnapMaxToi) {
+                    if debugFall {
+                        print("SnapHit e=\(e.id) tri=\(hit.triangleIndex) toi=\(hit.toi) n=\(hit.normal) canSnap=\(canSnap) near=\(nearGround)")
+                        print("SnapGeom e=\(e.id) pos=\(preSnapPos) bottomY=\(preBottomY) hitPos=\(hit.position)")
+                        print("SnapParams e=\(e.id) minY=\(controller.minGroundDot) snapDist=\(controller.snapDistance) snapSkin=\(controller.groundSnapSkin) skin=\(controller.skinWidth) maxV=\(controller.groundSnapMaxSpeed) maxToi=\(controller.groundSnapMaxToi) vY=\(body.linearVelocity.y)")
+                        if !canSnap {
+                            print("SnapNoMove e=\(e.id) pos=\(position) v=\(body.linearVelocity)")
+                        }
+                        print("GroundedFromSnapHit e=\(e.id) grounded=\(isGrounded) canSnap=\(canSnap)")
+                    }
+                    if canSnap {
                         let moveDist = max(hit.toi - controller.groundSnapSkin, 0)
                         position += down * moveDist
+                        let postBottomY = position.y - controller.halfHeight - controller.radius
                         let vInto = simd_dot(body.linearVelocity, hit.normal)
                         if vInto < 0 {
                             body.linearVelocity -= hit.normal * vInto
                         }
+                        if debugFall {
+                            print("SnapMove e=\(e.id) move=\(moveDist) pos0=\(preSnapPos) pos1=\(position) bottom0=\(preBottomY) bottom1=\(postBottomY) vInto=\(vInto)")
+                        }
+                    } else if debugFall {
+                        print("SnapSkip e=\(e.id) pos=\(preSnapPos) v=\(body.linearVelocity)")
                     }
                 }
             }
@@ -449,10 +498,19 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             body.position = position
             pStore[e] = body
             controller.grounded = isGrounded
+            controller.groundedNear = isGroundedNear
             cStore[e] = controller
             if debugLogs && wasGrounded != isGrounded {
                 let state = isGrounded ? "Grounded" : "Airborne"
                 print("KinematicState e=\(e.id) \(state) pos=\(position) v=\(body.linearVelocity)")
+            }
+            if debugLogs && wasGroundedNear != isGroundedNear {
+                let state = isGroundedNear ? "NearGround" : "NotNear"
+                print("GroundedNearState e=\(e.id) \(state) pos=\(position) v=\(body.linearVelocity)")
+            }
+            if debugFall && (wasGroundedNear || isGroundedNear || isGrounded) {
+                let stepDelta = position - startPos
+                print("StepDelta e=\(e.id) delta=\(stepDelta) pos0=\(startPos) pos1=\(position) v0=\(startVel) v1=\(body.linearVelocity) grounded=\(isGrounded) near=\(isGroundedNear)")
             }
 
         }

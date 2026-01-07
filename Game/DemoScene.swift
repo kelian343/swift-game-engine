@@ -60,6 +60,7 @@ public final class DemoScene: RenderScene {
         let device = context.device
         inputSystem.debugLogs = true
         jumpSystem.debugLogs = true
+        gravitySystem.debugLogs = true
         kinematicMoveSystem.debugLogs = true
 
         // Camera initial state

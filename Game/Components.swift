@@ -75,6 +75,7 @@ public struct CharacterControllerComponent {
     public var maxSlideIterations: Int
     public var minGroundDot: Float
     public var grounded: Bool
+    public var groundedNear: Bool
 
     public init(radius: Float = 1.5,
                 halfHeight: Float = 1.0,
@@ -85,7 +86,8 @@ public struct CharacterControllerComponent {
                 groundSnapMaxToi: Float = 0.1,
                 maxSlideIterations: Int = 4,
                 minGroundDot: Float = 0.5,
-                grounded: Bool = false) {
+                grounded: Bool = false,
+                groundedNear: Bool = false) {
         self.radius = radius
         self.halfHeight = halfHeight
         self.skinWidth = skinWidth
@@ -96,6 +98,7 @@ public struct CharacterControllerComponent {
         self.maxSlideIterations = maxSlideIterations
         self.minGroundDot = minGroundDot
         self.grounded = grounded
+        self.groundedNear = groundedNear
     }
 }
 
