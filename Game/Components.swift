@@ -133,6 +133,31 @@ public struct SpinComponent {
     }
 }
 
+// MARK: - Kinematic platforms (demo motion)
+
+public struct KinematicPlatformComponent {
+    public var origin: SIMD3<Float>
+    public var axis: SIMD3<Float>
+    public var amplitude: Float
+    public var speed: Float
+    public var phase: Float
+    public var time: Float
+
+    public init(origin: SIMD3<Float> = .zero,
+                axis: SIMD3<Float> = SIMD3<Float>(0, 1, 0),
+                amplitude: Float = 2.0,
+                speed: Float = 1.0,
+                phase: Float = 0,
+                time: Float = 0) {
+        self.origin = origin
+        self.axis = axis
+        self.amplitude = amplitude
+        self.speed = speed
+        self.phase = phase
+        self.time = time
+    }
+}
+
 // MARK: - Time
 
 public struct TimeComponent {

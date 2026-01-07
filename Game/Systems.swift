@@ -130,6 +130,54 @@ public final class SpinSystem: FixedStepSystem {
     }
 }
 
+/// Demo system: animate kinematic platforms along a single axis.
+public final class KinematicPlatformMotionSystem: FixedStepSystem {
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        let entities = world.query(TransformComponent.self,
+                                   PhysicsBodyComponent.self,
+                                   KinematicPlatformComponent.self)
+        let tStore = world.store(TransformComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let kStore = world.store(KinematicPlatformComponent.self)
+
+        for e in entities {
+            guard var t = tStore[e], var p = pStore[e], var k = kStore[e] else { continue }
+            if p.bodyType == .static { continue }
+
+            let axisLen = simd_length(k.axis)
+            let axis = axisLen > 1e-4 ? k.axis / axisLen : SIMD3<Float>(0, 1, 0)
+            k.time += dt
+            let offset = sin(k.time * k.speed + k.phase) * k.amplitude
+            let newPos = k.origin + axis * offset
+
+            t.translation = newPos
+            p.position = newPos
+            p.linearVelocity = .zero
+
+            tStore[e] = t
+            pStore[e] = p
+            kStore[e] = k
+        }
+    }
+}
+
+/// Rebuild static collision query from current transforms.
+public final class CollisionQueryRefreshSystem: FixedStepSystem {
+    private let kinematicMoveSystem: KinematicMoveStopSystem
+
+    public init(kinematicMoveSystem: KinematicMoveStopSystem) {
+        self.kinematicMoveSystem = kinematicMoveSystem
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = dt
+        let query = CollisionQuery(world: world)
+        kinematicMoveSystem.setQuery(query)
+    }
+}
+
 /// Lock previous transforms at the start of a physics fixed step.
 public final class PhysicsBeginStepSystem: FixedStepSystem {
     public init() {}
@@ -328,7 +376,7 @@ public final class GravitySystem: FixedStepSystem {
 
         for e in bodies {
             guard var body = pStore[e] else { continue }
-            if body.bodyType == .static { continue }
+            if body.bodyType != .dynamic { continue }
             if let controller = cStore[e], controller.grounded, controller.groundedNear {
                 continue
             }
@@ -534,10 +582,12 @@ public final class PhysicsIntegrateSystem: FixedStepSystem {
         let bodies = world.query(PhysicsBodyComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
+        let kStore = world.store(KinematicPlatformComponent.self)
 
         for e in bodies {
             guard var body = pStore[e] else { continue }
             if cStore.contains(e) { continue }
+            if kStore.contains(e) { continue }
 
             switch body.bodyType {
             case .static:

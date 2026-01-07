@@ -28,7 +28,9 @@ public final class DemoScene: RenderScene {
     private let physicsIntentSystem = PhysicsIntentSystem()
     private let jumpSystem = JumpSystem()
     private let gravitySystem = GravitySystem()
+    private let platformMotionSystem = KinematicPlatformMotionSystem()
     private let kinematicMoveSystem = KinematicMoveStopSystem()
+    private let collisionQueryRefreshSystem: CollisionQueryRefreshSystem
     private let physicsIntegrateSystem = PhysicsIntegrateSystem()
     private let physicsWritebackSystem = PhysicsWritebackSystem()
     private let physicsEventsSystem: PhysicsEventsSystem
@@ -43,11 +45,14 @@ public final class DemoScene: RenderScene {
         self.physicsNarrowphaseSystem = PhysicsNarrowphaseSystem(physicsWorld: physicsWorld)
         self.physicsSolverSystem = PhysicsSolverSystem(physicsWorld: physicsWorld)
         self.physicsEventsSystem = PhysicsEventsSystem(physicsWorld: physicsWorld)
+        self.collisionQueryRefreshSystem = CollisionQueryRefreshSystem(kinematicMoveSystem: kinematicMoveSystem)
         self.fixedRunner = FixedStepRunner(
             preFixed: [spinSystem, physicsIntentSystem, jumpSystem, physicsSyncSystem, physicsBeginStepSystem],
             fixed: [physicsBroadphaseSystem,
                     physicsNarrowphaseSystem,
                     physicsSolverSystem,
+                    platformMotionSystem,
+                    collisionQueryRefreshSystem,
                     gravitySystem,
                     kinematicMoveSystem,
                     physicsIntegrateSystem],
@@ -85,6 +90,90 @@ public final class DemoScene: RenderScene {
                                               position: t.translation,
                                               rotation: t.rotation))
             world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(20, 0.1, 20))))
+        }
+
+        // --- Kinematic Platforms: elevator + ground mover
+        do {
+            let meshData = ProceduralMeshes.box(size: 4.0)
+            let mesh = GPUMesh(device: device, data: meshData, label: "Platform")
+            let texUp = TextureResource(device: device,
+                                        source: .solid(width: 4, height: 4, r: 120, g: 200, b: 255, a: 255),
+                                        label: "PlatformUpTex")
+            let texFlat = TextureResource(device: device,
+                                          source: .solid(width: 4, height: 4, r: 160, g: 255, b: 140, a: 255),
+                                          label: "PlatformFlatTex")
+            let matUp = Material(baseColorTexture: texUp, metallic: 0.0, roughness: 0.6)
+            let matFlat = Material(baseColorTexture: texFlat, metallic: 0.0, roughness: 0.6)
+            let platformScale = SIMD3<Float>(1.5, 0.2, 1.5)
+            let platformHalfExtents = SIMD3<Float>(3.0, 0.4, 3.0)
+
+            // Elevator (vertical loop)
+            do {
+                let e = world.createEntity()
+                var t = TransformComponent()
+                t.translation = SIMD3<Float>(16, -1.0, 0)
+                t.scale = platformScale
+                world.add(e, t)
+                world.add(e, RenderComponent(mesh: mesh, material: matUp))
+                world.add(e, StaticMeshComponent(mesh: meshData,
+                                                 material: SurfaceMaterial(muS: 0.9, muK: 0.7)))
+                world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
+                                                  position: t.translation,
+                                                  rotation: t.rotation))
+                world.add(e, ColliderComponent(shape: .box(halfExtents: platformHalfExtents)))
+                world.add(e, KinematicPlatformComponent(origin: t.translation,
+                                                        axis: SIMD3<Float>(0, 1, 0),
+                                                        amplitude: 2.0,
+                                                        speed: 1.1,
+                                                        phase: 0))
+            }
+
+            // Ground mover (horizontal loop)
+            do {
+                let e = world.createEntity()
+                var t = TransformComponent()
+                t.translation = SIMD3<Float>(-16, -2.0, 12)
+                t.scale = platformScale
+                world.add(e, t)
+                world.add(e, RenderComponent(mesh: mesh, material: matFlat))
+                world.add(e, StaticMeshComponent(mesh: meshData,
+                                                 material: SurfaceMaterial(muS: 0.9, muK: 0.7)))
+                world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
+                                                  position: t.translation,
+                                                  rotation: t.rotation))
+                world.add(e, ColliderComponent(shape: .box(halfExtents: platformHalfExtents)))
+                world.add(e, KinematicPlatformComponent(origin: t.translation,
+                                                        axis: SIMD3<Float>(1, 0, 0),
+                                                        amplitude: 4.0,
+                                                        speed: 0.9,
+                                                        phase: 0.7))
+            }
+        }
+
+        // --- Kinematic Capsule: collision test target
+        do {
+            let capsuleRadius: Float = 1.5
+            let capsuleHalfHeight: Float = 1.0
+            let meshData = ProceduralMeshes.capsule(radius: capsuleRadius,
+                                                    halfHeight: capsuleHalfHeight)
+            let mesh = GPUMesh(device: device, data: meshData, label: "KinematicCapsule")
+            let tex = TextureResource(device: device,
+                                      source: .solid(width: 4, height: 4, r: 220, g: 120, b: 255, a: 255),
+                                      label: "KinematicCapsuleTex")
+            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.5)
+
+            let e = world.createEntity()
+            var t = TransformComponent()
+            t.translation = SIMD3<Float>(2, 1.0, -4)
+            world.add(e, t)
+            world.add(e, RenderComponent(mesh: mesh, material: mat))
+            world.add(e, StaticMeshComponent(mesh: meshData,
+                                             material: SurfaceMaterial(muS: 0.7, muK: 0.5)))
+            world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
+                                              position: t.translation,
+                                              rotation: t.rotation))
+            world.add(e, ColliderComponent(shape: .capsule(halfHeight: capsuleHalfHeight,
+                                                          radius: capsuleRadius)))
         }
 
         // --- Player: capsule + coarse checkerboard

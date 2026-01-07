@@ -5,6 +5,7 @@
 - Phase 2 complete: player collider is capsule.
 - Phase 3 complete: capsule sweep CCD (TOI) integrated into kinematic movement.
 - Phase 4 complete: move & slide + ground snap; added stability filters for wall/ground noise.
+- Phase 5 complete: mu_s stick/slide slope behavior; per-triangle surface material support; uphill assist.
 - Gravity + jump input integrated; jump preserves Y velocity; grounded state stabilized.
 - High-speed landing smoothing added: groundedNear gating for clamp/gravity, ground sweep/snap soft limits, and ground contact skin tuning.
 - Fixed-step frequency increased to 120Hz with maxSubsteps=8 to reduce large per-step motion.
@@ -46,6 +47,7 @@ Goal: slope behavior with material tuning (ice/mud/stone).
 - Add per-triangle material with mu_s/mu_k.
 - Grounded: compare tangential gravity vs mu_s; decide stick/slide.
 - Stick: cancel downhill drift; Slide: apply g_tan with mu_k.
+ - Uphill assist: boost uphill input to reduce slope penalty.
 
 ### Phase 6: Kinematic Platforms + Carry
 Goal: stable moving platforms without tunneling.
@@ -59,9 +61,22 @@ Goal: remove old penetration/solver paths.
 - Keep triggers/overlap system for interactions.
 
 ## In Progress / Next
-- Verify high-speed landing jitter after soft-landing changes (sweep/snap step caps) and fixed-step update.
-- Phase 5 next: mu_s stick/slide and slope behavior.
-- Phase 6 later: kinematic platforms + carry.
+- Phase 6 next: kinematic platforms + carry.
+- Phase 7 later: cleanup (remove old penetration/solver paths; keep triggers).
+
+## Phase 6 (Planned): Kinematic Platforms + Carry
+Goal: platform carry without tunneling or jitter.
+- Platforms sweep first (box cast preferred; capsule as fallback).
+- If blocked, stop or reverse platform.
+- If player grounded on platform, apply platformDelta before player move & slide.
+- If platform would squeeze player against ceiling, platform stops.
+✅ Acceptance: stable carry, no wall squeeze, no jitter.
+
+## Phase 7 (Planned): Cleanup
+Goal: remove old penetration/solver paths.
+- Disable old solver/manifold for player/platform.
+- Keep triggers/overlap system for interactions.
+✅ Acceptance: simpler core physics path, fewer bugs.
 
 ## Debug Logging Currently Enabled
 - None (all debug logging removed).
