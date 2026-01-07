@@ -276,6 +276,7 @@ public final class GravitySystem: FixedStepSystem {
 /// Kinematic capsule sweep: move & slide with ground snap.
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
+    public var debugLogs: Bool = false
 
     public init() {}
 
@@ -288,6 +289,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
         let bodies = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
+        let tStore = world.store(TimeComponent.self)
+        let timeEntity = world.query(TimeComponent.self).first
+        let frame = timeEntity.flatMap { tStore[$0]?.frame } ?? 0
         for e in bodies {
             guard var body = pStore[e], var controller = cStore[e] else { continue }
             if body.bodyType == .static { continue }
@@ -300,10 +304,10 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 let len = simd_length(remaining)
                 if len < 1e-6 { break }
 
-                if let hit = query.capsuleCast(from: position,
-                                               delta: remaining,
-                                               radius: controller.radius,
-                                               halfHeight: controller.halfHeight) {
+                if let hit = query.capsuleCastBlocking(from: position,
+                                                       delta: remaining,
+                                                       radius: controller.radius,
+                                                       halfHeight: controller.halfHeight) {
                     let into = simd_dot(remaining, hit.normal)
                     if into >= 0 {
                         position += remaining
@@ -327,6 +331,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     if vInto < 0 {
                         body.linearVelocity -= hit.normal * vInto
                     }
+                    if debugLogs && frame % 10 == 0 {
+                        print("KinematicSlide e=\(e.id) toi=\(hit.toi) n=\(hit.normal) into=\(into)")
+                    }
                 } else {
                     position += remaining
                     remaining = .zero
@@ -337,10 +344,10 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             if controller.snapDistance > 0 {
                 let down = SIMD3<Float>(0, -1, 0)
                 let snapDelta = down * controller.snapDistance
-                if let hit = query.capsuleCast(from: position,
-                                               delta: snapDelta,
-                                               radius: controller.radius,
-                                               halfHeight: controller.halfHeight),
+                if let hit = query.capsuleCastBlocking(from: position,
+                                                       delta: snapDelta,
+                                                       radius: controller.radius,
+                                                       halfHeight: controller.halfHeight),
                    hit.normal.y >= controller.minGroundDot {
                     let moveDist = max(hit.toi - controller.skinWidth, 0)
                     position += down * moveDist
@@ -349,6 +356,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     if vInto < 0 {
                         body.linearVelocity -= hit.normal * vInto
                     }
+                    if debugLogs && frame % 10 == 0 {
+                        print("KinematicGround e=\(e.id) toi=\(hit.toi) n=\(hit.normal)")
+                    }
                 }
             }
 
@@ -356,6 +366,16 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             pStore[e] = body
             controller.grounded = isGrounded
             cStore[e] = controller
+
+            if debugLogs && frame % 10 == 0 {
+                let down = SIMD3<Float>(0, -1, 0)
+                let probe = query.capsuleCastBlocking(from: position,
+                                                      delta: down * 2.0,
+                                                      radius: controller.radius,
+                                                      halfHeight: controller.halfHeight)
+                let probeInfo = probe.map { "probe toi=\($0.toi) n=\($0.normal)" } ?? "probe miss"
+                print("KinematicPost e=\(e.id) grounded=\(isGrounded) pos=\(position) \(probeInfo)")
+            }
         }
     }
 }

@@ -40,6 +40,13 @@ public final class CollisionQuery {
                             halfHeight: Float) -> CapsuleCastHit? {
         staticMesh.capsuleCast(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
     }
+
+    public func capsuleCastBlocking(from: SIMD3<Float>,
+                                    delta: SIMD3<Float>,
+                                    radius: Float,
+                                    halfHeight: Float) -> CapsuleCastHit? {
+        staticMesh.capsuleCastBlocking(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
+    }
 }
 
 public struct StaticTriMesh {
@@ -140,9 +147,29 @@ public struct StaticTriMesh {
                                    delta: delta,
                                    radius: radius,
                                    halfHeight: halfHeight,
-                                   grid: grid)
+                                   grid: grid,
+                                   blockingOnly: false)
         }
         return capsuleCastApprox(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
+    }
+
+    public func capsuleCastBlocking(from: SIMD3<Float>,
+                                    delta: SIMD3<Float>,
+                                    radius: Float,
+                                    halfHeight: Float) -> CapsuleCastHit? {
+        if let grid {
+            return capsuleCastGrid(from: from,
+                                   delta: delta,
+                                   radius: radius,
+                                   halfHeight: halfHeight,
+                                   grid: grid,
+                                   blockingOnly: true)
+        }
+        if let hit = capsuleCastApprox(from: from, delta: delta, radius: radius, halfHeight: halfHeight),
+           simd_dot(delta, hit.normal) < 0 {
+            return hit
+        }
+        return nil
     }
 
     public func capsuleCastApprox(from: SIMD3<Float>,
@@ -351,7 +378,8 @@ private extension StaticTriMesh {
                                  delta: SIMD3<Float>,
                                  radius: Float,
                                  halfHeight: Float,
-                                 grid: UniformGrid) -> CapsuleCastHit? {
+                                 grid: UniformGrid,
+                                 blockingOnly: Bool) -> CapsuleCastHit? {
         let len = simd_length(delta)
         if len < 1e-6 { return nil }
         let dir = delta / len
@@ -407,6 +435,9 @@ private extension StaticTriMesh {
                                               v2: v2,
                                               triangleIndex: triIndex),
                hit.toi < bestT {
+                if blockingOnly && simd_dot(delta, hit.normal) >= 0 {
+                    continue
+                }
                 bestT = hit.toi
                 bestHit = hit
             }
