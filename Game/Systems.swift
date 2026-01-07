@@ -263,10 +263,14 @@ public final class GravitySystem: FixedStepSystem {
     public func fixedUpdate(world: World, dt: Float) {
         let bodies = world.query(PhysicsBodyComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
+        let cStore = world.store(CharacterControllerComponent.self)
 
         for e in bodies {
             guard var body = pStore[e] else { continue }
             if body.bodyType == .static { continue }
+            if let controller = cStore[e], controller.grounded {
+                continue
+            }
             body.linearVelocity += gravity * dt
             pStore[e] = body
         }
