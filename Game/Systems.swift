@@ -281,6 +281,12 @@ public final class GravitySystem: FixedStepSystem {
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
     public var debugLogs: Bool = false
+    private var debugState: [Entity: DebugState] = [:]
+
+    private struct DebugState {
+        var lastY: Float
+        var grounded: Bool
+    }
 
     public init() {}
 
@@ -310,6 +316,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 remaining.y = 0
             }
             var isGrounded = false
+            var lastSlideHit: CapsuleCastHit?
+            var lastSlideInto: Float = 0
+            var snapHit: CapsuleCastHit?
 
             for _ in 0..<controller.maxSlideIterations {
                 let len = simd_length(remaining)
@@ -319,9 +328,28 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                        delta: remaining,
                                                        radius: controller.radius,
                                                        halfHeight: controller.halfHeight) {
-                    let into = simd_dot(remaining, hit.normal)
+                    var slideNormal = hit.normal
+                    if slideNormal.y < controller.minGroundDot {
+                        slideNormal.y = 0
+                        let nLen = simd_length(slideNormal)
+                        if nLen > 1e-5 {
+                            slideNormal /= nLen
+                        } else {
+                            position += remaining
+                            remaining = .zero
+                            break
+                        }
+                    }
+                    let into = simd_dot(remaining, slideNormal)
+                    lastSlideHit = hit
+                    lastSlideInto = into
                     let intoEps = 1e-4 * len
                     if into >= -intoEps {
+                        position += remaining
+                        remaining = .zero
+                        break
+                    }
+                    if hit.toi <= controller.skinWidth && abs(into) <= intoEps {
                         position += remaining
                         remaining = .zero
                         break
@@ -337,13 +365,13 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     position += dir * moveDist
 
                     var leftover = remaining - dir * moveDist
-                    leftover -= hit.normal * simd_dot(leftover, hit.normal)
+                    leftover -= slideNormal * simd_dot(leftover, slideNormal)
                     if wasGrounded && leftover.y < 0 {
                         leftover.y = 0
                     }
-                    let residual = simd_dot(leftover, hit.normal)
+                    let residual = simd_dot(leftover, slideNormal)
                     if abs(residual) < 1e-5 {
-                        leftover -= hit.normal * residual
+                        leftover -= slideNormal * residual
                     }
                     if simd_length_squared(leftover) < 1e-8 {
                         remaining = .zero
@@ -351,12 +379,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     }
                     remaining = leftover
 
-                    let vInto = simd_dot(body.linearVelocity, hit.normal)
+                    let vInto = simd_dot(body.linearVelocity, slideNormal)
                     if vInto < 0 {
-                        body.linearVelocity -= hit.normal * vInto
-                    }
-                    if debugLogs && frame % 10 == 0 {
-                        print("KinematicSlide e=\(e.id) toi=\(hit.toi) n=\(hit.normal) into=\(into)")
+                        body.linearVelocity -= slideNormal * vInto
                     }
                 } else {
                     position += remaining
@@ -368,20 +393,18 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             if controller.snapDistance > 0 {
                 let down = SIMD3<Float>(0, -1, 0)
                 let snapDelta = down * controller.snapDistance
-                if let hit = query.capsuleCastBlocking(from: position,
-                                                       delta: snapDelta,
-                                                       radius: controller.radius,
-                                                       halfHeight: controller.halfHeight),
-                   hit.normal.y >= controller.minGroundDot {
+                if let hit = query.capsuleCastGround(from: position,
+                                                     delta: snapDelta,
+                                                     radius: controller.radius,
+                                                     halfHeight: controller.halfHeight,
+                                                     minNormalY: controller.minGroundDot) {
                     let moveDist = max(hit.toi - controller.skinWidth, 0)
                     position += down * moveDist
                     isGrounded = true
+                    snapHit = hit
                     let vInto = simd_dot(body.linearVelocity, hit.normal)
                     if vInto < 0 {
                         body.linearVelocity -= hit.normal * vInto
-                    }
-                    if debugLogs && frame % 10 == 0 {
-                        print("KinematicGround e=\(e.id) toi=\(hit.toi) n=\(hit.normal)")
                     }
                 }
             }
@@ -392,13 +415,23 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             cStore[e] = controller
 
             if debugLogs && frame % 10 == 0 {
-                let down = SIMD3<Float>(0, -1, 0)
-                let probe = query.capsuleCastBlocking(from: position,
-                                                      delta: down * 2.0,
-                                                      radius: controller.radius,
-                                                      halfHeight: controller.halfHeight)
-                let probeInfo = probe.map { "probe toi=\($0.toi) n=\($0.normal)" } ?? "probe miss"
-                print("KinematicPost e=\(e.id) grounded=\(isGrounded) pos=\(position) \(probeInfo)")
+                let prev = debugState[e]
+                let prevY = prev?.lastY ?? position.y
+                let prevGrounded = prev?.grounded ?? isGrounded
+                let yDrop = prevY - position.y
+
+                if prevGrounded && !isGrounded {
+                    let slideInfo = lastSlideHit.map { "slide toi=\($0.toi) n=\($0.normal) into=\(lastSlideInto)" } ?? "slide miss"
+                    print("GroundLost e=\(e.id) pos=\(position) \(slideInfo)")
+                }
+
+                if isGrounded && yDrop > 0.02 {
+                    let snapInfo = snapHit.map { "snap toi=\($0.toi) n=\($0.normal)" } ?? "snap miss"
+                    let slideInfo = lastSlideHit.map { "slide toi=\($0.toi) n=\($0.normal) into=\(lastSlideInto)" } ?? "slide miss"
+                    print("GroundSink e=\(e.id) dy=\(yDrop) pos=\(position) \(snapInfo) \(slideInfo)")
+                }
+
+                debugState[e] = DebugState(lastY: position.y, grounded: isGrounded)
             }
         }
     }
