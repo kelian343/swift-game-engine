@@ -252,6 +252,27 @@ private func approachVec(current: SIMD3<Float>, target: SIMD3<Float>, maxDelta: 
     return current + delta / len * maxDelta
 }
 
+/// Apply constant gravity acceleration to physics bodies.
+public final class GravitySystem: FixedStepSystem {
+    public var gravity: SIMD3<Float>
+
+    public init(gravity: SIMD3<Float> = SIMD3<Float>(0, -98.0, 0)) {
+        self.gravity = gravity
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        let bodies = world.query(PhysicsBodyComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+
+        for e in bodies {
+            guard var body = pStore[e] else { continue }
+            if body.bodyType == .static { continue }
+            body.linearVelocity += gravity * dt
+            pStore[e] = body
+        }
+    }
+}
+
 /// Kinematic capsule sweep: move & slide with ground snap.
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
@@ -268,11 +289,12 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
         for e in bodies {
-            guard var body = pStore[e], let controller = cStore[e] else { continue }
+            guard var body = pStore[e], var controller = cStore[e] else { continue }
             if body.bodyType == .static { continue }
 
             var position = body.position
             var remaining = body.linearVelocity * dt
+            var isGrounded = false
 
             for _ in 0..<controller.maxSlideIterations {
                 let len = simd_length(remaining)
@@ -322,11 +344,18 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                    hit.normal.y >= controller.minGroundDot {
                     let moveDist = max(hit.toi - controller.skinWidth, 0)
                     position += down * moveDist
+                    isGrounded = true
+                    let vInto = simd_dot(body.linearVelocity, hit.normal)
+                    if vInto < 0 {
+                        body.linearVelocity -= hit.normal * vInto
+                    }
                 }
             }
 
             body.position = position
             pStore[e] = body
+            controller.grounded = isGrounded
+            cStore[e] = controller
         }
     }
 }

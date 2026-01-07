@@ -26,6 +26,7 @@ public final class DemoScene: RenderScene {
     private let physicsNarrowphaseSystem: PhysicsNarrowphaseSystem
     private let physicsSolverSystem: PhysicsSolverSystem
     private let physicsIntentSystem = PhysicsIntentSystem()
+    private let gravitySystem = GravitySystem()
     private let kinematicMoveSystem = KinematicMoveStopSystem()
     private let physicsIntegrateSystem = PhysicsIntegrateSystem()
     private let physicsWritebackSystem = PhysicsWritebackSystem()
@@ -47,6 +48,7 @@ public final class DemoScene: RenderScene {
             fixed: [physicsBroadphaseSystem,
                     physicsNarrowphaseSystem,
                     physicsSolverSystem,
+                    gravitySystem,
                     kinematicMoveSystem,
                     physicsIntegrateSystem],
             postFixed: [physicsWritebackSystem, physicsEventsSystem]
