@@ -12,6 +12,7 @@ public struct RaycastHit {
     public var position: SIMD3<Float>
     public var normal: SIMD3<Float>
     public var triangleIndex: Int
+    public var material: SurfaceMaterial
 }
 
 public struct CapsuleCastHit {
@@ -19,6 +20,7 @@ public struct CapsuleCastHit {
     public var position: SIMD3<Float>
     public var normal: SIMD3<Float>
     public var triangleIndex: Int
+    public var material: SurfaceMaterial
 }
 
 public final class CollisionQuery {
@@ -83,6 +85,7 @@ public struct StaticTriMesh {
     public private(set) var positions: [SIMD3<Float>]
     public private(set) var indices: [UInt32]
     public private(set) var triangleAABBs: [AABB]
+    public private(set) var triangleMaterials: [SurfaceMaterial]
     private let grid: UniformGrid?
 
     public init(world: World) {
@@ -93,6 +96,7 @@ public struct StaticTriMesh {
         var positions: [SIMD3<Float>] = []
         var indices: [UInt32] = []
         var triangleAABBs: [AABB] = []
+        var triangleMaterials: [SurfaceMaterial] = []
 
         for e in entities {
             guard let t = tStore[e], let m = mStore[e] else { continue }
@@ -118,7 +122,15 @@ public struct StaticTriMesh {
             }
 
             let indexEnd = indices.count
+            let triCount = (indexEnd - indexStart) / 3
+            let triSource: [SurfaceMaterial]
+            if let perTri = m.triangleMaterials, perTri.count == triCount {
+                triSource = perTri
+            } else {
+                triSource = Array(repeating: m.material, count: triCount)
+            }
             var tri = indexStart
+            var triLocal = 0
             while tri + 2 < indexEnd {
                 let i0 = Int(indices[tri])
                 let i1 = Int(indices[tri + 1])
@@ -129,13 +141,16 @@ public struct StaticTriMesh {
                 let minP = simd_min(p0, simd_min(p1, p2))
                 let maxP = simd_max(p0, simd_max(p1, p2))
                 triangleAABBs.append(AABB(min: minP, max: maxP))
+                triangleMaterials.append(triSource[triLocal])
                 tri += 3
+                triLocal += 1
             }
         }
 
         self.positions = positions
         self.indices = indices
         self.triangleAABBs = triangleAABBs
+        self.triangleMaterials = triangleMaterials
         self.grid = StaticTriMesh.buildGrid(positions: positions,
                                             triangleAABBs: triangleAABBs,
                                             cellSize: 4.0)
@@ -221,11 +236,19 @@ public struct StaticTriMesh {
         return CapsuleCastHit(toi: toi,
                               position: position,
                               normal: hit.normal,
-                              triangleIndex: hit.triangleIndex)
+                              triangleIndex: hit.triangleIndex,
+                              material: hit.material)
     }
 }
 
 private extension StaticTriMesh {
+    func materialForTriangle(_ triangleIndex: Int) -> SurfaceMaterial {
+        if triangleIndex >= 0 && triangleIndex < triangleMaterials.count {
+            return triangleMaterials[triangleIndex]
+        }
+        return .default
+    }
+
     private static func buildGrid(positions: [SIMD3<Float>],
                                   triangleAABBs: [AABB],
                                   cellSize: Float) -> UniformGrid? {
@@ -294,7 +317,11 @@ private extension StaticTriMesh {
                 let normal = simd_dot(n, direction) > 0 ? -n : n
                 let position = origin + direction * t
                 closestT = t
-                hit = RaycastHit(distance: t, position: position, normal: normal, triangleIndex: triIndex)
+                hit = RaycastHit(distance: t,
+                                 position: position,
+                                 normal: normal,
+                                 triangleIndex: triIndex,
+                                 material: materialForTriangle(triIndex))
             }
 
             i += 3
@@ -373,7 +400,11 @@ private extension StaticTriMesh {
                         let normal = simd_dot(n, direction) > 0 ? -n : n
                         let position = origin + direction * tHit
                         closestT = tHit
-                        hit = RaycastHit(distance: tHit, position: position, normal: normal, triangleIndex: triIndex)
+                        hit = RaycastHit(distance: tHit,
+                                         position: position,
+                                         normal: normal,
+                                         triangleIndex: triIndex,
+                                         material: materialForTriangle(triIndex))
                     }
                 }
             }
@@ -516,7 +547,8 @@ private extension StaticTriMesh {
                 return CapsuleCastHit(toi: t,
                                       position: triPoint,
                                       normal: n,
-                                      triangleIndex: triangleIndex)
+                                      triangleIndex: triangleIndex,
+                                      material: materialForTriangle(triangleIndex))
             }
 
             let advance = max(dist - radius, 0.001)

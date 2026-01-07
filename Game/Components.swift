@@ -58,9 +58,15 @@ public struct RenderComponent {
 
 public struct StaticMeshComponent {
     public var mesh: MeshData
+    public var material: SurfaceMaterial
+    public var triangleMaterials: [SurfaceMaterial]?
 
-    public init(mesh: MeshData) {
+    public init(mesh: MeshData,
+                material: SurfaceMaterial = .default,
+                triangleMaterials: [SurfaceMaterial]? = nil) {
         self.mesh = mesh
+        self.material = material
+        self.triangleMaterials = triangleMaterials
     }
 }
 
@@ -229,6 +235,18 @@ public struct PhysicsMaterial: Equatable {
     public init(friction: Float = 0.5, restitution: Float = 0.0) {
         self.friction = friction
         self.restitution = restitution
+    }
+}
+
+public struct SurfaceMaterial: Equatable {
+    public var muS: Float
+    public var muK: Float
+
+    public static let `default` = SurfaceMaterial(muS: 0.8, muK: 0.6)
+
+    public init(muS: Float = 0.8, muK: Float = 0.6) {
+        self.muS = muS
+        self.muK = muK
     }
 }
 

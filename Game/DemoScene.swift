@@ -79,7 +79,8 @@ public final class DemoScene: RenderScene {
             t.translation = SIMD3<Float>(0, groundY, 0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, StaticMeshComponent(mesh: meshData))
+            world.add(e, StaticMeshComponent(mesh: meshData,
+                                             material: SurfaceMaterial(muS: 0.9, muK: 0.8)))
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
@@ -153,7 +154,8 @@ public final class DemoScene: RenderScene {
             t.translation = SIMD3<Float>(8, 0, 0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, StaticMeshComponent(mesh: meshData))
+            world.add(e, StaticMeshComponent(mesh: meshData,
+                                             material: SurfaceMaterial(muS: 0.35, muK: 0.25)))
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
@@ -176,7 +178,8 @@ public final class DemoScene: RenderScene {
             t.translation = SIMD3<Float>(-10, groundY, -6)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, StaticMeshComponent(mesh: meshData))
+            world.add(e, StaticMeshComponent(mesh: meshData,
+                                             material: SurfaceMaterial(muS: 0.3, muK: 0.2)))
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
@@ -210,6 +213,7 @@ public final class DemoScene: RenderScene {
         if let query = collisionQuery {
             kinematicMoveSystem.setQuery(query)
         }
+        kinematicMoveSystem.frictionDebugEnabled = true
 
         // New resources were created -> bump revision once
         revision &+= 1

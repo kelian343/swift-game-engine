@@ -322,8 +322,15 @@ public final class GravitySystem: FixedStepSystem {
 /// Kinematic capsule sweep: move & slide with ground snap.
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
+    private let gravity: SIMD3<Float>
+    public var frictionDebugEnabled: Bool = false
+    private var debugFrameIndex: Int = 0
+    private let frictionDebugEveryN: Int = 30
+    private let frictionDebugNormalYThreshold: Float = 0.995
 
-    public init() {}
+    public init(gravity: SIMD3<Float> = SIMD3<Float>(0, -98.0, 0)) {
+        self.gravity = gravity
+    }
 
     public func setQuery(_ query: CollisionQuery) {
         self.query = query
@@ -331,6 +338,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
 
     public func fixedUpdate(world: World, dt: Float) {
         guard let query = query else { return }
+        if frictionDebugEnabled {
+            debugFrameIndex &+= 1
+        }
         let bodies = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
@@ -350,6 +360,8 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             }
             var isGrounded = false
             var isGroundedNear = false
+            var groundNormal: SIMD3<Float>?
+            var groundMaterial = SurfaceMaterial.default
             for _ in 0..<controller.maxSlideIterations {
                 let len = simd_length(remaining)
                 if len < 1e-6 { break }
@@ -446,6 +458,8 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     }
                     if nearGround || canSnap {
                         isGrounded = true
+                        groundNormal = hit.normal
+                        groundMaterial = hit.material
                     }
                     if canSnap {
                         let rawMove = max(hit.toi - controller.groundSnapSkin, 0)
@@ -459,6 +473,53 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                             body.linearVelocity -= hit.normal * vInto
                         }
                     }
+                }
+            }
+
+            var didStick = false
+            var didSlide = false
+            var debugNormal = SIMD3<Float>.zero
+            var debugGTanLen: Float = 0
+            var debugStickLimit: Float = 0
+            var debugDownhillSpeed: Float = 0
+            if isGrounded, let n = groundNormal {
+                let normal = simd_normalize(n)
+                debugNormal = normal
+                let g = gravity
+                let gN = simd_dot(g, normal)
+                let gTan = g - normal * gN
+                let gTanLen = simd_length(gTan)
+                debugGTanLen = gTanLen
+                let slopeAccelEps: Float = 0.5
+                if gTanLen > slopeAccelEps {
+                    let gNMag = abs(gN)
+                    let gTanDir = gTan / gTanLen
+                    let stickLimit = groundMaterial.muS * gNMag
+                    debugStickLimit = stickLimit
+                    if gTanLen <= stickLimit {
+                        let v = body.linearVelocity
+                        let vTan = v - normal * simd_dot(v, normal)
+                        let downhillSpeed = simd_dot(vTan, gTanDir)
+                        debugDownhillSpeed = downhillSpeed
+                        if downhillSpeed > 0 {
+                            body.linearVelocity -= gTanDir * downhillSpeed
+                            didStick = true
+                        }
+                    } else {
+                        let slideAccelMag = max(gTanLen - groundMaterial.muK * gNMag, 0)
+                        if slideAccelMag > 0 {
+                            body.linearVelocity += gTanDir * slideAccelMag * dt
+                            didSlide = true
+                        }
+                    }
+                }
+            }
+
+            if frictionDebugEnabled && isGrounded {
+                let shouldLog = (debugFrameIndex % frictionDebugEveryN == 0) ||
+                    (debugNormal.y < frictionDebugNormalYThreshold)
+                if shouldLog {
+                    print("SlopeFrictionDebug e=\(e.id) n=\(debugNormal) nY=\(debugNormal.y) gTanLen=\(debugGTanLen) muS=\(groundMaterial.muS) muK=\(groundMaterial.muK) stickLimit=\(debugStickLimit) downhillSpeed=\(debugDownhillSpeed) stick=\(didStick) slide=\(didSlide)")
                 }
             }
 
