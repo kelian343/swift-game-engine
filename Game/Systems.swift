@@ -280,13 +280,6 @@ public final class GravitySystem: FixedStepSystem {
 /// Kinematic capsule sweep: move & slide with ground snap.
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
-    public var debugLogs: Bool = false
-    private var debugState: [Entity: DebugState] = [:]
-
-    private struct DebugState {
-        var lastY: Float
-        var grounded: Bool
-    }
 
     public init() {}
 
@@ -299,9 +292,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
         let bodies = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
-        let tStore = world.store(TimeComponent.self)
-        let timeEntity = world.query(TimeComponent.self).first
-        let frame = timeEntity.flatMap { tStore[$0]?.frame } ?? 0
         for e in bodies {
             guard var body = pStore[e], var controller = cStore[e] else { continue }
             if body.bodyType == .static { continue }
@@ -316,10 +306,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 remaining.y = 0
             }
             var isGrounded = false
-            var lastSlideHit: CapsuleCastHit?
-            var lastSlideInto: Float = 0
-            var snapHit: CapsuleCastHit?
-
             for _ in 0..<controller.maxSlideIterations {
                 let len = simd_length(remaining)
                 if len < 1e-6 { break }
@@ -341,8 +327,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                         }
                     }
                     let into = simd_dot(remaining, slideNormal)
-                    lastSlideHit = hit
-                    lastSlideInto = into
                     let intoEps = 1e-4 * len
                     if into >= -intoEps {
                         position += remaining
@@ -401,7 +385,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     let moveDist = max(hit.toi - controller.skinWidth, 0)
                     position += down * moveDist
                     isGrounded = true
-                    snapHit = hit
                     let vInto = simd_dot(body.linearVelocity, hit.normal)
                     if vInto < 0 {
                         body.linearVelocity -= hit.normal * vInto
@@ -414,25 +397,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             controller.grounded = isGrounded
             cStore[e] = controller
 
-            if debugLogs && frame % 10 == 0 {
-                let prev = debugState[e]
-                let prevY = prev?.lastY ?? position.y
-                let prevGrounded = prev?.grounded ?? isGrounded
-                let yDrop = prevY - position.y
-
-                if prevGrounded && !isGrounded {
-                    let slideInfo = lastSlideHit.map { "slide toi=\($0.toi) n=\($0.normal) into=\(lastSlideInto)" } ?? "slide miss"
-                    print("GroundLost e=\(e.id) pos=\(position) \(slideInfo)")
-                }
-
-                if isGrounded && yDrop > 0.02 {
-                    let snapInfo = snapHit.map { "snap toi=\($0.toi) n=\($0.normal)" } ?? "snap miss"
-                    let slideInfo = lastSlideHit.map { "slide toi=\($0.toi) n=\($0.normal) into=\(lastSlideInto)" } ?? "slide miss"
-                    print("GroundSink e=\(e.id) dy=\(yDrop) pos=\(position) \(snapInfo) \(slideInfo)")
-                }
-
-                debugState[e] = DebugState(lastY: position.y, grounded: isGrounded)
-            }
         }
     }
 }

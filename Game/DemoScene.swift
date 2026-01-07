@@ -182,7 +182,6 @@ public final class DemoScene: RenderScene {
         collisionQuery = CollisionQuery(world: world)
         if let query = collisionQuery {
             kinematicMoveSystem.setQuery(query)
-            kinematicMoveSystem.debugLogs = true
         }
 
         // New resources were created -> bump revision once
