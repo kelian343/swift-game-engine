@@ -414,6 +414,57 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             if body.bodyType == .static { continue }
 
             var position = body.position
+            var platformDelta: SIMD3<Float> = .zero
+            let debugPlatform = true
+            func capsuleBoxPenetrationXZ(center: SIMD3<Float>,
+                                         halfHeight: Float,
+                                         radius: Float,
+                                         boxMin: SIMD3<Float>,
+                                         boxMax: SIMD3<Float>) -> (SIMD3<Float>, Float)? {
+                let segMin = center.y - halfHeight
+                let segMax = center.y + halfHeight
+                if segMax < boxMin.y - radius || segMin > boxMax.y + radius {
+                    return nil
+                }
+                let cx = center.x
+                let cz = center.z
+                let closestX = max(boxMin.x, min(cx, boxMax.x))
+                let closestZ = max(boxMin.z, min(cz, boxMax.z))
+                let dx = cx - closestX
+                let dz = cz - closestZ
+                let distSq = dx * dx + dz * dz
+                if distSq > radius * radius {
+                    return nil
+                }
+                if distSq > 1e-6 {
+                    let dist = sqrt(distSq)
+                    let n = SIMD3<Float>(dx / dist, 0, dz / dist)
+                    return (n, radius - dist)
+                }
+                let left = cx - boxMin.x
+                let right = boxMax.x - cx
+                let back = cz - boxMin.z
+                let front = boxMax.z - cz
+                var minDist = left
+                var n = SIMD3<Float>(1, 0, 0)
+                if right < minDist {
+                    minDist = right
+                    n = SIMD3<Float>(-1, 0, 0)
+                }
+                if back < minDist {
+                    minDist = back
+                    n = SIMD3<Float>(0, 0, 1)
+                }
+                if front < minDist {
+                    minDist = front
+                    n = SIMD3<Float>(0, 0, -1)
+                }
+                let depth = radius - minDist
+                if depth <= 0 {
+                    return nil
+                }
+                return (n, depth)
+            }
             // Apply platform motion carry/push before character sweep.
             if !platformEntities.isEmpty {
                 let capsuleHalf = controller.halfHeight + controller.radius
@@ -443,7 +494,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                   capMin.y <= expandedMax.y && capMax.y >= expandedMin.y &&
                                   capMin.z <= expandedMax.z && capMax.z >= expandedMin.z
                     if !overlap { continue }
-
                     let withinXZ = position.x >= aabb.min.x - controller.radius &&
                                    position.x <= aabb.max.x + controller.radius &&
                                    position.z >= aabb.min.z - controller.radius &&
@@ -474,16 +524,23 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                             let sideDistSq = dx * dx + dz * dz
                             let sidePushTol = controller.radius + sideTol
                             if sideDistSq <= sidePushTol * sidePushTol {
-                                pushDelta += SIMD3<Float>(pDelta.x, 0, pDelta.z)
+                                let dirLen = sqrt(max(sideDistSq, 0))
+                                if dirLen > 1e-5 {
+                                    let dir = SIMD3<Float>(dx / dirLen, 0, dz / dirLen)
+                                    let moveToward = simd_dot(SIMD3<Float>(pDelta.x, 0, pDelta.z), dir)
+                                    if moveToward > 0 {
+                                        pushDelta += SIMD3<Float>(pDelta.x, 0, pDelta.z)
+                                    }
+                                }
                             }
                         }
                     }
                 }
 
                 if simd_length_squared(bestCarry) > 1e-8 {
-                    position += bestCarry
+                    platformDelta += bestCarry
                 } else if simd_length_squared(pushDelta) > 1e-8 {
-                    position += pushDelta
+                    platformDelta += pushDelta
                 }
             }
             let wasGrounded = controller.grounded
@@ -494,6 +551,37 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             var remaining = body.linearVelocity * dt
             if wasGrounded && wasGroundedNear && remaining.y < 0 {
                 remaining.y = 0
+            }
+            if simd_length_squared(platformDelta) > 1e-8 {
+                if debugPlatform {
+                    let baseCenterY = position.y - controller.halfHeight
+                    let bottomY = baseCenterY - controller.radius
+                    print("PlatformDelta e=\(e.id) pos=\(position) bottomY=\(bottomY) grounded=\(wasGrounded) near=\(wasGroundedNear) delta=\(platformDelta)")
+                }
+                position += platformDelta
+                for pe in platformEntities {
+                    guard let pBody = platBodies[pe], let pCol = platCols[pe] else { continue }
+                    if pBody.bodyType != .kinematic { continue }
+                    let pDelta = pBody.position - pBody.prevPosition
+                    if simd_length_squared(pDelta) < 1e-8 { continue }
+                    guard case .box = pCol.shape else { continue }
+                    let aabb = ColliderComponent.computeAABB(position: pBody.position,
+                                                             rotation: pBody.rotation,
+                                                             collider: pCol)
+                    if let (n, depth) = capsuleBoxPenetrationXZ(center: position,
+                                                               halfHeight: controller.halfHeight,
+                                                               radius: controller.radius,
+                                                               boxMin: aabb.min,
+                                                               boxMax: aabb.max) {
+                        let moveToward = simd_dot(SIMD3<Float>(pDelta.x, 0, pDelta.z), n)
+                        if moveToward > 0 {
+                            position += n * depth
+                            if debugPlatform {
+                                print("PlatformResolve e=\(e.id) pe=\(pe.id) n=\(n) depth=\(depth) pDelta=\(pDelta)")
+                            }
+                        }
+                    }
+                }
             }
             var isGrounded = false
             var isGroundedNear = false
@@ -507,6 +595,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                        delta: remaining,
                                                        radius: controller.radius,
                                                        halfHeight: controller.halfHeight) {
+                    if debugPlatform && simd_length_squared(platformDelta) > 1e-8 {
+                        print("MoveSweepHit e=\(e.id) pos=\(position) rem=\(remaining) toi=\(hit.toi) n=\(hit.normal) triN=\(hit.triangleNormal)")
+                    }
                     let contactSkin = hit.normal.y >= controller.minGroundDot ? controller.groundSnapSkin : controller.skinWidth
                     var slideNormal = hit.normal
                     if slideNormal.y < controller.minGroundDot {
@@ -573,6 +664,44 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 }
             }
 
+            if !platformEntities.isEmpty {
+                let contactRadius = controller.radius + controller.skinWidth
+                let capsuleHalf = controller.halfHeight + controller.radius
+                var blocked = false
+                for pe in platformEntities {
+                    guard let pBody = platBodies[pe], let pCol = platCols[pe] else { continue }
+                    if pBody.bodyType != .kinematic { continue }
+                    guard case .box = pCol.shape else { continue }
+                    let aabb = ColliderComponent.computeAABB(position: pBody.position,
+                                                             rotation: pBody.rotation,
+                                                             collider: pCol)
+                    let baseY = position.y - capsuleHalf
+                    let topTol = controller.snapDistance + max(controller.skinWidth, controller.groundSnapSkin) + 0.05
+                    let onTop = baseY >= aabb.max.y - topTol && baseY <= aabb.max.y + topTol
+                    if onTop {
+                        continue
+                    }
+                    if let (n, depth) = capsuleBoxPenetrationXZ(center: position,
+                                                               halfHeight: controller.halfHeight,
+                                                               radius: contactRadius,
+                                                               boxMin: aabb.min,
+                                                               boxMax: aabb.max) {
+                        position += n * depth
+                        let vInto = simd_dot(body.linearVelocity, n)
+                        if vInto < 0 {
+                            body.linearVelocity -= n * vInto
+                        }
+                        blocked = true
+                        if debugPlatform {
+                            print("PlatformBlock e=\\(e.id) pe=\\(pe.id) n=\\(n) depth=\\(depth)")
+                        }
+                    }
+                }
+                if blocked {
+                    remaining = .zero
+                }
+            }
+
             if controller.snapDistance > 0 {
                 let down = SIMD3<Float>(0, -1, 0)
                 let snapDelta = down * controller.snapDistance
@@ -582,6 +711,13 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                      halfHeight: controller.halfHeight,
                                                      minNormalY: controller.minGroundDot),
                    hit.toi <= controller.snapDistance {
+                    if debugPlatform && simd_length_squared(platformDelta) > 1e-8 {
+                        print("GroundSnapHit e=\(e.id) pos=\(position) rem=\(remaining) toi=\(hit.toi) n=\(hit.normal) triN=\(hit.triangleNormal)")
+                    }
+                    let baseCenterY = position.y - controller.halfHeight
+                    let bottomY = baseCenterY - controller.radius
+                    let groundTol = max(controller.skinWidth, controller.groundSnapSkin)
+                    let validGroundPoint = hit.position.y <= bottomY + groundTol
                     let groundNearThreshold = max(controller.groundSnapSkin, controller.skinWidth)
                     let nearGround = hit.toi <= groundNearThreshold
                     isGroundedNear = nearGround
@@ -589,13 +725,13 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     let vInto = simd_dot(body.linearVelocity, hit.normal)
                     let groundGateSpeed = vInto >= -controller.groundSnapMaxSpeed
                     let groundGateToi = hit.toi <= controller.groundSnapMaxToi
-                    var canSnap = groundGateVel && (nearGround || groundGateSpeed || groundGateToi)
+                    var canSnap = validGroundPoint && groundGateVel && (nearGround || groundGateSpeed || groundGateToi)
                     if wasGroundedNear && hit.toi <= controller.snapDistance {
-                        canSnap = true
+                        canSnap = validGroundPoint
                     }
-                    if nearGround || canSnap {
+                    if validGroundPoint && (nearGround || canSnap) {
                         isGrounded = true
-                        groundNormal = hit.normal
+                        groundNormal = hit.triangleNormal
                         groundMaterial = hit.material
                     }
                     if canSnap {

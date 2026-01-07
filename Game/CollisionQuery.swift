@@ -19,6 +19,7 @@ public struct CapsuleCastHit {
     public var toi: Float
     public var position: SIMD3<Float>
     public var normal: SIMD3<Float>
+    public var triangleNormal: SIMD3<Float>
     public var triangleIndex: Int
     public var material: SurfaceMaterial
 }
@@ -216,7 +217,7 @@ public struct StaticTriMesh {
                                    minNormalY: minNormalY)
         }
         if let hit = capsuleCastApprox(from: from, delta: delta, radius: radius, halfHeight: halfHeight),
-           hit.normal.y >= minNormalY {
+           hit.triangleNormal.y >= minNormalY {
             return hit
         }
         return nil
@@ -236,6 +237,7 @@ public struct StaticTriMesh {
         return CapsuleCastHit(toi: toi,
                               position: position,
                               normal: hit.normal,
+                              triangleNormal: hit.normal,
                               triangleIndex: hit.triangleIndex,
                               material: hit.material)
     }
@@ -505,7 +507,7 @@ private extension StaticTriMesh {
                 if blockingOnly && simd_dot(delta, hit.normal) >= 0 {
                     continue
                 }
-                if let minY = minNormalY, hit.normal.y < minY {
+                if let minY = minNormalY, hit.triangleNormal.y < minY {
                     continue
                 }
                 bestT = hit.toi
@@ -544,9 +546,14 @@ private extension StaticTriMesh {
                 } else {
                     n = simd_normalize(segPoint - triPoint)
                 }
+                var triN = triNormal
+                if simd_dot(triN, n) < 0 {
+                    triN = -triN
+                }
                 return CapsuleCastHit(toi: t,
                                       position: triPoint,
                                       normal: n,
+                                      triangleNormal: triN,
                                       triangleIndex: triangleIndex,
                                       material: materialForTriangle(triangleIndex))
             }
