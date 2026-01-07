@@ -252,7 +252,7 @@ private func approachVec(current: SIMD3<Float>, target: SIMD3<Float>, maxDelta: 
     return current + delta / len * maxDelta
 }
 
-/// Kinematic capsule sweep: move to TOI and stop (no slide yet).
+/// Kinematic capsule sweep: move & slide with ground snap.
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
 
@@ -271,30 +271,61 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             guard var body = pStore[e], let controller = cStore[e] else { continue }
             if body.bodyType == .static { continue }
 
-            let delta = body.linearVelocity * dt
-            let len = simd_length(delta)
-            if len < 1e-6 { continue }
+            var position = body.position
+            var remaining = body.linearVelocity * dt
 
-            if let hit = query.capsuleCast(from: body.position,
-                                           delta: delta,
-                                           radius: controller.radius,
-                                           halfHeight: controller.halfHeight) {
-                let into = simd_dot(delta, hit.normal)
-                if into < 0 {
+            for _ in 0..<controller.maxSlideIterations {
+                let len = simd_length(remaining)
+                if len < 1e-6 { break }
+
+                if let hit = query.capsuleCast(from: position,
+                                               delta: remaining,
+                                               radius: controller.radius,
+                                               halfHeight: controller.halfHeight) {
+                    let into = simd_dot(remaining, hit.normal)
+                    if into >= 0 {
+                        position += remaining
+                        remaining = .zero
+                        break
+                    }
+
                     let moveDist = max(hit.toi - controller.skinWidth, 0)
-                    let dir = delta / len
-                    body.position += dir * moveDist
+                    let dir = remaining / len
+                    position += dir * moveDist
+
+                    var leftover = remaining - dir * moveDist
+                    leftover -= hit.normal * simd_dot(leftover, hit.normal)
+                    if simd_length_squared(leftover) < 1e-8 {
+                        remaining = .zero
+                        break
+                    }
+                    remaining = leftover
+
                     let vInto = simd_dot(body.linearVelocity, hit.normal)
                     if vInto < 0 {
                         body.linearVelocity -= hit.normal * vInto
                     }
                 } else {
-                    body.position += delta
+                    position += remaining
+                    remaining = .zero
+                    break
                 }
-            } else {
-                body.position += delta
             }
 
+            if controller.snapDistance > 0 {
+                let down = SIMD3<Float>(0, -1, 0)
+                let snapDelta = down * controller.snapDistance
+                if let hit = query.capsuleCast(from: position,
+                                               delta: snapDelta,
+                                               radius: controller.radius,
+                                               halfHeight: controller.halfHeight),
+                   hit.normal.y >= controller.minGroundDot {
+                    let moveDist = max(hit.toi - controller.skinWidth, 0)
+                    position += down * moveDist
+                }
+            }
+
+            body.position = position
             pStore[e] = body
         }
     }
