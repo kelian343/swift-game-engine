@@ -26,6 +26,7 @@ public final class DemoScene: RenderScene {
     private let physicsNarrowphaseSystem: PhysicsNarrowphaseSystem
     private let physicsSolverSystem: PhysicsSolverSystem
     private let physicsIntentSystem = PhysicsIntentSystem()
+    private let jumpSystem = JumpSystem()
     private let gravitySystem = GravitySystem()
     private let kinematicMoveSystem = KinematicMoveStopSystem()
     private let physicsIntegrateSystem = PhysicsIntegrateSystem()
@@ -44,7 +45,7 @@ public final class DemoScene: RenderScene {
         self.physicsSolverSystem = PhysicsSolverSystem(physicsWorld: physicsWorld)
         self.physicsEventsSystem = PhysicsEventsSystem(physicsWorld: physicsWorld)
         self.fixedRunner = FixedStepRunner(
-            preFixed: [spinSystem, physicsIntentSystem, physicsSyncSystem, physicsBeginStepSystem],
+            preFixed: [spinSystem, physicsIntentSystem, jumpSystem, physicsSyncSystem, physicsBeginStepSystem],
             fixed: [physicsBroadphaseSystem,
                     physicsNarrowphaseSystem,
                     physicsSolverSystem,
@@ -57,11 +58,16 @@ public final class DemoScene: RenderScene {
 
     public func build(context: SceneContext) {
         let device = context.device
+        inputSystem.debugLogs = true
+        jumpSystem.debugLogs = true
+        kinematicMoveSystem.debugLogs = true
 
         // Camera initial state
         camera.position = SIMD3<Float>(0, 0, 8)
         camera.target = SIMD3<Float>(0, 0, 0)
         camera.updateView()
+
+        let groundY: Float = -3.0
 
         // --- Ground: platform plane (4x area)
         do {
@@ -74,7 +80,7 @@ public final class DemoScene: RenderScene {
 
             let e = world.createEntity()
             var t = TransformComponent()
-            t.translation = SIMD3<Float>(0, -3, 0)
+            t.translation = SIMD3<Float>(0, groundY, 0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, StaticMeshComponent(mesh: meshData))
@@ -98,7 +104,8 @@ public final class DemoScene: RenderScene {
 
             let e = world.createEntity()
             var t = TransformComponent()
-            t.translation = SIMD3<Float>(0, 0.5, 0)
+            let groundContactY = groundY + playerRadius + playerHalfHeight
+            t.translation = SIMD3<Float>(0, groundContactY + 8.0, 0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             inputSystem.setPlayer(e)
@@ -111,7 +118,8 @@ public final class DemoScene: RenderScene {
                                                           radius: playerRadius)))
             world.add(e, CharacterControllerComponent(radius: playerRadius,
                                                       halfHeight: playerHalfHeight,
-                                                      skinWidth: 0.3))
+                                                      skinWidth: 0.3,
+                                                      groundSnapSkin: 0.05))
         }
 
         // --- Test Wall: large static blocker

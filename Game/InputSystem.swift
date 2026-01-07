@@ -12,6 +12,7 @@ final class InputSystem: System {
     private weak var camera: Camera?
     private var player: Entity?
     private var controller: GCController?
+    var debugLogs: Bool = false
 
     // Camera yaw/pitch (yaw will be kept aligned to facingYaw)
     private var yaw: Float = 0
@@ -19,6 +20,7 @@ final class InputSystem: System {
 
     // Character facing (driven only by RIGHT stick X)
     private var facingYaw: Float = 0
+    private var lastJumpPressed: Bool = false
 
     var moveSpeed: Float = 10.0
     var lookSpeed: Float = 2.5      // used for right stick rotation + pitch
@@ -71,8 +73,10 @@ final class InputSystem: System {
         if controller == nil {
             controller = GCController.controllers().first
         }
+        let mStore = world.store(MoveIntentComponent.self)
         guard let pad = controller?.extendedGamepad else {
-            world.store(MoveIntentComponent.self)[player] = MoveIntentComponent()
+            mStore[player] = MoveIntentComponent()
+            lastJumpPressed = false
             return
         }
 
@@ -81,6 +85,7 @@ final class InputSystem: System {
         let rawLY = pad.leftThumbstick.yAxis.value
         let rawRX = pad.rightThumbstick.xAxis.value
         let rawRY = pad.rightThumbstick.yAxis.value
+        let jumpPressed = pad.buttonA.isPressed
 
         // Match the "correct version" axis sign convention
         let lx = axis(-rawLX)
@@ -103,17 +108,26 @@ final class InputSystem: System {
         let move = forward * ly + right * lx
         let moveLen = simd_length(move)
 
-        var intent = MoveIntentComponent()
+        var intent = mStore[player] ?? MoveIntentComponent()
         if moveLen > deadzone {
             let dir = move / moveLen
             intent.desiredVelocity = dir * moveSpeed
+        } else {
+            intent.desiredVelocity = .zero
         }
 
         // Always apply facing yaw from right stick (allows backpedal/strafe).
         intent.desiredFacingYaw = facingYaw
         intent.hasFacingYaw = true
+        if jumpPressed && !lastJumpPressed {
+            intent.jumpRequested = true
+            if debugLogs {
+                print("JumpInput requested")
+            }
+        }
+        lastJumpPressed = jumpPressed
 
-        world.store(MoveIntentComponent.self)[player] = intent
+        mStore[player] = intent
 
         // Camera follow (simple version, no interpolation)
         let tStore = world.store(TransformComponent.self)

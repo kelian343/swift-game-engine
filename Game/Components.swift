@@ -68,6 +68,7 @@ public struct CharacterControllerComponent {
     public var radius: Float
     public var halfHeight: Float
     public var skinWidth: Float
+    public var groundSnapSkin: Float
     public var snapDistance: Float
     public var maxSlideIterations: Int
     public var minGroundDot: Float
@@ -76,6 +77,7 @@ public struct CharacterControllerComponent {
     public init(radius: Float = 1.5,
                 halfHeight: Float = 1.0,
                 skinWidth: Float = 0.3,
+                groundSnapSkin: Float = 0.05,
                 snapDistance: Float = 0.8,
                 maxSlideIterations: Int = 4,
                 minGroundDot: Float = 0.5,
@@ -83,6 +85,7 @@ public struct CharacterControllerComponent {
         self.radius = radius
         self.halfHeight = halfHeight
         self.skinWidth = skinWidth
+        self.groundSnapSkin = groundSnapSkin
         self.snapDistance = snapDistance
         self.maxSlideIterations = maxSlideIterations
         self.minGroundDot = minGroundDot
@@ -178,13 +181,16 @@ public struct MoveIntentComponent {
     public var desiredVelocity: SIMD3<Float>
     public var desiredFacingYaw: Float
     public var hasFacingYaw: Bool
+    public var jumpRequested: Bool
 
     public init(desiredVelocity: SIMD3<Float> = .zero,
                 desiredFacingYaw: Float = 0,
-                hasFacingYaw: Bool = false) {
+                hasFacingYaw: Bool = false,
+                jumpRequested: Bool = false) {
         self.desiredVelocity = desiredVelocity
         self.desiredFacingYaw = desiredFacingYaw
         self.hasFacingYaw = hasFacingYaw
+        self.jumpRequested = jumpRequested
     }
 }
 

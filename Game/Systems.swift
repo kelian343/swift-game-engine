@@ -252,6 +252,46 @@ private func approachVec(current: SIMD3<Float>, target: SIMD3<Float>, maxDelta: 
     return current + delta / len * maxDelta
 }
 
+/// Apply jump impulses for grounded characters.
+public final class JumpSystem: FixedStepSystem {
+    public var jumpSpeed: Float
+    public var debugLogs: Bool = false
+
+    public init(jumpSpeed: Float = 24.0) {
+        self.jumpSpeed = jumpSpeed
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = dt
+        let entities = world.query(PhysicsBodyComponent.self, MoveIntentComponent.self, CharacterControllerComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let mStore = world.store(MoveIntentComponent.self)
+        let cStore = world.store(CharacterControllerComponent.self)
+
+        for e in entities {
+            guard var body = pStore[e],
+                  var intent = mStore[e],
+                  var controller = cStore[e] else { continue }
+            if intent.jumpRequested && controller.grounded {
+                body.linearVelocity.y = jumpSpeed
+                controller.grounded = false
+                if debugLogs {
+                    print("JumpApplied e=\(e.id) vY=\(body.linearVelocity.y)")
+                }
+                pStore[e] = body
+                cStore[e] = controller
+            }
+            if intent.jumpRequested {
+                if debugLogs && !controller.grounded {
+                    print("JumpQueued e=\(e.id) grounded=false")
+                }
+                intent.jumpRequested = false
+                mStore[e] = intent
+            }
+        }
+    }
+}
+
 /// Apply constant gravity acceleration to physics bodies.
 public final class GravitySystem: FixedStepSystem {
     public var gravity: SIMD3<Float>
@@ -280,6 +320,7 @@ public final class GravitySystem: FixedStepSystem {
 /// Kinematic capsule sweep: move & slide with ground snap.
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
+    public var debugLogs: Bool = false
 
     public init() {}
 
@@ -374,7 +415,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 }
             }
 
-            if controller.snapDistance > 0 {
+            if controller.snapDistance > 0 && body.linearVelocity.y <= 0 {
                 let down = SIMD3<Float>(0, -1, 0)
                 let snapDelta = down * controller.snapDistance
                 if let hit = query.capsuleCastGround(from: position,
@@ -382,7 +423,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                      radius: controller.radius,
                                                      halfHeight: controller.halfHeight,
                                                      minNormalY: controller.minGroundDot) {
-                    let moveDist = max(hit.toi - controller.skinWidth, 0)
+                    let moveDist = max(hit.toi - controller.groundSnapSkin, 0)
                     position += down * moveDist
                     isGrounded = true
                     let vInto = simd_dot(body.linearVelocity, hit.normal)
@@ -396,6 +437,10 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             pStore[e] = body
             controller.grounded = isGrounded
             cStore[e] = controller
+            if debugLogs && wasGrounded != isGrounded {
+                let state = isGrounded ? "Grounded" : "Airborne"
+                print("KinematicState e=\(e.id) \(state) pos=\(position) v=\(body.linearVelocity)")
+            }
 
         }
     }
