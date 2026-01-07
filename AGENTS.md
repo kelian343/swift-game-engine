@@ -6,6 +6,9 @@
 - Phase 3 complete: capsule sweep CCD (TOI) integrated into kinematic movement.
 - Phase 4 complete: move & slide + ground snap; added stability filters for wall/ground noise.
 - Gravity + jump input integrated; jump preserves Y velocity; grounded state stabilized.
+- High-speed landing smoothing added: groundedNear gating for clamp/gravity, ground sweep/snap soft limits, and ground contact skin tuning.
+- Fixed-step frequency increased to 120Hz with maxSubsteps=8 to reduce large per-step motion.
+- Jump height increased (jumpSpeed raised).
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.
@@ -56,13 +59,9 @@ Goal: remove old penetration/solver paths.
 - Keep triggers/overlap system for interactions.
 
 ## In Progress / Next
-- Verify jump/landing after the latest "vY <= 0" snap gate.
-- Remove debug logging once behavior is confirmed.
+- Verify high-speed landing jitter after soft-landing changes (sweep/snap step caps) and fixed-step update.
 - Phase 5 next: mu_s stick/slide and slope behavior.
 - Phase 6 later: kinematic platforms + carry.
 
 ## Debug Logging Currently Enabled
-- `InputSystem` prints "JumpInput requested" when A is pressed (debugLogs=true).
-- `JumpSystem` prints "JumpApplied"/"JumpQueued" (debugLogs=true).
-- `KinematicMoveStopSystem` prints "KinematicState ... Grounded/Airborne" on state changes (debugLogs=true).
-- `DemoScene.debugRaycast()` prints "Ray hit"/"Ray miss" on hit changes.
+- None (all debug logging removed).

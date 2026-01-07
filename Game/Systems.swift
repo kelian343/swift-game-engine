@@ -322,6 +322,20 @@ public final class GravitySystem: FixedStepSystem {
 /// Kinematic capsule sweep: move & slide with ground snap.
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
+    private var frameIndex: Int = 0
+    private var debugState: [Entity: DebugState] = [:]
+    private let debugLogEveryNFrames: Int = 30
+    private let debugMinDeltaY: Float = 0.02
+    private let debugMinDeltaVy: Float = 0.2
+    private let debugThrottleFrames: Int = 15
+
+    private struct DebugState {
+        var lastY: Float
+        var lastVy: Float
+        var lastGrounded: Bool
+        var lastGroundedNear: Bool
+        var lastLogFrame: Int
+    }
 
     public init() {}
 
@@ -331,6 +345,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
 
     public func fixedUpdate(world: World, dt: Float) {
         guard let query = query else { return }
+        frameIndex &+= 1
         let bodies = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
@@ -341,12 +356,32 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             var position = body.position
             let wasGrounded = controller.grounded
             let wasGroundedNear = controller.groundedNear
+            var didClampVelY = false
+            var didClampRemainingY = false
+            var didCapSweep = false
+            var didSnap = false
+            var didGroundHit = false
+            var groundNear = false
+            var groundCanSnap = false
+            var groundGateVel = false
+            var groundGateSpeed = false
+            var groundGateToi = false
+            var groundHitToi: Float = -1
+            var groundHitNormalY: Float = 0
+            var groundNearThreshold: Float = 0
+            var groundHitToSnapDelta: Float = 0
+            var groundHitToMaxToiDelta: Float = 0
+            var snapToi: Float = -1
+            var snapMoveDist: Float = 0
+            var snapNormalY: Float = 0
             if wasGrounded && wasGroundedNear && body.linearVelocity.y < 0 {
                 body.linearVelocity.y = 0
+                didClampVelY = true
             }
             var remaining = body.linearVelocity * dt
             if wasGrounded && wasGroundedNear && remaining.y < 0 {
                 remaining.y = 0
+                didClampRemainingY = true
             }
             var isGrounded = false
             var isGroundedNear = false
@@ -394,6 +429,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     if hit.normal.y >= controller.minGroundDot && remaining.y < 0 &&
                         moveDist > controller.groundSweepMaxStep {
                         moveDist = controller.groundSweepMaxStep
+                        didCapSweep = true
                     }
                     let dir = remaining / len
                     position += dir * moveDist
@@ -433,10 +469,20 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                      halfHeight: controller.halfHeight,
                                                      minNormalY: controller.minGroundDot),
                    hit.toi <= controller.snapDistance {
-                    let nearGround = hit.toi <= max(controller.groundSnapSkin, controller.skinWidth)
+                    didGroundHit = true
+                    groundHitToi = hit.toi
+                    groundHitNormalY = hit.normal.y
+                    groundNearThreshold = max(controller.groundSnapSkin, controller.skinWidth)
+                    groundHitToSnapDelta = hit.toi - controller.snapDistance
+                    groundHitToMaxToiDelta = hit.toi - controller.groundSnapMaxToi
+                    let nearGround = hit.toi <= groundNearThreshold
+                    groundNear = nearGround
                     isGroundedNear = nearGround
-                    let canSnap = body.linearVelocity.y <= 0 &&
-                        (nearGround || body.linearVelocity.y >= -controller.groundSnapMaxSpeed || hit.toi <= controller.groundSnapMaxToi)
+                    groundGateVel = body.linearVelocity.y <= 0
+                    groundGateSpeed = body.linearVelocity.y >= -controller.groundSnapMaxSpeed
+                    groundGateToi = hit.toi <= controller.groundSnapMaxToi
+                    let canSnap = groundGateVel && (nearGround || groundGateSpeed || groundGateToi)
+                    groundCanSnap = canSnap
                     isGrounded = true
                     if canSnap {
                         let rawMove = max(hit.toi - controller.groundSnapSkin, 0)
@@ -445,6 +491,10 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                             moveDist = controller.groundSnapMaxStep
                         }
                         position += down * moveDist
+                        didSnap = true
+                        snapToi = hit.toi
+                        snapMoveDist = moveDist
+                        snapNormalY = hit.normal.y
                         let vInto = simd_dot(body.linearVelocity, hit.normal)
                         if vInto < 0 {
                             body.linearVelocity -= hit.normal * vInto
@@ -458,6 +508,30 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             controller.grounded = isGrounded
             controller.groundedNear = isGroundedNear
             cStore[e] = controller
+
+            if let state = debugState[e] {
+                let groundedChanged = state.lastGrounded != isGrounded || state.lastGroundedNear != isGroundedNear
+                let deltaY = position.y - state.lastY
+                let deltaVy = body.linearVelocity.y - state.lastVy
+                let verticalJitter = isGrounded && (abs(deltaY) >= debugMinDeltaY || abs(deltaVy) >= debugMinDeltaVy)
+                let shouldLog = groundedChanged || verticalJitter || didClampVelY || didClampRemainingY || didCapSweep || didSnap || (didGroundHit && !groundCanSnap) || (isGrounded && !isGroundedNear)
+                if shouldLog && (frameIndex - state.lastLogFrame) >= debugThrottleFrames {
+                    if frameIndex % debugLogEveryNFrames == 0 || groundedChanged {
+                        print("KinematicMoveDebug e=\(e.id) y=\(position.y) vy=\(body.linearVelocity.y) g=\(isGrounded) gn=\(isGroundedNear) wasG=\(wasGrounded) wasGN=\(wasGroundedNear) dY=\(deltaY) dVy=\(deltaVy) clampV=\(didClampVelY) clampR=\(didClampRemainingY) sweepCap=\(didCapSweep) groundHit=\(didGroundHit) hitToi=\(groundHitToi) hitNY=\(groundHitNormalY) near=\(groundNear) nearTh=\(groundNearThreshold) dSnap=\(groundHitToSnapDelta) dMaxToi=\(groundHitToMaxToiDelta) gateV=\(groundGateVel) gateSpeed=\(groundGateSpeed) gateToi=\(groundGateToi) canSnap=\(groundCanSnap) snap=\(didSnap) snapToi=\(snapToi) snapMove=\(snapMoveDist) nY=\(snapNormalY)")
+                    }
+                }
+                debugState[e] = DebugState(lastY: position.y,
+                                           lastVy: body.linearVelocity.y,
+                                           lastGrounded: isGrounded,
+                                           lastGroundedNear: isGroundedNear,
+                                           lastLogFrame: shouldLog ? frameIndex : state.lastLogFrame)
+            } else {
+                debugState[e] = DebugState(lastY: position.y,
+                                           lastVy: body.linearVelocity.y,
+                                           lastGrounded: isGrounded,
+                                           lastGroundedNear: isGroundedNear,
+                                           lastLogFrame: frameIndex)
+            }
 
         }
     }

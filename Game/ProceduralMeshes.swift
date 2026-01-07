@@ -192,6 +192,73 @@ enum ProceduralMeshes {
         return MeshData(vertices: v, indices16: i)
     }
 
+    static func dome(radius: Float = 4,
+                     radialSegments: Int = 32,
+                     ringSegments: Int = 12) -> MeshData {
+        let slices = max(radialSegments, 3)
+        let rings = max(ringSegments, 2)
+
+        var v: [VertexPNUT] = []
+        var i: [UInt16] = []
+
+        let twoPi = Float.pi * 2.0
+
+        // Curved top (hemisphere)
+        for r in 0...rings {
+            let t = Float(r) / Float(rings)
+            let theta = t * (Float.pi * 0.5)
+            let y = cos(theta) * radius
+            let ringR = sin(theta) * radius
+
+            for s in 0...slices {
+                let u = Float(s) / Float(slices)
+                let phi = u * twoPi
+                let x = cos(phi) * ringR
+                let z = sin(phi) * ringR
+                let pos = SIMD3<Float>(x, y, z)
+                let n = simd_normalize(pos)
+                v.append(VertexPNUT(position: pos, normal: n, uv: SIMD2<Float>(u, 1.0 - t)))
+            }
+        }
+
+        let ringStride = slices + 1
+        for r in 0..<rings {
+            for s in 0..<slices {
+                let i0 = UInt16(r * ringStride + s)
+                let i1 = UInt16((r + 1) * ringStride + s)
+                let i2 = UInt16((r + 1) * ringStride + s + 1)
+                let i3 = UInt16(r * ringStride + s + 1)
+                i += [i0, i1, i2, i0, i2, i3]
+            }
+        }
+
+        // Flat base (disk)
+        let baseCenter = UInt16(v.count)
+        v.append(VertexPNUT(position: SIMD3<Float>(0, 0, 0),
+                            normal: SIMD3<Float>(0, -1, 0),
+                            uv: SIMD2<Float>(0.5, 0.5)))
+        for s in 0...slices {
+            let u = Float(s) / Float(slices)
+            let phi = u * twoPi
+            let x = cos(phi) * radius
+            let z = sin(phi) * radius
+            let uv = SIMD2<Float>(0.5 + 0.5 * cos(phi), 0.5 + 0.5 * sin(phi))
+            v.append(VertexPNUT(position: SIMD3<Float>(x, 0, z),
+                                normal: SIMD3<Float>(0, -1, 0),
+                                uv: uv))
+        }
+
+        let baseStart = Int(baseCenter) + 1
+        for s in 0..<slices {
+            let i0 = baseCenter
+            let i1 = UInt16(baseStart + s)
+            let i2 = UInt16(baseStart + s + 1)
+            i += [i0, i2, i1]
+        }
+
+        return MeshData(vertices: v, indices16: i)
+    }
+
     static func capsule(radius: Float = 1.5,
                         halfHeight: Float = 1.0,
                         radialSegments: Int = 24,

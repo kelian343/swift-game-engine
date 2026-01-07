@@ -160,6 +160,29 @@ public final class DemoScene: RenderScene {
             world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(4, 2, 4))))
         }
 
+        // --- Test Dome: curved top for sliding
+        do {
+            let meshData = ProceduralMeshes.dome(radius: 4.0,
+                                                 radialSegments: 32,
+                                                 ringSegments: 12)
+            let mesh = GPUMesh(device: device, data: meshData, label: "TestDome")
+            let tex = TextureResource(device: device,
+                                      source: .solid(width: 4, height: 4, r: 120, g: 200, b: 140, a: 255),
+                                      label: "DomeTex")
+            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.5)
+
+            let e = world.createEntity()
+            var t = TransformComponent()
+            t.translation = SIMD3<Float>(-10, groundY, -6)
+            world.add(e, t)
+            world.add(e, RenderComponent(mesh: mesh, material: mat))
+            world.add(e, StaticMeshComponent(mesh: meshData))
+            world.add(e, PhysicsBodyComponent(bodyType: .static,
+                                              position: t.translation,
+                                              rotation: t.rotation))
+            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(4, 4, 4))))
+        }
+
         // --- Test Step: small ledge
         do {
             let meshData = ProceduralMeshes.box(size: 2.0)
