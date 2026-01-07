@@ -143,6 +143,136 @@ enum ProceduralMeshes {
 
         return MeshData(vertices: v, indices16: i)
     }
+
+    static func ramp(width: Float = 8, depth: Float = 8, height: Float = 4) -> MeshData {
+        let w = width * 0.5
+        let d = depth * 0.5
+        let h = height * 0.5
+
+        let frontLeft = SIMD3<Float>(-w, -h,  d)
+        let frontRight = SIMD3<Float>( w, -h,  d)
+        let backLeft = SIMD3<Float>(-w, -h, -d)
+        let backRight = SIMD3<Float>( w, -h, -d)
+        let backLeftTop = SIMD3<Float>(-w,  h, -d)
+        let backRightTop = SIMD3<Float>( w,  h, -d)
+
+        var v: [VertexPNUT] = []
+        var i: [UInt16] = []
+
+        func addTri(_ a: SIMD3<Float>, _ b: SIMD3<Float>, _ c: SIMD3<Float>) {
+            let n = simd_normalize(simd_cross(b - a, c - a))
+            let base = UInt16(v.count)
+            v.append(VertexPNUT(position: a, normal: n, uv: SIMD2<Float>(0, 0)))
+            v.append(VertexPNUT(position: b, normal: n, uv: SIMD2<Float>(1, 0)))
+            v.append(VertexPNUT(position: c, normal: n, uv: SIMD2<Float>(0.5, 1)))
+            i += [base, base + 1, base + 2]
+        }
+
+        func addQuad(_ p0: SIMD3<Float>, _ p1: SIMD3<Float>, _ p2: SIMD3<Float>, _ p3: SIMD3<Float>) {
+            let n = simd_normalize(simd_cross(p1 - p0, p2 - p0))
+            let base = UInt16(v.count)
+            v.append(VertexPNUT(position: p0, normal: n, uv: SIMD2<Float>(0, 0)))
+            v.append(VertexPNUT(position: p1, normal: n, uv: SIMD2<Float>(1, 0)))
+            v.append(VertexPNUT(position: p2, normal: n, uv: SIMD2<Float>(1, 1)))
+            v.append(VertexPNUT(position: p3, normal: n, uv: SIMD2<Float>(0, 1)))
+            i += [base, base + 1, base + 2, base, base + 2, base + 3]
+        }
+
+        // Bottom
+        addQuad(frontLeft, frontRight, backRight, backLeft)
+        // Back
+        addQuad(backLeft, backRight, backRightTop, backLeftTop)
+        // Sloped top
+        addQuad(backLeftTop, backRightTop, frontRight, frontLeft)
+        // Left side
+        addTri(backLeft, backLeftTop, frontLeft)
+        // Right side
+        addTri(frontRight, backRightTop, backRight)
+
+        return MeshData(vertices: v, indices16: i)
+    }
+
+    static func capsule(radius: Float = 1.5,
+                        halfHeight: Float = 1.0,
+                        radialSegments: Int = 24,
+                        hemisphereSegments: Int = 8) -> MeshData {
+        let slices = max(radialSegments, 3)
+        let hemi = max(hemisphereSegments, 2)
+
+        struct Ring {
+            var y: Float
+            var r: Float
+            var normalCenterY: Float?
+        }
+
+        var rings: [Ring] = []
+
+        // Top hemisphere (top pole -> equator at +halfHeight)
+        for i in 0...hemi {
+            let t = Float(i) / Float(hemi)
+            let theta = t * (Float.pi * 0.5)
+            let y = halfHeight + cos(theta) * radius
+            let r = sin(theta) * radius
+            rings.append(Ring(y: y, r: r, normalCenterY: halfHeight))
+        }
+
+        // Cylinder to bottom equator
+        if halfHeight > 0 {
+            rings.append(Ring(y: -halfHeight, r: radius, normalCenterY: nil))
+        }
+
+        // Bottom hemisphere (just below equator -> bottom pole)
+        if hemi > 1 {
+            for i in stride(from: hemi - 1, through: 0, by: -1) {
+                let t = Float(i) / Float(hemi)
+                let theta = t * (Float.pi * 0.5)
+                let y = -halfHeight - cos(theta) * radius
+                let r = sin(theta) * radius
+                rings.append(Ring(y: y, r: r, normalCenterY: -halfHeight))
+            }
+        }
+
+        let minY = rings.map { $0.y }.min() ?? 0
+        let maxY = rings.map { $0.y }.max() ?? 1
+        let invRange = maxY > minY ? 1.0 / (maxY - minY) : 0
+
+        var v: [VertexPNUT] = []
+        var i: [UInt16] = []
+
+        for ring in rings {
+            let vCoord = (ring.y - minY) * invRange
+            for s in 0..<slices {
+                let u = Float(s) / Float(slices)
+                let angle = u * Float.pi * 2.0
+                let x = cos(angle) * ring.r
+                let z = sin(angle) * ring.r
+                let pos = SIMD3<Float>(x, ring.y, z)
+                let normal: SIMD3<Float>
+                if let centerY = ring.normalCenterY {
+                    normal = simd_normalize(SIMD3<Float>(x, ring.y - centerY, z))
+                } else {
+                    normal = simd_normalize(SIMD3<Float>(x, 0, z))
+                }
+                v.append(VertexPNUT(position: pos, normal: normal, uv: SIMD2<Float>(u, vCoord)))
+            }
+        }
+
+        let ringCount = rings.count
+        for r in 0..<(ringCount - 1) {
+            let base0 = r * slices
+            let base1 = (r + 1) * slices
+            for s in 0..<slices {
+                let s1 = (s + 1) % slices
+                let a = UInt16(base0 + s)
+                let b = UInt16(base0 + s1)
+                let c = UInt16(base1 + s)
+                let d = UInt16(base1 + s1)
+                i += [a, c, b,  b, c, d]
+            }
+        }
+
+        return MeshData(vertices: v, indices16: i)
+    }
 }
 
 enum ProceduralTextures {

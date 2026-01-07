@@ -73,9 +73,14 @@ public final class DemoScene: RenderScene {
             world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(20, 0.1, 20))))
         }
 
-        // --- Player: medium box + coarse checkerboard
+        // --- Player: capsule + coarse checkerboard
         do {
-            let mesh = GPUMesh(device: device, data: ProceduralMeshes.box(size: 4.0), label: "BoxB")
+            let playerRadius: Float = 1.5
+            let playerHalfHeight: Float = 1.0
+            let mesh = GPUMesh(device: device,
+                               data: ProceduralMeshes.capsule(radius: playerRadius,
+                                                              halfHeight: playerHalfHeight),
+                               label: "PlayerCapsule")
             let tex = TextureResource(device: device,
                                       source: ProceduralTextures.checkerboard(width: 256, height: 256, cell: 48),
                                       label: "TexB")
@@ -83,7 +88,7 @@ public final class DemoScene: RenderScene {
 
             let e = world.createEntity()
             var t = TransformComponent()
-            t.translation = SIMD3<Float>(0, 0, 0)
+            t.translation = SIMD3<Float>(0, 0.5, 0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             inputSystem.setPlayer(e)
@@ -92,7 +97,8 @@ public final class DemoScene: RenderScene {
                                               rotation: t.rotation))
             world.add(e, MoveIntentComponent())
             world.add(e, MovementComponent(maxAcceleration: 16.0, maxDeceleration: 24.0))
-            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(2, 2, 2))))
+            world.add(e, ColliderComponent(shape: .capsule(halfHeight: playerHalfHeight,
+                                                          radius: playerRadius)))
         }
 
         // --- Test Wall: large static blocker
@@ -116,7 +122,9 @@ public final class DemoScene: RenderScene {
 
         // --- Test Ramp: sloped obstacle
         do {
-            let mesh = GPUMesh(device: device, data: ProceduralMeshes.triangularPrism(size: 8.0, height: 4.0), label: "TestRamp")
+            let mesh = GPUMesh(device: device,
+                               data: ProceduralMeshes.ramp(width: 8.0, depth: 10.0, height: 4.0),
+                               label: "TestRamp")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 80, g: 160, b: 255, a: 255),
                                       label: "RampTex")
