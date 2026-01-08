@@ -48,6 +48,13 @@ public final class DemoScene: RenderScene {
         self.physicsEventsSystem = PhysicsEventsSystem(physicsWorld: physicsWorld)
         self.collisionQueryRefreshSystem = CollisionQueryRefreshSystem(kinematicMoveSystem: kinematicMoveSystem,
                                                                        agentSeparationSystem: agentSeparationSystem)
+        kinematicMoveSystem.debugAgentCollisions = true
+        kinematicMoveSystem.debugAgentCollisionLogEvery = 1
+        kinematicMoveSystem.debugAgentCollisionVerbose = true
+        agentSeparationSystem.debugSeparation = true
+        agentSeparationSystem.debugSeparationLogEvery = 1
+        agentSeparationSystem.debugSeparationVerbose = true
+        agentSeparationSystem.debugSeparationPairLogLimit = 4
         self.fixedRunner = FixedStepRunner(
             preFixed: [spinSystem, physicsIntentSystem, jumpSystem, physicsSyncSystem, physicsBeginStepSystem],
             fixed: [physicsBroadphaseSystem,
