@@ -1056,6 +1056,7 @@ public final class AgentSeparationSystem: FixedStepSystem {
     private struct Agent {
         var entity: Entity
         var position: SIMD3<Float>
+        var velocity: SIMD3<Float>
         var radius: Float
         var halfHeight: Float
         var invWeight: Float
@@ -1114,6 +1115,7 @@ public final class AgentSeparationSystem: FixedStepSystem {
             maxRadius = max(maxRadius, radius)
             agents.append(Agent(entity: e,
                                 position: body.position,
+                                velocity: body.linearVelocity,
                                 radius: radius,
                                 halfHeight: controller.halfHeight,
                                 invWeight: invWeight,
@@ -1180,6 +1182,17 @@ public final class AgentSeparationSystem: FixedStepSystem {
                             let corr = penetration / wSum
                             var moveA = SIMD3<Float>(nx * corr * a.invWeight, 0, nz * corr * a.invWeight)
                             var moveB = SIMD3<Float>(-nx * corr * b.invWeight, 0, -nz * corr * b.invWeight)
+                            let relV = a.velocity - b.velocity
+                            let vn = relV.x * nx + relV.z * nz
+                            if vn < 0 {
+                                let impulse = -vn
+                                let scaleA = a.invWeight / wSum
+                                let scaleB = b.invWeight / wSum
+                                agents[i].velocity.x += nx * impulse * scaleA
+                                agents[i].velocity.z += nz * impulse * scaleA
+                                agents[j].velocity.x -= nx * impulse * scaleB
+                                agents[j].velocity.z -= nz * impulse * scaleB
+                            }
                             if let query = query {
                                 let eps: Float = 1e-6
                                 var blockedA = false
@@ -1303,6 +1316,7 @@ public final class AgentSeparationSystem: FixedStepSystem {
             }
 
             body.position = position
+            body.linearVelocity = agents[idx].velocity
             pStore[agent.entity] = body
         }
     }
