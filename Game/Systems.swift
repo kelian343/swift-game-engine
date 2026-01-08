@@ -323,6 +323,29 @@ public final class PhysicsIntentSystem: FixedStepSystem {
     }
 }
 
+/// Drive simple oscillating move intents (demo).
+public final class OscillateMoveSystem: FixedStepSystem {
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        let entities = world.query(MoveIntentComponent.self, OscillateMoveComponent.self)
+        let mStore = world.store(MoveIntentComponent.self)
+        let oStore = world.store(OscillateMoveComponent.self)
+
+        for e in entities {
+            guard var intent = mStore[e], var osc = oStore[e] else { continue }
+            let axisLen = simd_length(osc.axis)
+            let axis = axisLen > 1e-5 ? (osc.axis / axisLen) : SIMD3<Float>(1, 0, 0)
+            osc.time += dt
+            let phase = osc.time * osc.speed
+            let vel = axis * (cos(phase) * osc.amplitude * osc.speed)
+            intent.desiredVelocity = SIMD3<Float>(vel.x, 0, vel.z)
+            mStore[e] = intent
+            oStore[e] = osc
+        }
+    }
+}
+
 private func approachVec(current: SIMD3<Float>, target: SIMD3<Float>, maxDelta: Float) -> SIMD3<Float> {
     let delta = target - current
     let len = simd_length(delta)

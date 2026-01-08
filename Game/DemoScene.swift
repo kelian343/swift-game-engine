@@ -26,6 +26,7 @@ public final class DemoScene: RenderScene {
     private let physicsNarrowphaseSystem: PhysicsNarrowphaseSystem
     private let physicsSolverSystem: PhysicsSolverSystem
     private let physicsIntentSystem = PhysicsIntentSystem()
+    private let oscillateMoveSystem = OscillateMoveSystem()
     private let jumpSystem = JumpSystem()
     private let gravitySystem = GravitySystem()
     private let platformMotionSystem = KinematicPlatformMotionSystem()
@@ -49,7 +50,7 @@ public final class DemoScene: RenderScene {
         self.collisionQueryRefreshSystem = CollisionQueryRefreshSystem(kinematicMoveSystem: kinematicMoveSystem,
                                                                        agentSeparationSystem: agentSeparationSystem)
         self.fixedRunner = FixedStepRunner(
-            preFixed: [spinSystem, physicsIntentSystem, jumpSystem, physicsSyncSystem, physicsBeginStepSystem],
+            preFixed: [spinSystem, oscillateMoveSystem, physicsIntentSystem, jumpSystem, physicsSyncSystem, physicsBeginStepSystem],
             fixed: [physicsBroadphaseSystem,
                     physicsNarrowphaseSystem,
                     physicsSolverSystem,
@@ -75,7 +76,7 @@ public final class DemoScene: RenderScene {
 
         // --- Ground: platform plane (4x area)
         do {
-            let meshData = ProceduralMeshes.plane(size: 40.0)
+            let meshData = ProceduralMeshes.plane(size: 80.0)
             let mesh = GPUMesh(device: device, data: meshData, label: "Ground")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 80, g: 80, b: 80, a: 255),
@@ -92,7 +93,7 @@ public final class DemoScene: RenderScene {
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
-            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(20, 0.1, 20))))
+            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(40, 0.1, 40))))
         }
 
         // --- Kinematic Platforms: elevator + ground mover
@@ -153,7 +154,7 @@ public final class DemoScene: RenderScene {
             }
         }
 
-        // --- NPC: capsule on elevator platform
+        // --- NPC: ground-level horizontal mover (dynamic)
         do {
             let capsuleRadius: Float = 1.5
             let capsuleHalfHeight: Float = 1.0
@@ -167,7 +168,8 @@ public final class DemoScene: RenderScene {
 
             let e = world.createEntity()
             var t = TransformComponent()
-            t.translation = SIMD3<Float>(16.0, 1.9, 0.0)
+            let groundContactY = groundY + capsuleRadius + capsuleHalfHeight
+            t.translation = SIMD3<Float>(24.0, groundContactY + 2.0, 16.0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, PhysicsBodyComponent(bodyType: .dynamic,
@@ -175,11 +177,17 @@ public final class DemoScene: RenderScene {
                                               rotation: t.rotation))
             world.add(e, ColliderComponent(shape: .capsule(halfHeight: capsuleHalfHeight,
                                                           radius: capsuleRadius)))
+            world.add(e, MoveIntentComponent())
+            world.add(e, MovementComponent(maxAcceleration: 10.0, maxDeceleration: 12.0))
             world.add(e, CharacterControllerComponent(radius: capsuleRadius,
                                                       halfHeight: capsuleHalfHeight,
                                                       skinWidth: 0.3,
                                                       groundSnapSkin: 0.05))
-            world.add(e, AgentCollisionComponent(massWeight: 1.0))
+            world.add(e, AgentCollisionComponent(massWeight: 500.0))
+            world.add(e, OscillateMoveComponent(origin: t.translation,
+                                                axis: SIMD3<Float>(1, 0, 0),
+                                                amplitude: 6.0,
+                                                speed: 0.6))
         }
 
         // --- Player: capsule + coarse checkerboard

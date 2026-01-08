@@ -137,6 +137,28 @@ public struct AgentCollisionComponent {
     }
 }
 
+// MARK: - Simple oscillating movement (demo)
+
+public struct OscillateMoveComponent {
+    public var origin: SIMD3<Float>
+    public var axis: SIMD3<Float>
+    public var amplitude: Float
+    public var speed: Float
+    public var time: Float
+
+    public init(origin: SIMD3<Float>,
+                axis: SIMD3<Float> = SIMD3<Float>(1, 0, 0),
+                amplitude: Float = 4.0,
+                speed: Float = 1.0,
+                time: Float = 0) {
+        self.origin = origin
+        self.axis = axis
+        self.amplitude = amplitude
+        self.speed = speed
+        self.time = time
+    }
+}
+
 // MARK: - Optional: Simple rotation driver (demo)
 
 public struct SpinComponent {
