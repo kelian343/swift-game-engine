@@ -6,10 +6,12 @@
 - Phase 3 complete: capsule sweep CCD (TOI) integrated into kinematic movement.
 - Phase 4 complete: move & slide + ground snap; added stability filters for wall/ground noise.
 - Phase 5 complete: mu_s stick/slide slope behavior; per-triangle surface material support; uphill assist.
+- Agent-agent collision in place: capsule-capsule CCD in move & slide + post-move separation with velocity correction and wall-block transfer to avoid jitter.
 - Gravity + jump input integrated; jump preserves Y velocity; grounded state stabilized.
 - High-speed landing smoothing added: groundedNear gating for clamp/gravity, ground sweep/snap soft limits, and ground contact skin tuning.
 - Fixed-step frequency increased to 120Hz with maxSubsteps=8 to reduce large per-step motion.
 - Jump height increased (jumpSpeed raised).
+- Demo tweaks: ground plane enlarged; dynamic oscillating NPC added for push tests (higher massWeight).
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.
@@ -62,6 +64,7 @@ Goal: remove old penetration/solver paths.
 
 ## In Progress / Next
 - Phase 6 next: kinematic platforms + carry.
+- Continue tuning agent collision weights/margins as needed for push feel.
 - Phase 7 later: cleanup (remove old penetration/solver paths; keep triggers).
 
 ## Phase 6 (Planned): Kinematic Platforms + Carry

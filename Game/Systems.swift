@@ -883,25 +883,38 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     let contactSkin: Float
                     var slideNormal: SIMD3<Float>
                     let hitToi: Float
+                    var hitNormal: SIMD3<Float> = .zero
+                    var hitTriNormal: SIMD3<Float> = .zero
+                    var hitIsStatic = false
+                    var hitIsGroundLike = false
                     switch hit {
                     case .staticHit(let sHit):
                         hitToi = sHit.toi
                         slideNormal = sHit.normal
-                        contactSkin = slideNormal.y >= controller.minGroundDot ? controller.groundSnapSkin : controller.skinWidth
+                        hitIsGroundLike = sHit.triangleNormal.y >= controller.minGroundDot
+                        contactSkin = hitIsGroundLike ? controller.groundSnapSkin : controller.skinWidth
+                        hitNormal = sHit.normal
+                        hitTriNormal = sHit.triangleNormal
+                        hitIsStatic = true
                     case .agentHit(let aHit):
                         hitToi = aHit.toi
                         slideNormal = aHit.normal
                         contactSkin = 0
                     }
                     if slideNormal.y < controller.minGroundDot {
-                        slideNormal.y = 0
-                        let nLen = simd_length(slideNormal)
-                        if nLen > 1e-5 {
-                            slideNormal /= nLen
-                        } else {
-                            position += remaining
-                            remaining = .zero
-                            break
+                        if hitIsStatic && hitIsGroundLike {
+                            slideNormal = hitTriNormal
+                        }
+                        if slideNormal.y < controller.minGroundDot {
+                            slideNormal.y = 0
+                            let nLen = simd_length(slideNormal)
+                            if nLen > 1e-5 {
+                                slideNormal /= nLen
+                            } else {
+                                position += remaining
+                                remaining = .zero
+                                break
+                            }
                         }
                     }
                     let into = simd_dot(remaining, slideNormal)

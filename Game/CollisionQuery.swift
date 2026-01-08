@@ -504,8 +504,13 @@ private extension StaticTriMesh {
                                               v2: v2,
                                               triangleIndex: triIndex),
                hit.toi < bestT {
-                if blockingOnly && simd_dot(delta, hit.normal) >= 0 {
-                    continue
+                if blockingOnly {
+                    if simd_dot(delta, hit.normal) >= 0 {
+                        continue
+                    }
+                    if simd_dot(delta, hit.triangleNormal) >= 0 {
+                        continue
+                    }
                 }
                 if let minY = minNormalY, hit.triangleNormal.y < minY {
                     continue

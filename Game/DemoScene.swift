@@ -283,7 +283,8 @@ public final class DemoScene: RenderScene {
 
         // --- Test Ramp: sloped obstacle
         do {
-            let meshData = ProceduralMeshes.ramp(width: 8.0, depth: 10.0, height: 4.0)
+            let rampHeight: Float = 4.0
+            let meshData = ProceduralMeshes.ramp(width: 8.0, depth: 10.0, height: rampHeight)
             let mesh = GPUMesh(device: device, data: meshData, label: "TestRamp")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 80, g: 160, b: 255, a: 255),
@@ -292,7 +293,7 @@ public final class DemoScene: RenderScene {
 
             let e = world.createEntity()
             var t = TransformComponent()
-            t.translation = SIMD3<Float>(8, 0, 0)
+            t.translation = SIMD3<Float>(8, groundY + rampHeight * 0.5, 0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, StaticMeshComponent(mesh: meshData,
