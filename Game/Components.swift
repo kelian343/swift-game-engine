@@ -120,6 +120,23 @@ public struct CharacterControllerComponent {
     }
 }
 
+public struct AgentCollisionComponent {
+    public var radiusOverride: Float?
+    public var massWeight: Float
+    public var isSolid: Bool
+    public var filter: CollisionFilter
+
+    public init(radiusOverride: Float? = nil,
+                massWeight: Float = 1.0,
+                isSolid: Bool = true,
+                filter: CollisionFilter = .default) {
+        self.radiusOverride = radiusOverride
+        self.massWeight = massWeight
+        self.isSolid = isSolid
+        self.filter = filter
+    }
+}
+
 // MARK: - Optional: Simple rotation driver (demo)
 
 public struct SpinComponent {

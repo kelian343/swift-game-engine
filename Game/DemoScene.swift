@@ -30,6 +30,7 @@ public final class DemoScene: RenderScene {
     private let gravitySystem = GravitySystem()
     private let platformMotionSystem = KinematicPlatformMotionSystem()
     private let kinematicMoveSystem = KinematicMoveStopSystem()
+    private let agentSeparationSystem = AgentSeparationSystem()
     private let collisionQueryRefreshSystem: CollisionQueryRefreshSystem
     private let physicsIntegrateSystem = PhysicsIntegrateSystem()
     private let physicsWritebackSystem = PhysicsWritebackSystem()
@@ -45,7 +46,8 @@ public final class DemoScene: RenderScene {
         self.physicsNarrowphaseSystem = PhysicsNarrowphaseSystem(physicsWorld: physicsWorld)
         self.physicsSolverSystem = PhysicsSolverSystem(physicsWorld: physicsWorld)
         self.physicsEventsSystem = PhysicsEventsSystem(physicsWorld: physicsWorld)
-        self.collisionQueryRefreshSystem = CollisionQueryRefreshSystem(kinematicMoveSystem: kinematicMoveSystem)
+        self.collisionQueryRefreshSystem = CollisionQueryRefreshSystem(kinematicMoveSystem: kinematicMoveSystem,
+                                                                       agentSeparationSystem: agentSeparationSystem)
         self.fixedRunner = FixedStepRunner(
             preFixed: [spinSystem, physicsIntentSystem, jumpSystem, physicsSyncSystem, physicsBeginStepSystem],
             fixed: [physicsBroadphaseSystem,
@@ -55,6 +57,7 @@ public final class DemoScene: RenderScene {
                     collisionQueryRefreshSystem,
                     gravitySystem,
                     kinematicMoveSystem,
+                    agentSeparationSystem,
                     physicsIntegrateSystem],
             postFixed: [physicsWritebackSystem, physicsEventsSystem]
         )
@@ -150,7 +153,7 @@ public final class DemoScene: RenderScene {
             }
         }
 
-        // --- Kinematic Capsule: collision test target
+        // --- NPC: capsule on elevator platform
         do {
             let capsuleRadius: Float = 1.5
             let capsuleHalfHeight: Float = 1.0
@@ -164,16 +167,19 @@ public final class DemoScene: RenderScene {
 
             let e = world.createEntity()
             var t = TransformComponent()
-            t.translation = SIMD3<Float>(2, 1.0, -4)
+            t.translation = SIMD3<Float>(16.0, 1.9, 0.0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, StaticMeshComponent(mesh: meshData,
-                                             material: SurfaceMaterial(muS: 0.7, muK: 0.5)))
-            world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
+            world.add(e, PhysicsBodyComponent(bodyType: .dynamic,
                                               position: t.translation,
                                               rotation: t.rotation))
             world.add(e, ColliderComponent(shape: .capsule(halfHeight: capsuleHalfHeight,
                                                           radius: capsuleRadius)))
+            world.add(e, CharacterControllerComponent(radius: capsuleRadius,
+                                                      halfHeight: capsuleHalfHeight,
+                                                      skinWidth: 0.3,
+                                                      groundSnapSkin: 0.05))
+            world.add(e, AgentCollisionComponent(massWeight: 1.0))
         }
 
         // --- Player: capsule + coarse checkerboard
@@ -206,6 +212,44 @@ public final class DemoScene: RenderScene {
                                                       halfHeight: playerHalfHeight,
                                                       skinWidth: 0.3,
                                                       groundSnapSkin: 0.05))
+            world.add(e, AgentCollisionComponent(massWeight: 3.0))
+        }
+
+        // --- NPCs: kinematic agents for separation testing
+        do {
+            let npcRadius: Float = 1.5
+            let npcHalfHeight: Float = 1.0
+            let meshData = ProceduralMeshes.capsule(radius: npcRadius,
+                                                    halfHeight: npcHalfHeight)
+            let mesh = GPUMesh(device: device, data: meshData, label: "NPCCapsule")
+            let tex = TextureResource(device: device,
+                                      source: .solid(width: 4, height: 4, r: 255, g: 180, b: 80, a: 255),
+                                      label: "NPCTex")
+            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.5)
+
+            let positions: [SIMD3<Float>] = [
+                SIMD3<Float>(-16.0, 0.9, 12.0),
+                SIMD3<Float>(8.0, 3.5, -2.5),
+                SIMD3<Float>(0.0, 5.5, -10.0)
+            ]
+
+            for pos in positions {
+                let e = world.createEntity()
+                var t = TransformComponent()
+                t.translation = pos
+                world.add(e, t)
+                world.add(e, RenderComponent(mesh: mesh, material: mat))
+                world.add(e, PhysicsBodyComponent(bodyType: .dynamic,
+                                                  position: t.translation,
+                                                  rotation: t.rotation))
+                world.add(e, ColliderComponent(shape: .capsule(halfHeight: npcHalfHeight,
+                                                              radius: npcRadius)))
+                world.add(e, CharacterControllerComponent(radius: npcRadius,
+                                                          halfHeight: npcHalfHeight,
+                                                          skinWidth: 0.3,
+                                                          groundSnapSkin: 0.05))
+                world.add(e, AgentCollisionComponent(massWeight: 1.0))
+            }
         }
 
         // --- Test Wall: large static blocker

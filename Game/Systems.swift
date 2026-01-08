@@ -166,15 +166,19 @@ public final class KinematicPlatformMotionSystem: FixedStepSystem {
 /// Rebuild static collision query from current transforms.
 public final class CollisionQueryRefreshSystem: FixedStepSystem {
     private let kinematicMoveSystem: KinematicMoveStopSystem
+    private let agentSeparationSystem: AgentSeparationSystem?
 
-    public init(kinematicMoveSystem: KinematicMoveStopSystem) {
+    public init(kinematicMoveSystem: KinematicMoveStopSystem,
+                agentSeparationSystem: AgentSeparationSystem? = nil) {
         self.kinematicMoveSystem = kinematicMoveSystem
+        self.agentSeparationSystem = agentSeparationSystem
     }
 
     public func fixedUpdate(world: World, dt: Float) {
         _ = dt
         let query = CollisionQuery(world: world)
         kinematicMoveSystem.setQuery(query)
+        agentSeparationSystem?.setQuery(query)
     }
 }
 
@@ -772,6 +776,192 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             controller.groundNormal = groundNormal ?? SIMD3<Float>(0, 1, 0)
             cStore[e] = controller
 
+        }
+    }
+}
+
+/// Resolve overlaps between kinematic agents after move & slide.
+public final class AgentSeparationSystem: FixedStepSystem {
+    private struct Agent {
+        var entity: Entity
+        var position: SIMD3<Float>
+        var radius: Float
+        var halfHeight: Float
+        var invWeight: Float
+        var filter: CollisionFilter
+        var controller: CharacterControllerComponent
+    }
+
+    private struct CellCoord: Hashable {
+        let x: Int
+        let z: Int
+    }
+
+    public var iterations: Int
+    public var separationMargin: Float
+    public var heightMargin: Float
+    private var query: CollisionQuery?
+
+    public init(iterations: Int = 2,
+                separationMargin: Float = 0.2,
+                heightMargin: Float = 0.1) {
+        self.iterations = max(1, iterations)
+        self.separationMargin = separationMargin
+        self.heightMargin = heightMargin
+    }
+
+    public func setQuery(_ query: CollisionQuery) {
+        self.query = query
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = dt
+        let entities = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
+        guard entities.count > 1 else { return }
+
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let cStore = world.store(CharacterControllerComponent.self)
+        let aStore = world.store(AgentCollisionComponent.self)
+
+        var agents: [Agent] = []
+        agents.reserveCapacity(entities.count)
+        var originalPositions: [SIMD3<Float>] = []
+        originalPositions.reserveCapacity(entities.count)
+
+        var maxRadius: Float = 0
+        for e in entities {
+            guard let body = pStore[e], let controller = cStore[e] else { continue }
+            let agent = aStore[e] ?? AgentCollisionComponent()
+            if !agent.isSolid { continue }
+            let radius = agent.radiusOverride ?? controller.radius
+            let invWeight: Float
+            if agent.massWeight > 0 {
+                invWeight = 1.0 / agent.massWeight
+            } else {
+                invWeight = 0
+            }
+            maxRadius = max(maxRadius, radius)
+            agents.append(Agent(entity: e,
+                                position: body.position,
+                                radius: radius,
+                                halfHeight: controller.halfHeight,
+                                invWeight: invWeight,
+                                filter: agent.filter,
+                                controller: controller))
+            originalPositions.append(body.position)
+        }
+
+        guard agents.count > 1 else { return }
+
+        let cellSize = max(maxRadius * 2 + separationMargin, 0.001)
+        var grid: [CellCoord: [Int]] = [:]
+        grid.reserveCapacity(agents.count * 2)
+
+        func cellCoord(for pos: SIMD3<Float>) -> CellCoord {
+            let ix = Int(floor(pos.x / cellSize))
+            let iz = Int(floor(pos.z / cellSize))
+            return CellCoord(x: ix, z: iz)
+        }
+
+        for _ in 0..<iterations {
+            grid.removeAll(keepingCapacity: true)
+            for i in agents.indices {
+                let c = cellCoord(for: agents[i].position)
+                grid[c, default: []].append(i)
+            }
+
+            for i in agents.indices {
+                let a = agents[i]
+                let cell = cellCoord(for: a.position)
+                for dz in -1...1 {
+                    for dx in -1...1 {
+                        let neighbor = CellCoord(x: cell.x + dx, z: cell.z + dz)
+                        guard let list = grid[neighbor] else { continue }
+                        for j in list where j > i {
+                            if !a.filter.canCollide(with: agents[j].filter) { continue }
+                            let b = agents[j]
+                            let aMin = a.position.y - a.halfHeight
+                            let aMax = a.position.y + a.halfHeight
+                            let bMin = b.position.y - b.halfHeight
+                            let bMax = b.position.y + b.halfHeight
+                            if aMax < bMin - heightMargin || aMin > bMax + heightMargin {
+                                continue
+                            }
+
+                            let dx = a.position.x - b.position.x
+                            let dz = a.position.z - b.position.z
+                            let distSq = dx * dx + dz * dz
+                            let minDist = a.radius + b.radius + separationMargin
+                            if distSq >= minDist * minDist {
+                                continue
+                            }
+
+                            let dist = sqrt(max(distSq, 1e-8))
+                            let nx = dx / dist
+                            let nz = dz / dist
+                            let penetration = minDist - dist
+                            let wSum = a.invWeight + b.invWeight
+                            if wSum <= 0 {
+                                continue
+                            }
+
+                            let corr = penetration / wSum
+                            agents[i].position.x += nx * corr * a.invWeight
+                            agents[i].position.z += nz * corr * a.invWeight
+                            agents[j].position.x -= nx * corr * b.invWeight
+                            agents[j].position.z -= nz * corr * b.invWeight
+                        }
+                    }
+                }
+            }
+        }
+
+        for idx in agents.indices {
+            let agent = agents[idx]
+            guard var body = pStore[agent.entity] else { continue }
+            var position = agent.position
+
+            if let query = query {
+                let start = originalPositions[idx]
+                let delta = position - start
+                let len = simd_length(delta)
+                var moved = false
+                if len > 1e-6 {
+                    moved = true
+                    if let hit = query.capsuleCastBlocking(from: start,
+                                                           delta: delta,
+                                                           radius: agent.radius,
+                                                           halfHeight: agent.halfHeight) {
+                        let moveDist = max(hit.toi - agent.controller.skinWidth, 0)
+                        position = start + delta / len * moveDist
+                    }
+                }
+
+                if moved && body.linearVelocity.y <= 0 {
+                    var controller = agent.controller
+                    if controller.snapDistance > 0 {
+                        let down = SIMD3<Float>(0, -1, 0)
+                        let snapDelta = down * controller.snapDistance
+                        if let hit = query.capsuleCastGround(from: position,
+                                                             delta: snapDelta,
+                                                             radius: agent.radius,
+                                                             halfHeight: agent.halfHeight,
+                                                             minNormalY: controller.minGroundDot),
+                           hit.toi <= controller.snapDistance {
+                            let rawMove = max(hit.toi - controller.groundSnapSkin, 0)
+                            let moveDist = min(rawMove, controller.groundSnapMaxStep)
+                            position += down * moveDist
+                            controller.grounded = true
+                            controller.groundedNear = hit.toi <= max(controller.groundSnapSkin, controller.skinWidth)
+                            controller.groundNormal = hit.triangleNormal
+                            cStore[agent.entity] = controller
+                        }
+                    }
+                }
+            }
+
+            body.position = position
+            pStore[agent.entity] = body
         }
     }
 }
