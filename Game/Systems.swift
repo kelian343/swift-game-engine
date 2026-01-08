@@ -390,7 +390,6 @@ public final class GravitySystem: FixedStepSystem {
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
     private let gravity: SIMD3<Float>
-    private let debugPlatformCarry = true
 
     public init(gravity: SIMD3<Float> = SIMD3<Float>(0, -98.0, 0)) {
         self.gravity = gravity
@@ -398,16 +397,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
 
     public func setQuery(_ query: CollisionQuery) {
         self.query = query
-    }
-
-    private func debugLog(_ message: String) {
-        if debugPlatformCarry {
-            print("[PlatformCarry] \(message)")
-        }
-    }
-
-    private func fmt(_ v: SIMD3<Float>) -> String {
-        "(\(v.x), \(v.y), \(v.z))"
     }
 
     public func fixedUpdate(world: World, dt: Float) {
@@ -425,8 +414,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             if body.bodyType == .static { continue }
 
             var position = body.position
-            let startPos = position
-            let startVel = body.linearVelocity
             var platformDelta: SIMD3<Float> = .zero
             func capsuleBoxPenetrationXZ(center: SIMD3<Float>,
                                          halfHeight: Float,
@@ -489,10 +476,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                           position.z + controller.radius)
                 let sideTol = max(controller.skinWidth, controller.groundSnapSkin)
                 var bestCarry: SIMD3<Float> = .zero
-                var bestCarryEntity: Entity?
                 var pushDelta: SIMD3<Float> = .zero
-                var onTopCount = 0
-                var pushCount = 0
 
                 for pe in platformEntities {
                     guard let pBody = platBodies[pe], let pCol = platCols[pe] else { continue }
@@ -518,10 +502,8 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     let onTop = withinXZ && baseY >= topY - topTol && baseY <= topY + topTol
 
                     if onTop {
-                        onTopCount += 1
                         if simd_length_squared(pDelta) > simd_length_squared(bestCarry) {
                             bestCarry = pDelta
-                            bestCarryEntity = pe
                         }
                     } else {
                         let yMin = aabb.min.y - capsuleHalf
@@ -547,7 +529,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                     let moveToward = simd_dot(SIMD3<Float>(pDelta.x, 0, pDelta.z), dir)
                                     if moveToward > 0 {
                                         pushDelta += SIMD3<Float>(pDelta.x, 0, pDelta.z)
-                                        pushCount += 1
                                     }
                                 }
                             }
@@ -555,10 +536,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     }
                 }
 
-                if simd_length_squared(bestCarry) > 1e-8 || simd_length_squared(pushDelta) > 1e-8 {
-                    let carryId = bestCarryEntity?.id ?? 0
-                    debugLog("e:\(e.id) baseY:\(baseY) onTop:\(onTopCount) push:\(pushCount) carry:\(fmt(bestCarry)) from:\(carryId) pushDelta:\(fmt(pushDelta)) pos:\(fmt(position)) vel:\(fmt(body.linearVelocity))")
-                }
                 if simd_length_squared(bestCarry) > 1e-8 {
                     platformDelta += bestCarry
                 } else if simd_length_squared(pushDelta) > 1e-8 {
@@ -576,7 +553,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             }
             if simd_length_squared(platformDelta) > 1e-8 {
                 position += platformDelta
-                debugLog("e:\(e.id) applied platformDelta:\(fmt(platformDelta)) newPos:\(fmt(position)) startPos:\(fmt(startPos))")
                 for pe in platformEntities {
                     guard let pBody = platBodies[pe], let pCol = platCols[pe] else { continue }
                     if pBody.bodyType != .kinematic { continue }
@@ -598,11 +574,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                                radius: controller.radius,
                                                                boxMin: aabb.min,
                                                                boxMax: aabb.max) {
-                        debugLog("sidePushDiag preSweep e:\(e.id) pe:\(pe.id) pos:\(fmt(position)) capHalf:\(controller.halfHeight) capRad:\(controller.radius) aabbMin:\(fmt(aabb.min)) aabbMax:\(fmt(aabb.max)) depth:\(depth) n:\(fmt(n)) pDelta:\(fmt(pDelta))")
                         let moveToward = simd_dot(SIMD3<Float>(pDelta.x, 0, pDelta.z), n)
                         if moveToward > 0 {
                             position += n * depth
-                            debugLog("e:\(e.id) sidePush pe:\(pe.id) depth:\(depth) n:\(fmt(n)) pDelta:\(fmt(pDelta)) pos:\(fmt(position))")
                         }
                     }
                 }
@@ -707,7 +681,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                                radius: contactRadius,
                                                                boxMin: aabb.min,
                                                                boxMax: aabb.max) {
-                        debugLog("sidePushDiag e:\(e.id) pe:\(pe.id) pos:\(fmt(position)) baseY:\(baseY) topTol:\(topTol) onTop:\(onTop) capHalf:\(controller.halfHeight) capRad:\(contactRadius) aabbMin:\(fmt(aabb.min)) aabbMax:\(fmt(aabb.max)) depth:\(depth) n:\(fmt(n))")
                         position += n * depth
                         let vInto = simd_dot(body.linearVelocity, n)
                         if vInto < 0 {
@@ -798,9 +771,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             controller.groundedNear = isGroundedNear
             controller.groundNormal = groundNormal ?? SIMD3<Float>(0, 1, 0)
             cStore[e] = controller
-            if wasGrounded != isGrounded || wasGroundedNear != isGroundedNear {
-                debugLog("e:\(e.id) ground \(wasGrounded)/\(wasGroundedNear) -> \(isGrounded)/\(isGroundedNear) pos:\(fmt(position)) vel:\(fmt(body.linearVelocity)) startVel:\(fmt(startVel)) platformDelta:\(fmt(platformDelta))")
-            }
 
         }
     }
