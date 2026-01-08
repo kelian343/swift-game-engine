@@ -5,6 +5,7 @@
 //  Created by 伈佊 on 1/2/26.
 //
 
+import Foundation
 import simd
 
 public protocol System {
@@ -432,9 +433,11 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
 
     private var query: CollisionQuery?
     private let gravity: SIMD3<Float>
+    private let debugCollision: Bool
 
     public init(gravity: SIMD3<Float> = SIMD3<Float>(0, -98.0, 0)) {
         self.gravity = gravity
+        self.debugCollision = true
     }
 
     public func setQuery(_ query: CollisionQuery) {
@@ -614,6 +617,12 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
         let n = capsuleCapsuleHitNormal(rel: relAtHit, halfHeightSum: hSum)
         let toi = tHit * moveLen
         return CapsuleCapsuleHit(toi: toi, normal: n, other: other)
+    }
+
+    private func logCollision(_ message: String) {
+        if debugCollision {
+            print(message)
+        }
     }
 
     public func fixedUpdate(world: World, dt: Float) {
@@ -920,11 +929,20 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     let into = simd_dot(remaining, slideNormal)
                     let intoEps = 1e-4 * len
                     if into >= -intoEps {
+                        if wasGroundedNear && hitIsStatic && !hitIsGroundLike && remaining.y < 0 {
+                            remaining.y = 0
+                        }
+                        if debugCollision && hitIsStatic && remaining.y < 0 {
+                            logCollision("CCD pass-through e:\(e.id) reason:into>=eps toi:\(hitToi) len:\(len) contactSkin:\(contactSkin) into:\(into) eps:\(intoEps) rem:\(remaining) pos:\(position) slideN:\(slideNormal) hitN:\(hitNormal) triN:\(hitTriNormal) triY:\(hitTriNormal.y) minGround:\(controller.minGroundDot)")
+                        }
                         position += remaining
                         remaining = .zero
                         break
                     }
                     if hitToi <= contactSkin && abs(into) <= intoEps {
+                        if debugCollision && hitIsStatic && remaining.y < 0 {
+                            logCollision("CCD pass-through e:\(e.id) reason:toi<=skin toi:\(hitToi) len:\(len) contactSkin:\(contactSkin) into:\(into) eps:\(intoEps) rem:\(remaining) pos:\(position) slideN:\(slideNormal) hitN:\(hitNormal) triN:\(hitTriNormal) triY:\(hitTriNormal.y) minGround:\(controller.minGroundDot)")
+                        }
                         position += remaining
                         remaining = .zero
                         break
