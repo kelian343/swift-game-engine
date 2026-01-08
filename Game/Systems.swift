@@ -409,10 +409,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
 
     private var query: CollisionQuery?
     private let gravity: SIMD3<Float>
-    public var debugAgentCollisions: Bool = true
-    public var debugAgentCollisionLogEvery: Int = 10
-    public var debugAgentCollisionVerbose: Bool = false
-    private var debugFrameIndex: Int = 0
 
     public init(gravity: SIMD3<Float> = SIMD3<Float>(0, -98.0, 0)) {
         self.gravity = gravity
@@ -599,7 +595,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
 
     public func fixedUpdate(world: World, dt: Float) {
         guard let query = query else { return }
-        debugFrameIndex &+= 1
         let bodies = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
@@ -853,11 +848,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     } else {
                         bestHit = .agentHit(aHit)
                     }
-                    if debugAgentCollisions && debugAgentCollisionVerbose {
-                        let msg = String(format: "AgentCCD vs Static e:%u sToi:%.4f sStop:%.4f aToi:%.4f aStop:%.4f",
-                                         e.id, sHit.toi, staticStop, aHit.toi, agentStop)
-                        print(msg)
-                    }
                 } else if let sHit = staticHit {
                     bestHit = .staticHit(sHit)
                 } else if let aHit = agentHit {
@@ -907,29 +897,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                         position += remaining
                         remaining = .zero
                         break
-                    }
-
-                    if debugAgentCollisions,
-                       case .agentHit(let aHit) = hit,
-                       debugAgentCollisionLogEvery > 0,
-                       debugFrameIndex % debugAgentCollisionLogEvery == 0 {
-                        let msg = String(format: "AgentCCD e:%u hit:%u toi:%.4f len:%.4f into:%.4f n:(%.2f,%.2f,%.2f) pos:(%.2f,%.2f,%.2f)",
-                                         e.id,
-                                         aHit.other.id,
-                                         hitToi,
-                                         len,
-                                         into,
-                                         slideNormal.x, slideNormal.y, slideNormal.z,
-                                         position.x, position.y, position.z)
-                        print(msg)
-                        if debugAgentCollisionVerbose {
-                            let msg2 = String(format: "AgentCCD detail e:%u rem:(%.3f,%.3f,%.3f) base:(%.3f,%.3f,%.3f) vel:(%.3f,%.3f,%.3f)",
-                                              e.id,
-                                              remaining.x, remaining.y, remaining.z,
-                                              baseMove.x, baseMove.y, baseMove.z,
-                                              body.linearVelocity.x, body.linearVelocity.y, body.linearVelocity.z)
-                            print(msg2)
-                        }
                     }
 
                     let rawMoveDist = max(hitToi - contactSkin, 0)
@@ -1105,11 +1072,6 @@ public final class AgentSeparationSystem: FixedStepSystem {
     public var separationMargin: Float
     public var heightMargin: Float
     private var query: CollisionQuery?
-    public var debugSeparation: Bool = true
-    public var debugSeparationLogEvery: Int = 10
-    public var debugSeparationVerbose: Bool = false
-    public var debugSeparationPairLogLimit: Int = 6
-    private var debugFrameIndex: Int = 0
 
     public init(iterations: Int = 2,
                 separationMargin: Float = 0.2,
@@ -1125,7 +1087,6 @@ public final class AgentSeparationSystem: FixedStepSystem {
 
     public func fixedUpdate(world: World, dt: Float) {
         _ = dt
-        debugFrameIndex &+= 1
         let entities = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
         guard entities.count > 1 else { return }
 
@@ -1173,12 +1134,6 @@ public final class AgentSeparationSystem: FixedStepSystem {
             return CellCoord(x: ix, z: iz)
         }
 
-        var correctionPairs: Int = 0
-        var maxPenetration: Float = 0
-        var verboseLogs: [String] = []
-        if debugSeparationVerbose {
-            verboseLogs.reserveCapacity(max(debugSeparationPairLogLimit, 0))
-        }
         for _ in 0..<iterations {
             grid.removeAll(keepingCapacity: true)
             for i in agents.indices {
@@ -1262,31 +1217,8 @@ public final class AgentSeparationSystem: FixedStepSystem {
 
                             agents[i].position += moveA
                             agents[j].position += moveB
-                            correctionPairs += 1
-                            if penetration > maxPenetration {
-                                maxPenetration = penetration
-                            }
-                            if debugSeparationVerbose && verboseLogs.count < max(debugSeparationPairLogLimit, 0) {
-                                let msg = String(format: "AgentSep pair:%u-%u pen:%.4f corr:%.4f n:(%.2f,%.2f) w:(%.2f,%.2f)",
-                                                 a.entity.id, b.entity.id, penetration, corr, nx, nz,
-                                                 a.invWeight, b.invWeight)
-                                verboseLogs.append(msg)
-                            }
                         }
                     }
-                }
-            }
-        }
-
-        if debugSeparation,
-           correctionPairs > 0,
-           debugSeparationLogEvery > 0,
-           debugFrameIndex % debugSeparationLogEvery == 0 {
-            let msg = String(format: "AgentSep pairs:%d maxPen:%.4f iter:%d", correctionPairs, maxPenetration, iterations)
-            print(msg)
-            if debugSeparationVerbose {
-                for line in verboseLogs {
-                    print(line)
                 }
             }
         }
@@ -1301,7 +1233,6 @@ public final class AgentSeparationSystem: FixedStepSystem {
                 let delta = position - start
                 let len = simd_length(delta)
                 var moved = false
-                var blockedByStatic = false
                 if len > 1e-6 {
                     moved = true
                     let slideIterations = 2
@@ -1314,7 +1245,6 @@ public final class AgentSeparationSystem: FixedStepSystem {
                                                                delta: remaining,
                                                                radius: agent.radius,
                                                                halfHeight: agent.halfHeight) {
-                            blockedByStatic = true
                             let horizontalMove = abs(remaining.y) < 1e-5
                             if horizontalMove && hit.normal.y >= agent.controller.minGroundDot {
                                 position += remaining
@@ -1346,20 +1276,6 @@ public final class AgentSeparationSystem: FixedStepSystem {
                             remaining = .zero
                             break
                         }
-                    }
-                }
-
-                if debugSeparationVerbose && moved {
-                    let desiredLen = len
-                    let actualLen = simd_length(position - start)
-                    if blockedByStatic && desiredLen > 1e-5 && actualLen < desiredLen * 0.5 {
-                        let msg = String(format: "AgentSep blocked e:%u desired:%.4f actual:%.4f start:(%.2f,%.2f,%.2f) end:(%.2f,%.2f,%.2f)",
-                                         agent.entity.id,
-                                         desiredLen,
-                                         actualLen,
-                                         start.x, start.y, start.z,
-                                         position.x, position.y, position.z)
-                        print(msg)
                     }
                 }
 
