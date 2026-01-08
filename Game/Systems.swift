@@ -800,14 +800,17 @@ public final class AgentSeparationSystem: FixedStepSystem {
     public var iterations: Int
     public var separationMargin: Float
     public var heightMargin: Float
+    public var debugLogging: Bool
     private var query: CollisionQuery?
 
     public init(iterations: Int = 2,
                 separationMargin: Float = 0.2,
-                heightMargin: Float = 0.1) {
+                heightMargin: Float = 0.1,
+                debugLogging: Bool = false) {
         self.iterations = max(1, iterations)
         self.separationMargin = separationMargin
         self.heightMargin = heightMargin
+        self.debugLogging = debugLogging
     }
 
     public func setQuery(_ query: CollisionQuery) {
@@ -884,14 +887,19 @@ public final class AgentSeparationSystem: FixedStepSystem {
                             let aMax = a.position.y + a.halfHeight
                             let bMin = b.position.y - b.halfHeight
                             let bMax = b.position.y + b.halfHeight
-                            if aMax < bMin - heightMargin || aMin > bMax + heightMargin {
-                                continue
-                            }
-
                             let dx = a.position.x - b.position.x
                             let dz = a.position.z - b.position.z
                             let distSq = dx * dx + dz * dz
                             let minDist = a.radius + b.radius + separationMargin
+                            let heightSeparated = aMax < bMin - heightMargin || aMin > bMax + heightMargin
+                            if heightSeparated {
+                                if debugLogging && distSq < minDist * minDist {
+                                    print("AgentSep height-skip: a=\(a.entity.id) b=\(b.entity.id) " +
+                                          "aY[\(aMin),\(aMax)] bY[\(bMin),\(bMax)] dist=\(sqrt(distSq)) min=\(minDist)")
+                                }
+                                continue
+                            }
+
                             if distSq >= minDist * minDist {
                                 continue
                             }
@@ -932,8 +940,18 @@ public final class AgentSeparationSystem: FixedStepSystem {
                                                            delta: delta,
                                                            radius: agent.radius,
                                                            halfHeight: agent.halfHeight) {
-                        let moveDist = max(hit.toi - agent.controller.skinWidth, 0)
-                        position = start + delta / len * moveDist
+                        let horizontalMove = abs(delta.y) < 1e-5
+                        if !(horizontalMove && hit.normal.y >= agent.controller.minGroundDot) {
+                            let moveDist = max(hit.toi - agent.controller.skinWidth, 0)
+                            position = start + delta / len * moveDist
+                            if debugLogging {
+                                print("AgentSep static-block: e=\(agent.entity.id) toi=\(hit.toi) " +
+                                      "n=\(hit.normal) delta=\(delta) moveDist=\(moveDist)")
+                            }
+                        } else if debugLogging {
+                            print("AgentSep ground-pass: e=\(agent.entity.id) toi=\(hit.toi) " +
+                                  "n=\(hit.normal) delta=\(delta)")
+                        }
                     }
                 }
 

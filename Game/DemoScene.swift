@@ -30,7 +30,7 @@ public final class DemoScene: RenderScene {
     private let gravitySystem = GravitySystem()
     private let platformMotionSystem = KinematicPlatformMotionSystem()
     private let kinematicMoveSystem = KinematicMoveStopSystem()
-    private let agentSeparationSystem = AgentSeparationSystem()
+    private let agentSeparationSystem = AgentSeparationSystem(debugLogging: true)
     private let collisionQueryRefreshSystem: CollisionQueryRefreshSystem
     private let physicsIntegrateSystem = PhysicsIntegrateSystem()
     private let physicsWritebackSystem = PhysicsWritebackSystem()
