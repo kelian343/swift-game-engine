@@ -800,17 +800,14 @@ public final class AgentSeparationSystem: FixedStepSystem {
     public var iterations: Int
     public var separationMargin: Float
     public var heightMargin: Float
-    public var debugLogging: Bool
     private var query: CollisionQuery?
 
     public init(iterations: Int = 2,
                 separationMargin: Float = 0.2,
-                heightMargin: Float = 0.1,
-                debugLogging: Bool = false) {
+                heightMargin: Float = 0.1) {
         self.iterations = max(1, iterations)
         self.separationMargin = separationMargin
         self.heightMargin = heightMargin
-        self.debugLogging = debugLogging
     }
 
     public func setQuery(_ query: CollisionQuery) {
@@ -892,13 +889,7 @@ public final class AgentSeparationSystem: FixedStepSystem {
                             let distSq = dx * dx + dz * dz
                             let minDist = a.radius + b.radius + separationMargin
                             let heightSeparated = aMax < bMin - heightMargin || aMin > bMax + heightMargin
-                            if heightSeparated {
-                                if debugLogging && distSq < minDist * minDist {
-                                    print("AgentSep height-skip: a=\(a.entity.id) b=\(b.entity.id) " +
-                                          "aY[\(aMin),\(aMax)] bY[\(bMin),\(bMax)] dist=\(sqrt(distSq)) min=\(minDist)")
-                                }
-                                continue
-                            }
+                            if heightSeparated { continue }
 
                             if distSq >= minDist * minDist {
                                 continue
@@ -936,21 +927,46 @@ public final class AgentSeparationSystem: FixedStepSystem {
                 var moved = false
                 if len > 1e-6 {
                     moved = true
-                    if let hit = query.capsuleCastBlocking(from: start,
-                                                           delta: delta,
-                                                           radius: agent.radius,
-                                                           halfHeight: agent.halfHeight) {
-                        let horizontalMove = abs(delta.y) < 1e-5
-                        if !(horizontalMove && hit.normal.y >= agent.controller.minGroundDot) {
-                            let moveDist = max(hit.toi - agent.controller.skinWidth, 0)
-                            position = start + delta / len * moveDist
-                            if debugLogging {
-                                print("AgentSep static-block: e=\(agent.entity.id) toi=\(hit.toi) " +
-                                      "n=\(hit.normal) delta=\(delta) moveDist=\(moveDist)")
+                    let slideIterations = 2
+                    var remaining = delta
+                    position = start
+                    for _ in 0..<slideIterations {
+                        let segLen = simd_length(remaining)
+                        if segLen < 1e-6 { break }
+                        if let hit = query.capsuleCastBlocking(from: position,
+                                                               delta: remaining,
+                                                               radius: agent.radius,
+                                                               halfHeight: agent.halfHeight) {
+                            let horizontalMove = abs(remaining.y) < 1e-5
+                            if horizontalMove && hit.normal.y >= agent.controller.minGroundDot {
+                                position += remaining
+                                remaining = .zero
+                                break
                             }
-                        } else if debugLogging {
-                            print("AgentSep ground-pass: e=\(agent.entity.id) toi=\(hit.toi) " +
-                                  "n=\(hit.normal) delta=\(delta)")
+
+                            let contactSkin = agent.controller.skinWidth
+                            let dir = remaining / segLen
+                            let moveDist = max(hit.toi - contactSkin, 0)
+                            position += dir * moveDist
+
+                            var leftover = remaining - dir * moveDist
+                            var slideNormal = hit.normal
+                            if slideNormal.y < agent.controller.minGroundDot {
+                                slideNormal.y = 0
+                                let nLen = simd_length(slideNormal)
+                                if nLen > 1e-5 {
+                                    slideNormal /= nLen
+                                } else {
+                                    remaining = .zero
+                                    break
+                                }
+                            }
+                            leftover -= slideNormal * simd_dot(leftover, slideNormal)
+                            remaining = leftover
+                        } else {
+                            position += remaining
+                            remaining = .zero
+                            break
                         }
                     }
                 }
