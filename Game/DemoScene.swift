@@ -24,20 +24,22 @@ public final class DemoScene: RenderScene {
     private let oscillateMoveSystem = OscillateMoveSystem()
     private let jumpSystem = JumpSystem()
     private let gravitySystem = GravitySystem()
-    private let platformMotionSystem = KinematicPlatformMotionSystem()
+    private let platformMotionSystem: KinematicPlatformMotionSystem
     private let kinematicMoveSystem = KinematicMoveStopSystem()
     private let agentSeparationSystem = AgentSeparationSystem()
+    private let collisionQueryService = CollisionQueryService()
     private let collisionQueryRefreshSystem: CollisionQueryRefreshSystem
     private let physicsIntegrateSystem = PhysicsIntegrateSystem()
     private let physicsWritebackSystem = PhysicsWritebackSystem()
     private let fixedRunner: FixedStepRunner
     private let extractSystem = RenderExtractSystem()
-    private var collisionQuery: CollisionQuery?
 
     public init() {
         self.inputSystem = InputSystem(camera: camera)
+        self.platformMotionSystem = KinematicPlatformMotionSystem(queryService: collisionQueryService)
         self.collisionQueryRefreshSystem = CollisionQueryRefreshSystem(kinematicMoveSystem: kinematicMoveSystem,
-                                                                       agentSeparationSystem: agentSeparationSystem)
+                                                                       agentSeparationSystem: agentSeparationSystem,
+                                                                       queryService: collisionQueryService)
         self.fixedRunner = FixedStepRunner(
             preFixed: [spinSystem, oscillateMoveSystem, physicsIntentSystem, jumpSystem, physicsBeginStepSystem],
             fixed: [platformMotionSystem,
@@ -337,10 +339,7 @@ public final class DemoScene: RenderScene {
 
         // Extract initial draw calls
         renderItems = extractSystem.extract(world: world)
-        collisionQuery = CollisionQuery(world: world)
-        if let query = collisionQuery {
-            kinematicMoveSystem.setQuery(query)
-        }
+        collisionQueryService.rebuild(world: world)
 
         // New resources were created -> bump revision once
         revision &+= 1
