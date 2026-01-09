@@ -1205,92 +1205,49 @@ public final class AgentSeparationSystem: FixedStepSystem {
         var controller: CharacterControllerComponent
     }
 
-    private struct CellCoord: Hashable {
-        let x: Int
-        let z: Int
-    }
-
-    public var iterations: Int
-    public var separationMargin: Float
-    public var heightMargin: Float
-    private var query: CollisionQuery?
-
-    public init(iterations: Int = 2,
-                separationMargin: Float = 0.2,
-                heightMargin: Float = 0.1) {
-        self.iterations = max(1, iterations)
-        self.separationMargin = separationMargin
-        self.heightMargin = heightMargin
-    }
-
-    public func setQuery(_ query: CollisionQuery) {
-        self.query = query
-    }
-
-    public func fixedUpdate(world: World, dt: Float) {
-        _ = dt
-        let entities = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
-        guard entities.count > 1 else { return }
-
-        let pStore = world.store(PhysicsBodyComponent.self)
-        let cStore = world.store(CharacterControllerComponent.self)
-        let aStore = world.store(AgentCollisionComponent.self)
-
-        var agents: [Agent] = []
-        agents.reserveCapacity(entities.count)
-        var originalPositions: [SIMD3<Float>] = []
-        originalPositions.reserveCapacity(entities.count)
-
-        var maxRadius: Float = 0
-        for e in entities {
-            guard let body = pStore[e], let controller = cStore[e] else { continue }
-            let agent = aStore[e] ?? AgentCollisionComponent()
-            if !agent.isSolid { continue }
-            let radius = agent.radiusOverride ?? controller.radius
-            let invWeight: Float
-            if agent.massWeight > 0 {
-                invWeight = 1.0 / agent.massWeight
-            } else {
-                invWeight = 0
-            }
-            maxRadius = max(maxRadius, radius)
-            agents.append(Agent(entity: e,
-                                position: body.position,
-                                velocity: body.linearVelocity,
-                                radius: radius,
-                                halfHeight: controller.halfHeight,
-                                invWeight: invWeight,
-                                filter: agent.filter,
-                                controller: controller))
-            originalPositions.append(body.position)
+    private struct AgentSeparationGrid {
+        struct CellCoord: Hashable {
+            let x: Int
+            let z: Int
         }
 
-        guard agents.count > 1 else { return }
+        let cellSize: Float
+        private(set) var cells: [CellCoord: [Int]]
 
-        let cellSize = max(maxRadius * 2 + separationMargin, 0.001)
-        var grid: [CellCoord: [Int]] = [:]
-        grid.reserveCapacity(agents.count * 2)
+        init(cellSize: Float, capacity: Int) {
+            self.cellSize = cellSize
+            self.cells = [:]
+            self.cells.reserveCapacity(capacity)
+        }
+
+        mutating func rebuild(agents: [Agent]) {
+            cells.removeAll(keepingCapacity: true)
+            for i in agents.indices {
+                let c = cellCoord(for: agents[i].position)
+                cells[c, default: []].append(i)
+            }
+        }
 
         func cellCoord(for pos: SIMD3<Float>) -> CellCoord {
             let ix = Int(floor(pos.x / cellSize))
             let iz = Int(floor(pos.z / cellSize))
             return CellCoord(x: ix, z: iz)
         }
+    }
 
-        for _ in 0..<iterations {
-            grid.removeAll(keepingCapacity: true)
-            for i in agents.indices {
-                let c = cellCoord(for: agents[i].position)
-                grid[c, default: []].append(i)
-            }
-
+    private struct AgentSeparationResolver {
+        static func resolve(agents: inout [Agent],
+                            grid: AgentSeparationGrid,
+                            separationMargin: Float,
+                            heightMargin: Float,
+                            query: CollisionQuery?) {
             for i in agents.indices {
                 let a = agents[i]
-                let cell = cellCoord(for: a.position)
+                let cell = grid.cellCoord(for: a.position)
                 for dz in -1...1 {
                     for dx in -1...1 {
-                        let neighbor = CellCoord(x: cell.x + dx, z: cell.z + dz)
-                        guard let list = grid[neighbor] else { continue }
+                        let neighbor = AgentSeparationGrid.CellCoord(x: cell.x + dx, z: cell.z + dz)
+                        guard let list = grid.cells[neighbor] else { continue }
                         for j in list where j > i {
                             if !a.filter.canCollide(with: agents[j].filter) { continue }
                             let b = agents[j]
@@ -1375,6 +1332,76 @@ public final class AgentSeparationSystem: FixedStepSystem {
                     }
                 }
             }
+        }
+    }
+
+    public var iterations: Int
+    public var separationMargin: Float
+    public var heightMargin: Float
+    private var query: CollisionQuery?
+
+    public init(iterations: Int = 2,
+                separationMargin: Float = 0.2,
+                heightMargin: Float = 0.1) {
+        self.iterations = max(1, iterations)
+        self.separationMargin = separationMargin
+        self.heightMargin = heightMargin
+    }
+
+    public func setQuery(_ query: CollisionQuery) {
+        self.query = query
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = dt
+        let entities = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
+        guard entities.count > 1 else { return }
+
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let cStore = world.store(CharacterControllerComponent.self)
+        let aStore = world.store(AgentCollisionComponent.self)
+
+        var agents: [Agent] = []
+        agents.reserveCapacity(entities.count)
+        var originalPositions: [SIMD3<Float>] = []
+        originalPositions.reserveCapacity(entities.count)
+
+        var maxRadius: Float = 0
+        for e in entities {
+            guard let body = pStore[e], let controller = cStore[e] else { continue }
+            let agent = aStore[e] ?? AgentCollisionComponent()
+            if !agent.isSolid { continue }
+            let radius = agent.radiusOverride ?? controller.radius
+            let invWeight: Float
+            if agent.massWeight > 0 {
+                invWeight = 1.0 / agent.massWeight
+            } else {
+                invWeight = 0
+            }
+            maxRadius = max(maxRadius, radius)
+            agents.append(Agent(entity: e,
+                                position: body.position,
+                                velocity: body.linearVelocity,
+                                radius: radius,
+                                halfHeight: controller.halfHeight,
+                                invWeight: invWeight,
+                                filter: agent.filter,
+                                controller: controller))
+            originalPositions.append(body.position)
+        }
+
+        guard agents.count > 1 else { return }
+
+        let cellSize = max(maxRadius * 2 + separationMargin, 0.001)
+        var grid = AgentSeparationGrid(cellSize: cellSize, capacity: agents.count * 2)
+
+        for _ in 0..<iterations {
+            grid.rebuild(agents: agents)
+            AgentSeparationResolver.resolve(agents: &agents,
+                                            grid: grid,
+                                            separationMargin: separationMargin,
+                                            heightMargin: heightMargin,
+                                            query: query)
         }
 
         for idx in agents.indices {
