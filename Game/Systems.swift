@@ -726,6 +726,15 @@ private struct SlideResolver {
         let adjustVelocity: Bool
         let useGroundSnapSkinForStatic: Bool
         let allowTriangleNormalGroundLike: Bool
+
+        static let kinematicMove = SlideOptions(allowHorizontalGroundPass: false,
+                                                adjustVelocity: true,
+                                                useGroundSnapSkinForStatic: true,
+                                                allowTriangleNormalGroundLike: true)
+        static let agentSeparation = SlideOptions(allowHorizontalGroundPass: true,
+                                                  adjustVelocity: false,
+                                                  useGroundSnapSkinForStatic: false,
+                                                  allowTriangleNormalGroundLike: false)
     }
 
     enum SlideHit {
@@ -1137,10 +1146,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 if let hit = SlideResolver.selectBestHit(staticHit: staticHit,
                                                          agentHit: agentHit,
                                                          controller: controller) {
-                    let options = SlideResolver.SlideOptions(allowHorizontalGroundPass: false,
-                                                             adjustVelocity: true,
-                                                             useGroundSnapSkinForStatic: true,
-                                                             allowTriangleNormalGroundLike: true)
+                    let options = SlideResolver.SlideOptions.kinematicMove
                     let shouldBreak = SlideResolver.resolveHit(remaining: &remaining,
                                                                len: len,
                                                                hit: hit,
@@ -1430,10 +1436,7 @@ public final class AgentSeparationSystem: FixedStepSystem {
                                                                delta: remaining,
                                                                radius: agent.radius,
                                                                halfHeight: agent.halfHeight) {
-                            let options = SlideResolver.SlideOptions(allowHorizontalGroundPass: true,
-                                                                     adjustVelocity: false,
-                                                                     useGroundSnapSkinForStatic: false,
-                                                                     allowTriangleNormalGroundLike: false)
+                            let options = SlideResolver.SlideOptions.agentSeparation
                             let done = SlideResolver.resolveHit(remaining: &remaining,
                                                                 len: segLen,
                                                                 hit: .staticHit(hit),
