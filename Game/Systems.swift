@@ -150,18 +150,19 @@ public final class KinematicPlatformMotionSystem: FixedStepSystem {
 public final class CollisionQueryRefreshSystem: FixedStepSystem {
     private let kinematicMoveSystem: KinematicMoveStopSystem
     private let agentSeparationSystem: AgentSeparationSystem?
-    private let queryService: CollisionQueryService
+    private let services: SceneServices
 
     public init(kinematicMoveSystem: KinematicMoveStopSystem,
                 agentSeparationSystem: AgentSeparationSystem? = nil,
-                queryService: CollisionQueryService) {
+                services: SceneServices) {
         self.kinematicMoveSystem = kinematicMoveSystem
         self.agentSeparationSystem = agentSeparationSystem
-        self.queryService = queryService
+        self.services = services
     }
 
     public func fixedUpdate(world: World, dt: Float) {
         _ = dt
+        let queryService: CollisionQueryService = services.resolve() ?? services.collisionQuery
         queryService.update(world: world)
         guard let query = queryService.query else { return }
         kinematicMoveSystem.setQuery(query)
@@ -742,27 +743,6 @@ private struct SlideResolver {
         case agentHit(CapsuleCapsuleHit)
     }
 
-    static func selectBestHit(staticHit: CapsuleCastHit?,
-                              agentHit: CapsuleCapsuleHit?,
-                              controller: CharacterControllerComponent) -> SlideHit? {
-        if let sHit = staticHit, let aHit = agentHit {
-            let staticSkin = sHit.normal.y >= controller.minGroundDot ? controller.groundSnapSkin : controller.skinWidth
-            let staticStop = max(sHit.toi - staticSkin, 0)
-            let agentStop = max(aHit.toi, 0)
-            if staticStop <= agentStop {
-                return .staticHit(sHit)
-            }
-            return .agentHit(aHit)
-        }
-        if let sHit = staticHit {
-            return .staticHit(sHit)
-        }
-        if let aHit = agentHit {
-            return .agentHit(aHit)
-        }
-        return nil
-    }
-
     static func resolveHit(remaining: inout SIMD3<Float>,
                            len: Float,
                            hit: SlideHit,
@@ -875,6 +855,29 @@ private struct SlideResolver {
         }
 
         return false
+    }
+}
+
+private struct HitSelector {
+    static func selectBestHit(staticHit: CapsuleCastHit?,
+                              agentHit: CapsuleCapsuleHit?,
+                              controller: CharacterControllerComponent) -> SlideResolver.SlideHit? {
+        if let sHit = staticHit, let aHit = agentHit {
+            let staticSkin = sHit.normal.y >= controller.minGroundDot ? controller.groundSnapSkin : controller.skinWidth
+            let staticStop = max(sHit.toi - staticSkin, 0)
+            let agentStop = max(aHit.toi, 0)
+            if staticStop <= agentStop {
+                return .staticHit(sHit)
+            }
+            return .agentHit(aHit)
+        }
+        if let sHit = staticHit {
+            return .staticHit(sHit)
+        }
+        if let aHit = agentHit {
+            return .agentHit(aHit)
+        }
+        return nil
     }
 }
 
@@ -1143,9 +1146,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                         agentStates: agentStates,
                                                         sweep: capsuleCapsuleSweep)
 
-                if let hit = SlideResolver.selectBestHit(staticHit: staticHit,
-                                                         agentHit: agentHit,
-                                                         controller: controller) {
+                if let hit = HitSelector.selectBestHit(staticHit: staticHit,
+                                                       agentHit: agentHit,
+                                                       controller: controller) {
                     let options = SlideResolver.SlideOptions.kinematicMove
                     let shouldBreak = SlideResolver.resolveHit(remaining: &remaining,
                                                                len: len,

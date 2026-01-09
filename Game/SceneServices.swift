@@ -8,12 +8,25 @@
 import simd
 
 public final class SceneServices {
-    public let collisionQuery = CollisionQueryService()
+    public let collisionQuery: CollisionQueryService
+    private var services: [ObjectIdentifier: Any] = [:]
 
-    public init() {}
+    public init() {
+        let collisionQuery = CollisionQueryService()
+        self.collisionQuery = collisionQuery
+        register(collisionQuery)
+    }
 
     public func rebuildAll(world: World) {
         collisionQuery.rebuild(world: world)
+    }
+
+    public func register<T>(_ service: T) {
+        services[ObjectIdentifier(T.self)] = service
+    }
+
+    public func resolve<T>(_ type: T.Type = T.self) -> T? {
+        services[ObjectIdentifier(type)] as? T
     }
 }
 

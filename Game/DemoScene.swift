@@ -38,7 +38,7 @@ public final class DemoScene: RenderScene {
         self.inputSystem = InputSystem(camera: camera)
         self.collisionQueryRefreshSystem = CollisionQueryRefreshSystem(kinematicMoveSystem: kinematicMoveSystem,
                                                                        agentSeparationSystem: agentSeparationSystem,
-                                                                       queryService: sceneServices.collisionQuery)
+                                                                       services: sceneServices)
         self.fixedRunner = FixedStepRunner(
             preFixed: [spinSystem, oscillateMoveSystem, physicsIntentSystem, jumpSystem, physicsBeginStepSystem],
             fixed: [platformMotionSystem,
