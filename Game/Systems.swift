@@ -115,11 +115,7 @@ public final class SpinSystem: FixedStepSystem {
 
 /// Demo system: animate kinematic platforms along a single axis.
 public final class KinematicPlatformMotionSystem: FixedStepSystem {
-    private let queryService: CollisionQueryService?
-
-    public init(queryService: CollisionQueryService? = nil) {
-        self.queryService = queryService
-    }
+    public init() {}
 
     public func fixedUpdate(world: World, dt: Float) {
         let entities = world.query(TransformComponent.self,
@@ -146,7 +142,6 @@ public final class KinematicPlatformMotionSystem: FixedStepSystem {
             tStore[e] = t
             pStore[e] = p
             kStore[e] = k
-            queryService?.markDirty()
         }
     }
 }
@@ -167,32 +162,10 @@ public final class CollisionQueryRefreshSystem: FixedStepSystem {
 
     public func fixedUpdate(world: World, dt: Float) {
         _ = dt
-        queryService.rebuildIfNeeded(world: world)
+        queryService.update(world: world)
         guard let query = queryService.query else { return }
         kinematicMoveSystem.setQuery(query)
         agentSeparationSystem?.setQuery(query)
-    }
-}
-
-public final class CollisionQueryService {
-    public private(set) var query: CollisionQuery?
-    private var dirty: Bool = true
-
-    public init() {}
-
-    public func rebuild(world: World) {
-        query = CollisionQuery(world: world)
-        dirty = false
-    }
-
-    public func markDirty() {
-        dirty = true
-    }
-
-    public func rebuildIfNeeded(world: World) {
-        if dirty || query == nil {
-            rebuild(world: world)
-        }
     }
 }
 
