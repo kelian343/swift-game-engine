@@ -22,3 +22,4 @@ public struct Material {
         self.roughness = roughness
     }
 }
+

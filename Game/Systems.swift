@@ -643,23 +643,211 @@ private struct GroundContactResolver {
     }
 }
 
+private struct AgentSweepState {
+    let entity: Entity
+    let position: SIMD3<Float>
+    let velocity: SIMD3<Float>
+    let radius: Float
+    let halfHeight: Float
+    let filter: CollisionFilter
+}
+
+private struct CapsuleCapsuleHit {
+    let toi: Float
+    let normal: SIMD3<Float>
+    let other: Entity
+}
+
+private struct VelocityGate {
+    static func apply(body: inout PhysicsBodyComponent,
+                      wasGrounded: Bool,
+                      wasGroundedNear: Bool,
+                      dt: Float) -> SIMD3<Float> {
+        if wasGrounded && wasGroundedNear && body.linearVelocity.y < 0 {
+            body.linearVelocity.y = 0
+        }
+        var remaining = body.linearVelocity * dt
+        if wasGrounded && wasGroundedNear && remaining.y < 0 {
+            remaining.y = 0
+        }
+        return remaining
+    }
+}
+
+private struct AgentSweepSolver {
+    static func bestHit(position: SIMD3<Float>,
+                        remaining: SIMD3<Float>,
+                        remainingLen: Float,
+                        baseMoveLen: Float,
+                        dt: Float,
+                        selfEntity: Entity,
+                        selfAgent: AgentCollisionComponent?,
+                        selfRadius: Float,
+                        halfHeight: Float,
+                        selfFilter: CollisionFilter,
+                        agentStates: [AgentSweepState],
+                        sweep: (SIMD3<Float>, SIMD3<Float>, Float, Float, Entity, SIMD3<Float>, SIMD3<Float>, Float, Float) -> CapsuleCapsuleHit?) -> CapsuleCapsuleHit? {
+        guard let selfAgent, selfAgent.isSolid else { return nil }
+        var agentHit: CapsuleCapsuleHit?
+        let timeScale = baseMoveLen > 1e-6 ? min(remainingLen / baseMoveLen, 1) : 1
+        let segmentDt = dt * timeScale
+        for other in agentStates {
+            if other.entity == selfEntity { continue }
+            if !selfFilter.canCollide(with: other.filter) { continue }
+            let otherDelta = other.velocity * segmentDt
+            if let hit = sweep(position,
+                               remaining,
+                               selfRadius,
+                               halfHeight,
+                               other.entity,
+                               other.position,
+                               otherDelta,
+                               other.radius,
+                               other.halfHeight) {
+                let candidate = CapsuleCapsuleHit(toi: hit.toi,
+                                                  normal: hit.normal,
+                                                  other: other.entity)
+                if agentHit == nil || candidate.toi < agentHit!.toi {
+                    agentHit = candidate
+                }
+            }
+        }
+        return agentHit
+    }
+}
+
+private struct SlideResolver {
+    private enum MoveHit {
+        case staticHit(CapsuleCastHit)
+        case agentHit(CapsuleCapsuleHit)
+    }
+
+    static func resolveStep(remaining: inout SIMD3<Float>,
+                            len: Float,
+                            staticHit: CapsuleCastHit?,
+                            agentHit: CapsuleCapsuleHit?,
+                            controller: CharacterControllerComponent,
+                            wasGrounded: Bool,
+                            wasGroundedNear: Bool,
+                            body: inout PhysicsBodyComponent,
+                            position: inout SIMD3<Float>) -> Bool {
+        let bestHit: MoveHit?
+        if let sHit = staticHit, let aHit = agentHit {
+            let staticSkin = sHit.normal.y >= controller.minGroundDot ? controller.groundSnapSkin : controller.skinWidth
+            let staticStop = max(sHit.toi - staticSkin, 0)
+            let agentStop = max(aHit.toi, 0)
+            if staticStop <= agentStop {
+                bestHit = .staticHit(sHit)
+            } else {
+                bestHit = .agentHit(aHit)
+            }
+        } else if let sHit = staticHit {
+            bestHit = .staticHit(sHit)
+        } else if let aHit = agentHit {
+            bestHit = .agentHit(aHit)
+        } else {
+            bestHit = nil
+        }
+
+        guard let hit = bestHit else {
+            position += remaining
+            remaining = .zero
+            return true
+        }
+
+        let contactSkin: Float
+        var slideNormal: SIMD3<Float>
+        let hitToi: Float
+        var hitTriNormal: SIMD3<Float> = .zero
+        var hitIsStatic = false
+        var hitIsGroundLike = false
+        switch hit {
+        case .staticHit(let sHit):
+            hitToi = sHit.toi
+            slideNormal = sHit.normal
+            hitIsGroundLike = sHit.triangleNormal.y >= controller.minGroundDot
+            contactSkin = hitIsGroundLike ? controller.groundSnapSkin : controller.skinWidth
+            hitTriNormal = sHit.triangleNormal
+            hitIsStatic = true
+        case .agentHit(let aHit):
+            hitToi = aHit.toi
+            slideNormal = aHit.normal
+            contactSkin = 0
+        }
+
+        if slideNormal.y < controller.minGroundDot {
+            if hitIsStatic && hitIsGroundLike {
+                slideNormal = hitTriNormal
+            }
+            if slideNormal.y < controller.minGroundDot {
+                slideNormal.y = 0
+                let nLen = simd_length(slideNormal)
+                if nLen > 1e-5 {
+                    slideNormal /= nLen
+                } else {
+                    position += remaining
+                    remaining = .zero
+                    return true
+                }
+            }
+        }
+
+        let into = simd_dot(remaining, slideNormal)
+        let intoEps = 1e-4 * len
+        if into >= -intoEps {
+            if wasGroundedNear && hitIsStatic && !hitIsGroundLike && remaining.y < 0 {
+                remaining.y = 0
+            }
+            position += remaining
+            remaining = .zero
+            return true
+        }
+        if hitToi <= contactSkin && abs(into) <= intoEps {
+            position += remaining
+            remaining = .zero
+            return true
+        }
+        if into >= 0 {
+            position += remaining
+            remaining = .zero
+            return true
+        }
+
+        let rawMoveDist = max(hitToi - contactSkin, 0)
+        var moveDist = rawMoveDist
+        if slideNormal.y >= controller.minGroundDot && remaining.y < 0 &&
+            moveDist > controller.groundSweepMaxStep {
+            moveDist = controller.groundSweepMaxStep
+        }
+        let dir = remaining / len
+        position += dir * moveDist
+
+        var leftover = remaining - dir * moveDist
+        leftover -= slideNormal * simd_dot(leftover, slideNormal)
+        if wasGrounded && wasGroundedNear && leftover.y < 0 {
+            leftover.y = 0
+        }
+        let residual = simd_dot(leftover, slideNormal)
+        if abs(residual) < 1e-5 {
+            leftover -= slideNormal * residual
+        }
+        if simd_length_squared(leftover) < 1e-8 {
+            remaining = .zero
+            return true
+        }
+        remaining = leftover
+
+        let vInto = simd_dot(body.linearVelocity, slideNormal)
+        if vInto < 0 {
+            body.linearVelocity -= slideNormal * vInto
+        }
+
+        return false
+    }
+}
+
 /// Kinematic capsule sweep: move & slide with ground snap.
 public final class KinematicMoveStopSystem: FixedStepSystem {
-    private struct AgentSweepState {
-        let entity: Entity
-        let position: SIMD3<Float>
-        let velocity: SIMD3<Float>
-        let radius: Float
-        let halfHeight: Float
-        let filter: CollisionFilter
-    }
-
-    private struct CapsuleCapsuleHit {
-        let toi: Float
-        let normal: SIMD3<Float>
-        let other: Entity
-    }
-
     private var query: CollisionQuery?
     private let gravity: SIMD3<Float>
 
@@ -886,13 +1074,10 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                                   colliders: platCols)
             let wasGrounded = controller.grounded
             let wasGroundedNear = controller.groundedNear
-            if wasGrounded && wasGroundedNear && body.linearVelocity.y < 0 {
-                body.linearVelocity.y = 0
-            }
-            var remaining = body.linearVelocity * dt
-            if wasGrounded && wasGroundedNear && remaining.y < 0 {
-                remaining.y = 0
-            }
+            var remaining = VelocityGate.apply(body: &body,
+                                               wasGrounded: wasGrounded,
+                                               wasGroundedNear: wasGroundedNear,
+                                               dt: dt)
             if simd_length_squared(platformDelta) > 1e-8 {
                 position += platformDelta
                 PlatformCarryResolver.applyPenetrationCorrection(position: &position,
@@ -913,144 +1098,29 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                           delta: remaining,
                                                           radius: controller.radius,
                                                           halfHeight: controller.halfHeight)
-                var agentHit: CapsuleCapsuleHit?
-                if let agent = selfAgent, agent.isSolid {
-                    let timeScale = baseMoveLen > 1e-6 ? min(len / baseMoveLen, 1) : 1
-                    let segmentDt = dt * timeScale
-                    for other in agentStates {
-                        if other.entity == e { continue }
-                        if !selfFilter.canCollide(with: other.filter) { continue }
-                        let otherDelta = other.velocity * segmentDt
-                        if let hit = capsuleCapsuleSweep(from: position,
-                                                         delta: remaining,
-                                                         radius: selfRadius,
-                                                         halfHeight: controller.halfHeight,
-                                                         other: other.entity,
-                                                         otherPos: other.position,
-                                                         otherDelta: otherDelta,
-                                                         otherRadius: other.radius,
-                                                         otherHalfHeight: other.halfHeight) {
-                            let candidate = CapsuleCapsuleHit(toi: hit.toi,
-                                                              normal: hit.normal,
-                                                              other: other.entity)
-                            if agentHit == nil || candidate.toi < agentHit!.toi {
-                                agentHit = candidate
-                            }
-                        }
-                    }
-                }
+                let agentHit = AgentSweepSolver.bestHit(position: position,
+                                                        remaining: remaining,
+                                                        remainingLen: len,
+                                                        baseMoveLen: baseMoveLen,
+                                                        dt: dt,
+                                                        selfEntity: e,
+                                                        selfAgent: selfAgent,
+                                                        selfRadius: selfRadius,
+                                                        halfHeight: controller.halfHeight,
+                                                        selfFilter: selfFilter,
+                                                        agentStates: agentStates,
+                                                        sweep: capsuleCapsuleSweep)
 
-                enum MoveHit {
-                    case staticHit(CapsuleCastHit)
-                    case agentHit(CapsuleCapsuleHit)
-                }
-
-                let bestHit: MoveHit?
-                if let sHit = staticHit, let aHit = agentHit {
-                    let staticSkin = sHit.normal.y >= controller.minGroundDot ? controller.groundSnapSkin : controller.skinWidth
-                    let staticStop = max(sHit.toi - staticSkin, 0)
-                    let agentStop = max(aHit.toi, 0)
-                    if staticStop <= agentStop {
-                        bestHit = .staticHit(sHit)
-                    } else {
-                        bestHit = .agentHit(aHit)
-                    }
-                } else if let sHit = staticHit {
-                    bestHit = .staticHit(sHit)
-                } else if let aHit = agentHit {
-                    bestHit = .agentHit(aHit)
-                } else {
-                    bestHit = nil
-                }
-
-                if let hit = bestHit {
-                    let contactSkin: Float
-                    var slideNormal: SIMD3<Float>
-                    let hitToi: Float
-                    var hitTriNormal: SIMD3<Float> = .zero
-                    var hitIsStatic = false
-                    var hitIsGroundLike = false
-                    switch hit {
-                    case .staticHit(let sHit):
-                        hitToi = sHit.toi
-                        slideNormal = sHit.normal
-                        hitIsGroundLike = sHit.triangleNormal.y >= controller.minGroundDot
-                        contactSkin = hitIsGroundLike ? controller.groundSnapSkin : controller.skinWidth
-                        hitTriNormal = sHit.triangleNormal
-                        hitIsStatic = true
-                    case .agentHit(let aHit):
-                        hitToi = aHit.toi
-                        slideNormal = aHit.normal
-                        contactSkin = 0
-                    }
-                    if slideNormal.y < controller.minGroundDot {
-                        if hitIsStatic && hitIsGroundLike {
-                            slideNormal = hitTriNormal
-                        }
-                        if slideNormal.y < controller.minGroundDot {
-                            slideNormal.y = 0
-                            let nLen = simd_length(slideNormal)
-                            if nLen > 1e-5 {
-                                slideNormal /= nLen
-                            } else {
-                                position += remaining
-                                remaining = .zero
-                                break
-                            }
-                        }
-                    }
-                    let into = simd_dot(remaining, slideNormal)
-                    let intoEps = 1e-4 * len
-                    if into >= -intoEps {
-                        if wasGroundedNear && hitIsStatic && !hitIsGroundLike && remaining.y < 0 {
-                            remaining.y = 0
-                        }
-                        position += remaining
-                        remaining = .zero
-                        break
-                    }
-                    if hitToi <= contactSkin && abs(into) <= intoEps {
-                        position += remaining
-                        remaining = .zero
-                        break
-                    }
-                    if into >= 0 {
-                        position += remaining
-                        remaining = .zero
-                        break
-                    }
-
-                    let rawMoveDist = max(hitToi - contactSkin, 0)
-                    var moveDist = rawMoveDist
-                    if slideNormal.y >= controller.minGroundDot && remaining.y < 0 &&
-                        moveDist > controller.groundSweepMaxStep {
-                        moveDist = controller.groundSweepMaxStep
-                    }
-                    let dir = remaining / len
-                    position += dir * moveDist
-
-                    var leftover = remaining - dir * moveDist
-                    leftover -= slideNormal * simd_dot(leftover, slideNormal)
-                    if wasGrounded && wasGroundedNear && leftover.y < 0 {
-                        leftover.y = 0
-                    }
-                    let residual = simd_dot(leftover, slideNormal)
-                    if abs(residual) < 1e-5 {
-                        leftover -= slideNormal * residual
-                    }
-                    if simd_length_squared(leftover) < 1e-8 {
-                        remaining = .zero
-                        break
-                    }
-                    remaining = leftover
-
-                    let vInto = simd_dot(body.linearVelocity, slideNormal)
-                    if vInto < 0 {
-                        body.linearVelocity -= slideNormal * vInto
-                    }
-                } else {
-                    position += remaining
-                    remaining = .zero
+                let shouldBreak = SlideResolver.resolveStep(remaining: &remaining,
+                                                            len: len,
+                                                            staticHit: staticHit,
+                                                            agentHit: agentHit,
+                                                            controller: controller,
+                                                            wasGrounded: wasGrounded,
+                                                            wasGroundedNear: wasGroundedNear,
+                                                            body: &body,
+                                                            position: &position)
+                if shouldBreak {
                     break
                 }
             }
