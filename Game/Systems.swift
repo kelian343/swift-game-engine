@@ -332,6 +332,317 @@ public final class GravitySystem: FixedStepSystem {
     }
 }
 
+private struct PlatformCarryResolver {
+    static func computeDelta(position: SIMD3<Float>,
+                             controller: CharacterControllerComponent,
+                             platformEntities: [Entity],
+                             bodies: ComponentStore<PhysicsBodyComponent>,
+                             colliders: ComponentStore<ColliderComponent>) -> SIMD3<Float> {
+        guard !platformEntities.isEmpty else { return .zero }
+        let capsuleHalf = controller.halfHeight + controller.radius
+        let baseY = position.y - capsuleHalf
+        let capMin = SIMD3<Float>(position.x - controller.radius,
+                                  position.y - capsuleHalf,
+                                  position.z - controller.radius)
+        let capMax = SIMD3<Float>(position.x + controller.radius,
+                                  position.y + capsuleHalf,
+                                  position.z + controller.radius)
+        let sideTol = max(controller.skinWidth, controller.groundSnapSkin)
+        var bestCarry: SIMD3<Float> = .zero
+        var pushDelta: SIMD3<Float> = .zero
+
+        for pe in platformEntities {
+            guard let pBody = bodies[pe], let pCol = colliders[pe] else { continue }
+            if pBody.bodyType != .kinematic { continue }
+            let pDelta = pBody.position - pBody.prevPosition
+            if simd_length_squared(pDelta) < 1e-8 { continue }
+
+            let aabb = ColliderComponent.computeAABB(position: pBody.position,
+                                                     rotation: pBody.rotation,
+                                                     collider: pCol)
+            let expandedMin = aabb.min - SIMD3<Float>(repeating: sideTol)
+            let expandedMax = aabb.max + SIMD3<Float>(repeating: sideTol)
+            let overlap = capMin.x <= expandedMax.x && capMax.x >= expandedMin.x &&
+                          capMin.y <= expandedMax.y && capMax.y >= expandedMin.y &&
+                          capMin.z <= expandedMax.z && capMax.z >= expandedMin.z
+            if !overlap { continue }
+
+            let withinXZ = position.x >= aabb.min.x - controller.radius &&
+                           position.x <= aabb.max.x + controller.radius &&
+                           position.z >= aabb.min.z - controller.radius &&
+                           position.z <= aabb.max.z + controller.radius
+            let topY = aabb.max.y
+            let topTol = controller.snapDistance + max(controller.skinWidth, controller.groundSnapSkin) + 0.05
+            let onTop = withinXZ && baseY >= topY - topTol && baseY <= topY + topTol
+
+            if onTop {
+                if simd_length_squared(pDelta) > simd_length_squared(bestCarry) {
+                    bestCarry = pDelta
+                }
+            } else {
+                let yMin = aabb.min.y - capsuleHalf
+                let yMax = aabb.max.y + capsuleHalf
+                if position.y >= yMin && position.y <= yMax {
+                    let outsideX = position.x < aabb.min.x - controller.radius ||
+                                   position.x > aabb.max.x + controller.radius
+                    let outsideZ = position.z < aabb.min.z - controller.radius ||
+                                   position.z > aabb.max.z + controller.radius
+                    if !outsideX && !outsideZ {
+                        continue
+                    }
+                    let cx = max(aabb.min.x, min(position.x, aabb.max.x))
+                    let cz = max(aabb.min.z, min(position.z, aabb.max.z))
+                    let dx = position.x - cx
+                    let dz = position.z - cz
+                    let sideDistSq = dx * dx + dz * dz
+                    let sidePushTol = controller.radius + sideTol
+                    if sideDistSq <= sidePushTol * sidePushTol {
+                        let dirLen = sqrt(max(sideDistSq, 0))
+                        if dirLen > 1e-5 {
+                            let dir = SIMD3<Float>(dx / dirLen, 0, dz / dirLen)
+                            let moveToward = simd_dot(SIMD3<Float>(pDelta.x, 0, pDelta.z), dir)
+                            if moveToward > 0 {
+                                pushDelta += SIMD3<Float>(pDelta.x, 0, pDelta.z)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if simd_length_squared(bestCarry) > 1e-8 {
+            return bestCarry
+        }
+        if simd_length_squared(pushDelta) > 1e-8 {
+            return pushDelta
+        }
+        return .zero
+    }
+
+    static func applyPenetrationCorrection(position: inout SIMD3<Float>,
+                                           controller: CharacterControllerComponent,
+                                           platformEntities: [Entity],
+                                           bodies: ComponentStore<PhysicsBodyComponent>,
+                                           colliders: ComponentStore<ColliderComponent>) {
+        for pe in platformEntities {
+            guard let pBody = bodies[pe], let pCol = colliders[pe] else { continue }
+            if pBody.bodyType != .kinematic { continue }
+            let pDelta = pBody.position - pBody.prevPosition
+            if simd_length_squared(pDelta) < 1e-8 { continue }
+            guard case .box = pCol.shape else { continue }
+            let aabb = ColliderComponent.computeAABB(position: pBody.position,
+                                                     rotation: pBody.rotation,
+                                                     collider: pCol)
+            let capsuleHalf = controller.halfHeight + controller.radius
+            let baseY = position.y - capsuleHalf
+            let topTol = controller.snapDistance + max(controller.skinWidth, controller.groundSnapSkin) + 0.05
+            let onTop = baseY >= aabb.max.y - topTol && baseY <= aabb.max.y + topTol
+            if onTop {
+                continue
+            }
+            if let (n, depth) = capsuleBoxPenetrationXZ(center: position,
+                                                       halfHeight: controller.halfHeight,
+                                                       radius: controller.radius,
+                                                       boxMin: aabb.min,
+                                                       boxMax: aabb.max) {
+                let moveToward = simd_dot(SIMD3<Float>(pDelta.x, 0, pDelta.z), n)
+                if moveToward > 0 {
+                    position += n * depth
+                }
+            }
+        }
+    }
+
+    static func applyPostMovePushOut(position: inout SIMD3<Float>,
+                                     body: inout PhysicsBodyComponent,
+                                     controller: CharacterControllerComponent,
+                                     platformEntities: [Entity],
+                                     bodies: ComponentStore<PhysicsBodyComponent>,
+                                     colliders: ComponentStore<ColliderComponent>) -> Bool {
+        guard !platformEntities.isEmpty else { return false }
+        let contactRadius = controller.radius + controller.skinWidth
+        let capsuleHalf = controller.halfHeight + controller.radius
+        var blocked = false
+        for pe in platformEntities {
+            guard let pBody = bodies[pe], let pCol = colliders[pe] else { continue }
+            if pBody.bodyType != .kinematic { continue }
+            guard case .box = pCol.shape else { continue }
+            let aabb = ColliderComponent.computeAABB(position: pBody.position,
+                                                     rotation: pBody.rotation,
+                                                     collider: pCol)
+            let baseY = position.y - capsuleHalf
+            let topTol = controller.snapDistance + max(controller.skinWidth, controller.groundSnapSkin) + 0.05
+            let onTop = baseY >= aabb.max.y - topTol && baseY <= aabb.max.y + topTol
+            if onTop {
+                continue
+            }
+            if let (n, depth) = capsuleBoxPenetrationXZ(center: position,
+                                                       halfHeight: controller.halfHeight,
+                                                       radius: contactRadius,
+                                                       boxMin: aabb.min,
+                                                       boxMax: aabb.max) {
+                position += n * depth
+                let vInto = simd_dot(body.linearVelocity, n)
+                if vInto < 0 {
+                    body.linearVelocity -= n * vInto
+                }
+                blocked = true
+            }
+        }
+        return blocked
+    }
+
+    private static func capsuleBoxPenetrationXZ(center: SIMD3<Float>,
+                                                halfHeight: Float,
+                                                radius: Float,
+                                                boxMin: SIMD3<Float>,
+                                                boxMax: SIMD3<Float>) -> (SIMD3<Float>, Float)? {
+        let segMin = center.y - halfHeight
+        let segMax = center.y + halfHeight
+        if segMax < boxMin.y - radius || segMin > boxMax.y + radius {
+            return nil
+        }
+        let cx = center.x
+        let cz = center.z
+        let closestX = max(boxMin.x, min(cx, boxMax.x))
+        let closestZ = max(boxMin.z, min(cz, boxMax.z))
+        let dx = cx - closestX
+        let dz = cz - closestZ
+        let distSq = dx * dx + dz * dz
+        if distSq > radius * radius {
+            return nil
+        }
+        if distSq > 1e-6 {
+            let dist = sqrt(distSq)
+            let n = SIMD3<Float>(dx / dist, 0, dz / dist)
+            return (n, radius - dist)
+        }
+        let left = cx - boxMin.x
+        let right = boxMax.x - cx
+        let back = cz - boxMin.z
+        let front = boxMax.z - cz
+        var minDist = left
+        var n = SIMD3<Float>(1, 0, 0)
+        if right < minDist {
+            minDist = right
+            n = SIMD3<Float>(-1, 0, 0)
+        }
+        if back < minDist {
+            minDist = back
+            n = SIMD3<Float>(0, 0, 1)
+        }
+        if front < minDist {
+            minDist = front
+            n = SIMD3<Float>(0, 0, -1)
+        }
+        let depth = radius - minDist
+        if depth <= 0 {
+            return nil
+        }
+        return (n, depth)
+    }
+}
+
+private struct GroundContactState {
+    var grounded: Bool
+    var groundedNear: Bool
+    var normal: SIMD3<Float>
+    var material: SurfaceMaterial
+}
+
+private struct GroundContactResolver {
+    static func resolveSnap(position: inout SIMD3<Float>,
+                            body: inout PhysicsBodyComponent,
+                            controller: CharacterControllerComponent,
+                            query: CollisionQuery,
+                            wasGrounded: Bool,
+                            wasGroundedNear: Bool) -> GroundContactState {
+        var state = GroundContactState(grounded: false,
+                                       groundedNear: false,
+                                       normal: SIMD3<Float>(0, 1, 0),
+                                       material: .default)
+        if controller.snapDistance <= 0 {
+            return state
+        }
+
+        let down = SIMD3<Float>(0, -1, 0)
+        let snapDelta = down * controller.snapDistance
+        if let hit = query.capsuleCastGround(from: position,
+                                             delta: snapDelta,
+                                             radius: controller.radius,
+                                             halfHeight: controller.halfHeight,
+                                             minNormalY: controller.minGroundDot),
+           hit.toi <= controller.snapDistance {
+            let baseCenterY = position.y - controller.halfHeight
+            let bottomY = baseCenterY - controller.radius
+            let groundTol = max(controller.skinWidth, controller.groundSnapSkin)
+            let validGroundPoint = hit.position.y <= bottomY + groundTol
+            let groundNearThreshold = max(controller.groundSnapSkin, controller.skinWidth)
+            let nearGround = hit.toi <= groundNearThreshold
+            state.groundedNear = nearGround
+            let groundGateVel = body.linearVelocity.y <= 0
+            let vInto = simd_dot(body.linearVelocity, hit.normal)
+            let groundGateSpeed = vInto >= -controller.groundSnapMaxSpeed
+            let groundGateToi = hit.toi <= controller.groundSnapMaxToi
+            var canSnap = validGroundPoint && groundGateVel && (nearGround || groundGateSpeed || groundGateToi)
+            if wasGroundedNear && hit.toi <= controller.snapDistance {
+                canSnap = validGroundPoint
+            }
+            if validGroundPoint && (nearGround || canSnap) {
+                state.grounded = true
+                state.normal = hit.triangleNormal
+                state.material = hit.material
+            }
+            if canSnap {
+                let rawMove = max(hit.toi - controller.groundSnapSkin, 0)
+                var moveDist = rawMove
+                if nearGround && moveDist > controller.groundSnapMaxStep {
+                    moveDist = controller.groundSnapMaxStep
+                }
+                position += down * moveDist
+                let vIntoSnap = simd_dot(body.linearVelocity, hit.normal)
+                if vIntoSnap < 0 {
+                    body.linearVelocity -= hit.normal * vIntoSnap
+                }
+            }
+        }
+
+        _ = wasGrounded
+        return state
+    }
+
+    static func applySlopeFriction(body: inout PhysicsBodyComponent,
+                                   controller: CharacterControllerComponent,
+                                   gravity: SIMD3<Float>,
+                                   dt: Float,
+                                   state: GroundContactState) {
+        guard state.grounded else { return }
+        let normal = simd_normalize(state.normal)
+        let gN = simd_dot(gravity, normal)
+        let gTan = gravity - normal * gN
+        let gTanLen = simd_length(gTan)
+        let slopeAccelEps: Float = 0.5
+        if gTanLen > slopeAccelEps {
+            let gNMag = abs(gN)
+            let gTanDir = gTan / gTanLen
+            let stickLimit = state.material.muS * gNMag
+            if gTanLen <= stickLimit {
+                let v = body.linearVelocity
+                let vTan = v - normal * simd_dot(v, normal)
+                let downhillSpeed = simd_dot(vTan, gTanDir)
+                if downhillSpeed > 0 {
+                    body.linearVelocity -= gTanDir * downhillSpeed
+                }
+            } else {
+                let slideAccelMag = max(gTanLen - state.material.muK * gNMag, 0)
+                if slideAccelMag > 0 {
+                    body.linearVelocity += gTanDir * slideAccelMag * dt
+                }
+            }
+        }
+    }
+}
+
 /// Kinematic capsule sweep: move & slide with ground snap.
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private struct AgentSweepState {
@@ -567,134 +878,12 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             let selfAgent = aStore[e]
             let selfRadius = selfAgent?.radiusOverride ?? controller.radius
             let selfFilter = selfAgent?.filter ?? .default
-            var platformDelta: SIMD3<Float> = .zero
-            func capsuleBoxPenetrationXZ(center: SIMD3<Float>,
-                                         halfHeight: Float,
-                                         radius: Float,
-                                         boxMin: SIMD3<Float>,
-                                         boxMax: SIMD3<Float>) -> (SIMD3<Float>, Float)? {
-                let segMin = center.y - halfHeight
-                let segMax = center.y + halfHeight
-                if segMax < boxMin.y - radius || segMin > boxMax.y + radius {
-                    return nil
-                }
-                let cx = center.x
-                let cz = center.z
-                let closestX = max(boxMin.x, min(cx, boxMax.x))
-                let closestZ = max(boxMin.z, min(cz, boxMax.z))
-                let dx = cx - closestX
-                let dz = cz - closestZ
-                let distSq = dx * dx + dz * dz
-                if distSq > radius * radius {
-                    return nil
-                }
-                if distSq > 1e-6 {
-                    let dist = sqrt(distSq)
-                    let n = SIMD3<Float>(dx / dist, 0, dz / dist)
-                    return (n, radius - dist)
-                }
-                let left = cx - boxMin.x
-                let right = boxMax.x - cx
-                let back = cz - boxMin.z
-                let front = boxMax.z - cz
-                var minDist = left
-                var n = SIMD3<Float>(1, 0, 0)
-                if right < minDist {
-                    minDist = right
-                    n = SIMD3<Float>(-1, 0, 0)
-                }
-                if back < minDist {
-                    minDist = back
-                    n = SIMD3<Float>(0, 0, 1)
-                }
-                if front < minDist {
-                    minDist = front
-                    n = SIMD3<Float>(0, 0, -1)
-                }
-                let depth = radius - minDist
-                if depth <= 0 {
-                    return nil
-                }
-                return (n, depth)
-            }
             // Apply platform motion carry/push before character sweep.
-            if !platformEntities.isEmpty {
-                let capsuleHalf = controller.halfHeight + controller.radius
-                let baseY = position.y - capsuleHalf
-                let capMin = SIMD3<Float>(position.x - controller.radius,
-                                          position.y - capsuleHalf,
-                                          position.z - controller.radius)
-                let capMax = SIMD3<Float>(position.x + controller.radius,
-                                          position.y + capsuleHalf,
-                                          position.z + controller.radius)
-                let sideTol = max(controller.skinWidth, controller.groundSnapSkin)
-                var bestCarry: SIMD3<Float> = .zero
-                var pushDelta: SIMD3<Float> = .zero
-
-                for pe in platformEntities {
-                    guard let pBody = platBodies[pe], let pCol = platCols[pe] else { continue }
-                    if pBody.bodyType != .kinematic { continue }
-                    let pDelta = pBody.position - pBody.prevPosition
-                    if simd_length_squared(pDelta) < 1e-8 { continue }
-
-                    let aabb = ColliderComponent.computeAABB(position: pBody.position,
-                                                             rotation: pBody.rotation,
-                                                             collider: pCol)
-                    let expandedMin = aabb.min - SIMD3<Float>(repeating: sideTol)
-                    let expandedMax = aabb.max + SIMD3<Float>(repeating: sideTol)
-                    let overlap = capMin.x <= expandedMax.x && capMax.x >= expandedMin.x &&
-                                  capMin.y <= expandedMax.y && capMax.y >= expandedMin.y &&
-                                  capMin.z <= expandedMax.z && capMax.z >= expandedMin.z
-                    if !overlap { continue }
-                    let withinXZ = position.x >= aabb.min.x - controller.radius &&
-                                   position.x <= aabb.max.x + controller.radius &&
-                                   position.z >= aabb.min.z - controller.radius &&
-                                   position.z <= aabb.max.z + controller.radius
-                    let topY = aabb.max.y
-                    let topTol = controller.snapDistance + max(controller.skinWidth, controller.groundSnapSkin) + 0.05
-                    let onTop = withinXZ && baseY >= topY - topTol && baseY <= topY + topTol
-
-                    if onTop {
-                        if simd_length_squared(pDelta) > simd_length_squared(bestCarry) {
-                            bestCarry = pDelta
-                        }
-                    } else {
-                        let yMin = aabb.min.y - capsuleHalf
-                        let yMax = aabb.max.y + capsuleHalf
-                        if position.y >= yMin && position.y <= yMax {
-                            let outsideX = position.x < aabb.min.x - controller.radius ||
-                                           position.x > aabb.max.x + controller.radius
-                            let outsideZ = position.z < aabb.min.z - controller.radius ||
-                                           position.z > aabb.max.z + controller.radius
-                            if !outsideX && !outsideZ {
-                                continue
-                            }
-                            let cx = max(aabb.min.x, min(position.x, aabb.max.x))
-                            let cz = max(aabb.min.z, min(position.z, aabb.max.z))
-                            let dx = position.x - cx
-                            let dz = position.z - cz
-                            let sideDistSq = dx * dx + dz * dz
-                            let sidePushTol = controller.radius + sideTol
-                            if sideDistSq <= sidePushTol * sidePushTol {
-                                let dirLen = sqrt(max(sideDistSq, 0))
-                                if dirLen > 1e-5 {
-                                    let dir = SIMD3<Float>(dx / dirLen, 0, dz / dirLen)
-                                    let moveToward = simd_dot(SIMD3<Float>(pDelta.x, 0, pDelta.z), dir)
-                                    if moveToward > 0 {
-                                        pushDelta += SIMD3<Float>(pDelta.x, 0, pDelta.z)
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
-                if simd_length_squared(bestCarry) > 1e-8 {
-                    platformDelta += bestCarry
-                } else if simd_length_squared(pushDelta) > 1e-8 {
-                    platformDelta += pushDelta
-                }
-            }
+            let platformDelta = PlatformCarryResolver.computeDelta(position: position,
+                                                                  controller: controller,
+                                                                  platformEntities: platformEntities,
+                                                                  bodies: platBodies,
+                                                                  colliders: platCols)
             let wasGrounded = controller.grounded
             let wasGroundedNear = controller.groundedNear
             if wasGrounded && wasGroundedNear && body.linearVelocity.y < 0 {
@@ -706,38 +895,14 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             }
             if simd_length_squared(platformDelta) > 1e-8 {
                 position += platformDelta
-                for pe in platformEntities {
-                    guard let pBody = platBodies[pe], let pCol = platCols[pe] else { continue }
-                    if pBody.bodyType != .kinematic { continue }
-                    let pDelta = pBody.position - pBody.prevPosition
-                    if simd_length_squared(pDelta) < 1e-8 { continue }
-                    guard case .box = pCol.shape else { continue }
-                    let aabb = ColliderComponent.computeAABB(position: pBody.position,
-                                                             rotation: pBody.rotation,
-                                                             collider: pCol)
-                    let capsuleHalf = controller.halfHeight + controller.radius
-                    let baseY = position.y - capsuleHalf
-                    let topTol = controller.snapDistance + max(controller.skinWidth, controller.groundSnapSkin) + 0.05
-                    let onTop = baseY >= aabb.max.y - topTol && baseY <= aabb.max.y + topTol
-                    if onTop {
-                        continue
-                    }
-                    if let (n, depth) = capsuleBoxPenetrationXZ(center: position,
-                                                               halfHeight: controller.halfHeight,
-                                                               radius: controller.radius,
-                                                               boxMin: aabb.min,
-                                                               boxMax: aabb.max) {
-                        let moveToward = simd_dot(SIMD3<Float>(pDelta.x, 0, pDelta.z), n)
-                        if moveToward > 0 {
-                            position += n * depth
-                        }
-                    }
-                }
+                PlatformCarryResolver.applyPenetrationCorrection(position: &position,
+                                                                 controller: controller,
+                                                                 platformEntities: platformEntities,
+                                                                 bodies: platBodies,
+                                                                 colliders: platCols)
             }
             var isGrounded = false
             var isGroundedNear = false
-            var groundNormal: SIMD3<Float>?
-            var groundMaterial = SurfaceMaterial.default
             let baseMove = body.linearVelocity * dt
             let baseMoveLen = simd_length(baseMove)
             for _ in 0..<controller.maxSlideIterations {
@@ -890,117 +1055,36 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 }
             }
 
-            if !platformEntities.isEmpty {
-                let contactRadius = controller.radius + controller.skinWidth
-                let capsuleHalf = controller.halfHeight + controller.radius
-                var blocked = false
-                for pe in platformEntities {
-                    guard let pBody = platBodies[pe], let pCol = platCols[pe] else { continue }
-                    if pBody.bodyType != .kinematic { continue }
-                    guard case .box = pCol.shape else { continue }
-                    let aabb = ColliderComponent.computeAABB(position: pBody.position,
-                                                             rotation: pBody.rotation,
-                                                             collider: pCol)
-                    let baseY = position.y - capsuleHalf
-                    let topTol = controller.snapDistance + max(controller.skinWidth, controller.groundSnapSkin) + 0.05
-                    let onTop = baseY >= aabb.max.y - topTol && baseY <= aabb.max.y + topTol
-                    if onTop {
-                        continue
-                    }
-                    if let (n, depth) = capsuleBoxPenetrationXZ(center: position,
-                                                               halfHeight: controller.halfHeight,
-                                                               radius: contactRadius,
-                                                               boxMin: aabb.min,
-                                                               boxMax: aabb.max) {
-                        position += n * depth
-                        let vInto = simd_dot(body.linearVelocity, n)
-                        if vInto < 0 {
-                            body.linearVelocity -= n * vInto
-                        }
-                        blocked = true
-                    }
-                }
-                if blocked {
-                    remaining = .zero
-                }
+            let blocked = PlatformCarryResolver.applyPostMovePushOut(position: &position,
+                                                                     body: &body,
+                                                                     controller: controller,
+                                                                     platformEntities: platformEntities,
+                                                                     bodies: platBodies,
+                                                                     colliders: platCols)
+            if blocked {
+                remaining = .zero
             }
 
-            if controller.snapDistance > 0 {
-                let down = SIMD3<Float>(0, -1, 0)
-                let snapDelta = down * controller.snapDistance
-                if let hit = query.capsuleCastGround(from: position,
-                                                     delta: snapDelta,
-                                                     radius: controller.radius,
-                                                     halfHeight: controller.halfHeight,
-                                                     minNormalY: controller.minGroundDot),
-                   hit.toi <= controller.snapDistance {
-                    let baseCenterY = position.y - controller.halfHeight
-                    let bottomY = baseCenterY - controller.radius
-                    let groundTol = max(controller.skinWidth, controller.groundSnapSkin)
-                    let validGroundPoint = hit.position.y <= bottomY + groundTol
-                    let groundNearThreshold = max(controller.groundSnapSkin, controller.skinWidth)
-                    let nearGround = hit.toi <= groundNearThreshold
-                    isGroundedNear = nearGround
-                    let groundGateVel = body.linearVelocity.y <= 0
-                    let vInto = simd_dot(body.linearVelocity, hit.normal)
-                    let groundGateSpeed = vInto >= -controller.groundSnapMaxSpeed
-                    let groundGateToi = hit.toi <= controller.groundSnapMaxToi
-                    var canSnap = validGroundPoint && groundGateVel && (nearGround || groundGateSpeed || groundGateToi)
-                    if wasGroundedNear && hit.toi <= controller.snapDistance {
-                        canSnap = validGroundPoint
-                    }
-                    if validGroundPoint && (nearGround || canSnap) {
-                        isGrounded = true
-                        groundNormal = hit.triangleNormal
-                        groundMaterial = hit.material
-                    }
-                    if canSnap {
-                        let rawMove = max(hit.toi - controller.groundSnapSkin, 0)
-                        var moveDist = rawMove
-                        if nearGround && moveDist > controller.groundSnapMaxStep {
-                            moveDist = controller.groundSnapMaxStep
-                        }
-                        position += down * moveDist
-                        let vInto = simd_dot(body.linearVelocity, hit.normal)
-                        if vInto < 0 {
-                            body.linearVelocity -= hit.normal * vInto
-                        }
-                    }
-                }
-            }
+            let groundState = GroundContactResolver.resolveSnap(position: &position,
+                                                                body: &body,
+                                                                controller: controller,
+                                                                query: query,
+                                                                wasGrounded: wasGrounded,
+                                                                wasGroundedNear: wasGroundedNear)
+            isGrounded = groundState.grounded
+            isGroundedNear = groundState.groundedNear
 
-            if isGrounded, let n = groundNormal {
-                let normal = simd_normalize(n)
-                let g = gravity
-                let gN = simd_dot(g, normal)
-                let gTan = g - normal * gN
-                let gTanLen = simd_length(gTan)
-                let slopeAccelEps: Float = 0.5
-                if gTanLen > slopeAccelEps {
-                    let gNMag = abs(gN)
-                    let gTanDir = gTan / gTanLen
-                    let stickLimit = groundMaterial.muS * gNMag
-                    if gTanLen <= stickLimit {
-                        let v = body.linearVelocity
-                        let vTan = v - normal * simd_dot(v, normal)
-                        let downhillSpeed = simd_dot(vTan, gTanDir)
-                        if downhillSpeed > 0 {
-                            body.linearVelocity -= gTanDir * downhillSpeed
-                        }
-                    } else {
-                        let slideAccelMag = max(gTanLen - groundMaterial.muK * gNMag, 0)
-                        if slideAccelMag > 0 {
-                            body.linearVelocity += gTanDir * slideAccelMag * dt
-                        }
-                    }
-                }
-            }
+            GroundContactResolver.applySlopeFriction(body: &body,
+                                                     controller: controller,
+                                                     gravity: gravity,
+                                                     dt: dt,
+                                                     state: groundState)
 
             body.position = position
             pStore[e] = body
             controller.grounded = isGrounded
             controller.groundedNear = isGroundedNear
-            controller.groundNormal = groundNormal ?? SIMD3<Float>(0, 1, 0)
+            controller.groundNormal = groundState.grounded ? groundState.normal : SIMD3<Float>(0, 1, 0)
             cStore[e] = controller
 
         }
