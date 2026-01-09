@@ -721,39 +721,52 @@ private struct AgentSweepSolver {
 }
 
 private struct SlideResolver {
-    private enum MoveHit {
+    struct SlideOptions {
+        let allowHorizontalGroundPass: Bool
+        let adjustVelocity: Bool
+        let useGroundSnapSkinForStatic: Bool
+        let allowTriangleNormalGroundLike: Bool
+    }
+
+    enum SlideHit {
         case staticHit(CapsuleCastHit)
         case agentHit(CapsuleCapsuleHit)
     }
 
-    static func resolveStep(remaining: inout SIMD3<Float>,
-                            len: Float,
-                            staticHit: CapsuleCastHit?,
-                            agentHit: CapsuleCapsuleHit?,
-                            controller: CharacterControllerComponent,
-                            wasGrounded: Bool,
-                            wasGroundedNear: Bool,
-                            body: inout PhysicsBodyComponent,
-                            position: inout SIMD3<Float>) -> Bool {
-        let bestHit: MoveHit?
+    static func selectBestHit(staticHit: CapsuleCastHit?,
+                              agentHit: CapsuleCapsuleHit?,
+                              controller: CharacterControllerComponent) -> SlideHit? {
         if let sHit = staticHit, let aHit = agentHit {
             let staticSkin = sHit.normal.y >= controller.minGroundDot ? controller.groundSnapSkin : controller.skinWidth
             let staticStop = max(sHit.toi - staticSkin, 0)
             let agentStop = max(aHit.toi, 0)
             if staticStop <= agentStop {
-                bestHit = .staticHit(sHit)
-            } else {
-                bestHit = .agentHit(aHit)
+                return .staticHit(sHit)
             }
-        } else if let sHit = staticHit {
-            bestHit = .staticHit(sHit)
-        } else if let aHit = agentHit {
-            bestHit = .agentHit(aHit)
-        } else {
-            bestHit = nil
+            return .agentHit(aHit)
         }
+        if let sHit = staticHit {
+            return .staticHit(sHit)
+        }
+        if let aHit = agentHit {
+            return .agentHit(aHit)
+        }
+        return nil
+    }
 
-        guard let hit = bestHit else {
+    static func resolveHit(remaining: inout SIMD3<Float>,
+                           len: Float,
+                           hit: SlideHit,
+                           controller: CharacterControllerComponent,
+                           wasGrounded: Bool,
+                           wasGroundedNear: Bool,
+                           body: inout PhysicsBodyComponent,
+                           position: inout SIMD3<Float>,
+                           options: SlideOptions) -> Bool {
+        if options.allowHorizontalGroundPass,
+           case .staticHit(let sHit) = hit,
+           abs(remaining.y) < 1e-5,
+           sHit.normal.y >= controller.minGroundDot {
             position += remaining
             remaining = .zero
             return true
@@ -770,7 +783,11 @@ private struct SlideResolver {
             hitToi = sHit.toi
             slideNormal = sHit.normal
             hitIsGroundLike = sHit.triangleNormal.y >= controller.minGroundDot
-            contactSkin = hitIsGroundLike ? controller.groundSnapSkin : controller.skinWidth
+            if options.useGroundSnapSkinForStatic && hitIsGroundLike {
+                contactSkin = controller.groundSnapSkin
+            } else {
+                contactSkin = controller.skinWidth
+            }
             hitTriNormal = sHit.triangleNormal
             hitIsStatic = true
         case .agentHit(let aHit):
@@ -780,7 +797,7 @@ private struct SlideResolver {
         }
 
         if slideNormal.y < controller.minGroundDot {
-            if hitIsStatic && hitIsGroundLike {
+            if hitIsStatic && hitIsGroundLike && options.allowTriangleNormalGroundLike {
                 slideNormal = hitTriNormal
             }
             if slideNormal.y < controller.minGroundDot {
@@ -841,50 +858,14 @@ private struct SlideResolver {
         }
         remaining = leftover
 
-        let vInto = simd_dot(body.linearVelocity, slideNormal)
-        if vInto < 0 {
-            body.linearVelocity -= slideNormal * vInto
+        if options.adjustVelocity {
+            let vInto = simd_dot(body.linearVelocity, slideNormal)
+            if vInto < 0 {
+                body.linearVelocity -= slideNormal * vInto
+            }
         }
 
         return false
-    }
-
-    static func resolveBlockingSlide(position: inout SIMD3<Float>,
-                                     remaining: inout SIMD3<Float>,
-                                     controller: CharacterControllerComponent,
-                                     hit: CapsuleCastHit) -> Bool {
-        let horizontalMove = abs(remaining.y) < 1e-5
-        if horizontalMove && hit.normal.y >= controller.minGroundDot {
-            position += remaining
-            remaining = .zero
-            return true
-        }
-
-        let segLen = simd_length(remaining)
-        if segLen < 1e-6 {
-            remaining = .zero
-            return true
-        }
-        let contactSkin = controller.skinWidth
-        let dir = remaining / segLen
-        let moveDist = max(hit.toi - contactSkin, 0)
-        position += dir * moveDist
-
-        var leftover = remaining - dir * moveDist
-        var slideNormal = hit.normal
-        if slideNormal.y < controller.minGroundDot {
-            slideNormal.y = 0
-            let nLen = simd_length(slideNormal)
-            if nLen > 1e-5 {
-                slideNormal /= nLen
-            } else {
-                remaining = .zero
-                return true
-            }
-        }
-        leftover -= slideNormal * simd_dot(leftover, slideNormal)
-        remaining = leftover
-        return simd_length_squared(remaining) < 1e-8
     }
 }
 
@@ -1153,16 +1134,28 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                         agentStates: agentStates,
                                                         sweep: capsuleCapsuleSweep)
 
-                let shouldBreak = SlideResolver.resolveStep(remaining: &remaining,
-                                                            len: len,
-                                                            staticHit: staticHit,
-                                                            agentHit: agentHit,
-                                                            controller: controller,
-                                                            wasGrounded: wasGrounded,
-                                                            wasGroundedNear: wasGroundedNear,
-                                                            body: &body,
-                                                            position: &position)
-                if shouldBreak {
+                if let hit = SlideResolver.selectBestHit(staticHit: staticHit,
+                                                         agentHit: agentHit,
+                                                         controller: controller) {
+                    let options = SlideResolver.SlideOptions(allowHorizontalGroundPass: false,
+                                                             adjustVelocity: true,
+                                                             useGroundSnapSkinForStatic: true,
+                                                             allowTriangleNormalGroundLike: true)
+                    let shouldBreak = SlideResolver.resolveHit(remaining: &remaining,
+                                                               len: len,
+                                                               hit: hit,
+                                                               controller: controller,
+                                                               wasGrounded: wasGrounded,
+                                                               wasGroundedNear: wasGroundedNear,
+                                                               body: &body,
+                                                               position: &position,
+                                                               options: options)
+                    if shouldBreak {
+                        break
+                    }
+                } else {
+                    position += remaining
+                    remaining = .zero
                     break
                 }
             }
@@ -1437,10 +1430,19 @@ public final class AgentSeparationSystem: FixedStepSystem {
                                                                delta: remaining,
                                                                radius: agent.radius,
                                                                halfHeight: agent.halfHeight) {
-                            let done = SlideResolver.resolveBlockingSlide(position: &position,
-                                                                         remaining: &remaining,
-                                                                         controller: agent.controller,
-                                                                         hit: hit)
+                            let options = SlideResolver.SlideOptions(allowHorizontalGroundPass: true,
+                                                                     adjustVelocity: false,
+                                                                     useGroundSnapSkinForStatic: false,
+                                                                     allowTriangleNormalGroundLike: false)
+                            let done = SlideResolver.resolveHit(remaining: &remaining,
+                                                                len: segLen,
+                                                                hit: .staticHit(hit),
+                                                                controller: agent.controller,
+                                                                wasGrounded: false,
+                                                                wasGroundedNear: false,
+                                                                body: &body,
+                                                                position: &position,
+                                                                options: options)
                             if done { break }
                         } else {
                             position += remaining
