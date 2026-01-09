@@ -19,12 +19,7 @@ public final class DemoScene: RenderScene {
     private let timeSystem = TimeSystem()
     private let inputSystem: InputSystem
     private let spinSystem = SpinSystem()
-    private let physicsWorld = PhysicsWorld()
-    private let physicsSyncSystem: PhysicsSyncSystem
-    private let physicsBroadphaseSystem: PhysicsBroadphaseSystem
     private let physicsBeginStepSystem = PhysicsBeginStepSystem()
-    private let physicsNarrowphaseSystem: PhysicsNarrowphaseSystem
-    private let physicsSolverSystem: PhysicsSolverSystem
     private let physicsIntentSystem = PhysicsIntentSystem()
     private let oscillateMoveSystem = OscillateMoveSystem()
     private let jumpSystem = JumpSystem()
@@ -35,32 +30,23 @@ public final class DemoScene: RenderScene {
     private let collisionQueryRefreshSystem: CollisionQueryRefreshSystem
     private let physicsIntegrateSystem = PhysicsIntegrateSystem()
     private let physicsWritebackSystem = PhysicsWritebackSystem()
-    private let physicsEventsSystem: PhysicsEventsSystem
     private let fixedRunner: FixedStepRunner
     private let extractSystem = RenderExtractSystem()
     private var collisionQuery: CollisionQuery?
 
     public init() {
         self.inputSystem = InputSystem(camera: camera)
-        self.physicsSyncSystem = PhysicsSyncSystem(physicsWorld: physicsWorld)
-        self.physicsBroadphaseSystem = PhysicsBroadphaseSystem(physicsWorld: physicsWorld)
-        self.physicsNarrowphaseSystem = PhysicsNarrowphaseSystem(physicsWorld: physicsWorld)
-        self.physicsSolverSystem = PhysicsSolverSystem(physicsWorld: physicsWorld)
-        self.physicsEventsSystem = PhysicsEventsSystem(physicsWorld: physicsWorld)
         self.collisionQueryRefreshSystem = CollisionQueryRefreshSystem(kinematicMoveSystem: kinematicMoveSystem,
                                                                        agentSeparationSystem: agentSeparationSystem)
         self.fixedRunner = FixedStepRunner(
-            preFixed: [spinSystem, oscillateMoveSystem, physicsIntentSystem, jumpSystem, physicsSyncSystem, physicsBeginStepSystem],
-            fixed: [physicsBroadphaseSystem,
-                    physicsNarrowphaseSystem,
-                    physicsSolverSystem,
-                    platformMotionSystem,
+            preFixed: [spinSystem, oscillateMoveSystem, physicsIntentSystem, jumpSystem, physicsBeginStepSystem],
+            fixed: [platformMotionSystem,
                     collisionQueryRefreshSystem,
                     gravitySystem,
                     kinematicMoveSystem,
                     agentSeparationSystem,
                     physicsIntegrateSystem],
-            postFixed: [physicsWritebackSystem, physicsEventsSystem]
+            postFixed: [physicsWritebackSystem]
         )
     }
 

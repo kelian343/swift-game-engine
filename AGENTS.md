@@ -11,7 +11,7 @@
 - High-speed landing smoothing added: groundedNear gating for clamp/gravity, ground sweep/snap soft limits, and ground contact skin tuning.
 - Fixed-step frequency increased to 120Hz with maxSubsteps=8 to reduce large per-step motion.
 - Jump height increased (jumpSpeed raised).
-- Demo tweaks: ground plane enlarged; dynamic oscillating NPC added for push tests (higher massWeight).
+- Demo tweaks: ground plane enlarged; dynamic oscillating NPC added for push tests (higher massWeight); test wall and ramp heights doubled.
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.

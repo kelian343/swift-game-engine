@@ -296,18 +296,6 @@ public struct MovementComponent {
     }
 }
 
-public struct PhysicsMaterial: Equatable {
-    public var friction: Float
-    public var restitution: Float
-
-    public static let `default` = PhysicsMaterial(friction: 0.5, restitution: 0.0)
-
-    public init(friction: Float = 0.5, restitution: Float = 0.0) {
-        self.friction = friction
-        self.restitution = restitution
-    }
-}
-
 public struct SurfaceMaterial: Equatable {
     public var muS: Float
     public var muK: Float
@@ -355,14 +343,11 @@ public enum ColliderShape: Equatable {
 
 public struct ColliderComponent: Equatable {
     public var shape: ColliderShape
-    public var material: PhysicsMaterial
     public var filter: CollisionFilter
 
     public init(shape: ColliderShape,
-                material: PhysicsMaterial = .default,
                 filter: CollisionFilter = .default) {
         self.shape = shape
-        self.material = material
         self.filter = filter
     }
 

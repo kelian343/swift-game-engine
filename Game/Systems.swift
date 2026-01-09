@@ -15,23 +15,6 @@ public protocol FixedStepSystem {
     func fixedUpdate(world: World, dt: Float)
 }
 
-public protocol Narrowphase {
-    func generateManifolds(world: PhysicsWorld,
-                           pairs: [(PhysicsWorld.ProxyHandle, PhysicsWorld.ProxyHandle)])
-    -> [PhysicsWorld.ContactManifold]
-}
-
-public struct NullNarrowphase: Narrowphase {
-    public init() {}
-    public func generateManifolds(world: PhysicsWorld,
-                                  pairs: [(PhysicsWorld.ProxyHandle, PhysicsWorld.ProxyHandle)])
-    -> [PhysicsWorld.ContactManifold] {
-        _ = world
-        _ = pairs
-        return []
-    }
-}
-
 /// Tracks global time inside ECS via a singleton TimeComponent.
 public final class TimeSystem: System {
     private var timeEntity: Entity?
@@ -199,70 +182,6 @@ public final class PhysicsBeginStepSystem: FixedStepSystem {
                 pStore[e] = body
             }
         }
-    }
-}
-
-/// Sync ECS transforms/colliders to PhysicsWorld proxies.
-public final class PhysicsSyncSystem: FixedStepSystem {
-    private let physicsWorld: PhysicsWorld
-
-    public init(physicsWorld: PhysicsWorld) {
-        self.physicsWorld = physicsWorld
-    }
-
-    public func fixedUpdate(world: World, dt: Float) {
-        _ = dt
-        physicsWorld.sync(world: world)
-    }
-}
-
-/// Broadphase pass using a simple sweep-and-prune on X axis.
-public final class PhysicsBroadphaseSystem: FixedStepSystem {
-    private let physicsWorld: PhysicsWorld
-
-    public init(physicsWorld: PhysicsWorld) {
-        self.physicsWorld = physicsWorld
-    }
-
-    public func fixedUpdate(world: World, dt: Float) {
-        _ = world
-        _ = dt
-        physicsWorld.buildBroadphasePairs()
-    }
-}
-
-/// Narrowphase placeholder: build contact manifolds from broadphase pairs.
-public final class PhysicsNarrowphaseSystem: FixedStepSystem {
-    private let physicsWorld: PhysicsWorld
-    private let narrowphase: Narrowphase
-
-    public init(physicsWorld: PhysicsWorld, narrowphase: Narrowphase = NullNarrowphase()) {
-        self.physicsWorld = physicsWorld
-        self.narrowphase = narrowphase
-    }
-
-    public func fixedUpdate(world: World, dt: Float) {
-        _ = world
-        _ = dt
-        let manifolds = narrowphase.generateManifolds(world: physicsWorld,
-                                                      pairs: physicsWorld.broadphaseProxyPairs)
-        physicsWorld.setManifolds(manifolds)
-    }
-}
-
-/// Solver placeholder: resolve contacts and apply impulses.
-public final class PhysicsSolverSystem: FixedStepSystem {
-    private let physicsWorld: PhysicsWorld
-
-    public init(physicsWorld: PhysicsWorld) {
-        self.physicsWorld = physicsWorld
-    }
-
-    public func fixedUpdate(world: World, dt: Float) {
-        _ = world
-        _ = dt
-        _ = physicsWorld
-        // TODO: Sequential impulse / PGS using physicsWorld.manifolds.
     }
 }
 
@@ -1409,22 +1328,6 @@ public final class PhysicsWritebackSystem: FixedStepSystem {
             t.rotation = body.rotation
             tStore[e] = t
         }
-    }
-}
-
-/// Events placeholder: update enter/stay/exit sets after physics step.
-public final class PhysicsEventsSystem: FixedStepSystem {
-    private let physicsWorld: PhysicsWorld
-
-    public init(physicsWorld: PhysicsWorld) {
-        self.physicsWorld = physicsWorld
-    }
-
-    public func fixedUpdate(world: World, dt: Float) {
-        _ = world
-        _ = dt
-        // TODO: Use real contact manifolds once narrowphase is in place.
-        physicsWorld.updateContactCache(from: physicsWorld.broadphasePairs)
     }
 }
 
