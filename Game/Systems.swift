@@ -848,6 +848,44 @@ private struct SlideResolver {
 
         return false
     }
+
+    static func resolveBlockingSlide(position: inout SIMD3<Float>,
+                                     remaining: inout SIMD3<Float>,
+                                     controller: CharacterControllerComponent,
+                                     hit: CapsuleCastHit) -> Bool {
+        let horizontalMove = abs(remaining.y) < 1e-5
+        if horizontalMove && hit.normal.y >= controller.minGroundDot {
+            position += remaining
+            remaining = .zero
+            return true
+        }
+
+        let segLen = simd_length(remaining)
+        if segLen < 1e-6 {
+            remaining = .zero
+            return true
+        }
+        let contactSkin = controller.skinWidth
+        let dir = remaining / segLen
+        let moveDist = max(hit.toi - contactSkin, 0)
+        position += dir * moveDist
+
+        var leftover = remaining - dir * moveDist
+        var slideNormal = hit.normal
+        if slideNormal.y < controller.minGroundDot {
+            slideNormal.y = 0
+            let nLen = simd_length(slideNormal)
+            if nLen > 1e-5 {
+                slideNormal /= nLen
+            } else {
+                remaining = .zero
+                return true
+            }
+        }
+        leftover -= slideNormal * simd_dot(leftover, slideNormal)
+        remaining = leftover
+        return simd_length_squared(remaining) < 1e-8
+    }
 }
 
 /// Kinematic capsule sweep: move & slide with ground snap.
@@ -1399,32 +1437,11 @@ public final class AgentSeparationSystem: FixedStepSystem {
                                                                delta: remaining,
                                                                radius: agent.radius,
                                                                halfHeight: agent.halfHeight) {
-                            let horizontalMove = abs(remaining.y) < 1e-5
-                            if horizontalMove && hit.normal.y >= agent.controller.minGroundDot {
-                                position += remaining
-                                remaining = .zero
-                                break
-                            }
-
-                            let contactSkin = agent.controller.skinWidth
-                            let dir = remaining / segLen
-                            let moveDist = max(hit.toi - contactSkin, 0)
-                            position += dir * moveDist
-
-                            var leftover = remaining - dir * moveDist
-                            var slideNormal = hit.normal
-                            if slideNormal.y < agent.controller.minGroundDot {
-                                slideNormal.y = 0
-                                let nLen = simd_length(slideNormal)
-                                if nLen > 1e-5 {
-                                    slideNormal /= nLen
-                                } else {
-                                    remaining = .zero
-                                    break
-                                }
-                            }
-                            leftover -= slideNormal * simd_dot(leftover, slideNormal)
-                            remaining = leftover
+                            let done = SlideResolver.resolveBlockingSlide(position: &position,
+                                                                         remaining: &remaining,
+                                                                         controller: agent.controller,
+                                                                         hit: hit)
+                            if done { break }
                         } else {
                             position += remaining
                             remaining = .zero
