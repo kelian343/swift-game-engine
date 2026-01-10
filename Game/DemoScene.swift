@@ -150,16 +150,10 @@ public final class DemoScene: RenderScene {
             let meshData = ProceduralMeshes.capsule(radius: capsuleRadius,
                                                     halfHeight: capsuleHalfHeight)
             let mesh = GPUMesh(device: device, data: meshData, label: "KinematicCapsule")
-            let innerMeshData = ProceduralMeshes.box(size: 0.6)
-            let innerMesh = GPUMesh(device: device, data: innerMeshData, label: "KinematicCapsuleInner")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 220, g: 120, b: 255, a: 255),
                                       label: "KinematicCapsuleTex")
-            let innerTex = TextureResource(device: device,
-                                           source: .solid(width: 4, height: 4, r: 80, g: 220, b: 255, a: 255),
-                                           label: "KinematicCapsuleInnerTex")
             let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.5, alpha: 0.2)
-            let innerMat = Material(baseColorTexture: innerTex, metallic: 0.0, roughness: 0.3, alpha: 1.0)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -183,17 +177,6 @@ public final class DemoScene: RenderScene {
                                                 axis: SIMD3<Float>(1, 0, 0),
                                                 amplitude: 6.0,
                                                 speed: 0.6))
-
-            // Inner cube for transparency test (follows same oscillation)
-            let inner = world.createEntity()
-            var ti = TransformComponent()
-            ti.translation = t.translation
-            world.add(inner, ti)
-            world.add(inner, RenderComponent(mesh: innerMesh, material: innerMat))
-            world.add(inner, OscillateMoveComponent(origin: t.translation,
-                                                    axis: SIMD3<Float>(1, 0, 0),
-                                                    amplitude: 6.0,
-                                                    speed: 0.6))
         }
 
         // --- Player: capsule + coarse checkerboard
@@ -244,16 +227,10 @@ public final class DemoScene: RenderScene {
             let meshData = ProceduralMeshes.capsule(radius: npcRadius,
                                                     halfHeight: npcHalfHeight)
             let mesh = GPUMesh(device: device, data: meshData, label: "NPCCapsule")
-            let innerMeshData = ProceduralMeshes.box(size: 0.6)
-            let innerMesh = GPUMesh(device: device, data: innerMeshData, label: "NPCCapsuleInner")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 255, g: 180, b: 80, a: 255),
                                       label: "NPCTex")
-            let innerTex = TextureResource(device: device,
-                                           source: .solid(width: 4, height: 4, r: 120, g: 255, b: 140, a: 255),
-                                           label: "NPCInnerTex")
             let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.5, alpha: 0.2)
-            let innerMat = Material(baseColorTexture: innerTex, metallic: 0.0, roughness: 0.3, alpha: 1.0)
 
             let positions: [SIMD3<Float>] = [
                 SIMD3<Float>(-16.0, 0.9, 12.0),
@@ -277,12 +254,6 @@ public final class DemoScene: RenderScene {
                                                           skinWidth: 0.3,
                                                           groundSnapSkin: 0.05))
                 world.add(e, AgentCollisionComponent(massWeight: 1.0))
-
-                let inner = world.createEntity()
-                var ti = TransformComponent()
-                ti.translation = pos
-                world.add(inner, ti)
-                world.add(inner, RenderComponent(mesh: innerMesh, material: innerMat))
             }
         }
 
