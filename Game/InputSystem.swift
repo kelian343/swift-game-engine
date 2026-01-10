@@ -13,17 +13,17 @@ final class InputSystem: System {
     private var player: Entity?
     private var controller: GCController?
 
-    // Camera yaw/pitch (yaw will be kept aligned to facingYaw)
+    // Camera yaw/pitch (independent from facing)
     private var yaw: Float = 0
     private var pitch: Float = -0.1
 
-    // Character facing (driven only by RIGHT stick X)
+    // Character facing (driven by LEFT stick direction)
     private var facingYaw: Float = 0
     private var lastJumpPressed: Bool = false
 
     var moveSpeed: Float = 10.0
     var lookSpeed: Float = 2.5      // used for right stick rotation + pitch
-    var turnSpeed: Float = 3.0      // (kept, but no longer used for auto-turn; can be removed)
+    var turnSpeed: Float = 16.0
     var cameraDistance: Float = 8.0
     var cameraHeight: Float = 1.5
     var deadzone: Float = 0.12
@@ -92,16 +92,15 @@ final class InputSystem: System {
         let rx = axis(-rawRX)
         let ry = axis(-rawRY)
 
-        // Right stick X rotates character; camera yaw stays aligned with facing.
-        facingYaw = wrapAngle(facingYaw + rx * lookSpeed * dt)
-        yaw = facingYaw
+        // Right stick controls camera yaw.
+        yaw = wrapAngle(yaw + rx * lookSpeed * dt)
 
         // Right stick Y controls camera pitch.
         pitch += ry * lookSpeed * dt
         pitch = min(max(pitch, pitchMin), pitchMax)
 
-        // Movement is relative to facing (third-person feel).
-        let forward = forwardFromYaw(facingYaw)
+        // Movement is relative to camera yaw (third-person feel).
+        let forward = forwardFromYaw(yaw)
         let right = SIMD3<Float>(forward.z, 0, -forward.x)
 
         let move = forward * ly + right * lx
@@ -111,13 +110,16 @@ final class InputSystem: System {
         if moveLen > deadzone {
             let dir = move / moveLen
             intent.desiredVelocity = dir * moveSpeed
+
+            // Face toward left-stick move direction with turn speed limit.
+            let targetYaw = wrapAngle(atan2f(-dir.x, -dir.z))
+            facingYaw = approachAngle(current: facingYaw, target: targetYaw, maxDelta: turnSpeed * dt)
+            intent.desiredFacingYaw = facingYaw
+            intent.hasFacingYaw = true
         } else {
             intent.desiredVelocity = .zero
+            intent.hasFacingYaw = false
         }
-
-        // Always apply facing yaw from right stick (allows backpedal/strafe).
-        intent.desiredFacingYaw = facingYaw
-        intent.hasFacingYaw = true
         if jumpPressed && !lastJumpPressed {
             intent.jumpRequested = true
         }

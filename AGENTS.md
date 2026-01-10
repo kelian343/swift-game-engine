@@ -13,6 +13,8 @@
 - Jump height increased (jumpSpeed raised).
 - Demo tweaks: ground plane enlarged; dynamic oscillating NPC added for push tests (higher massWeight); test wall and ramp heights doubled.
 - RT-only procedural skinned character MVP complete: 8-bone rig, procedural pose, CPU skinning into RT geometry buffers, per-frame BLAS/TLAS rebuild; player now uses skinned mesh in RT path.
+- RT transparency support added: alpha-driven layered ray integration (multi-layer) and transmissive shadow attenuation; transparent capsules tuned to alpha=0.2.
+- Player overlay capsule added: semi-transparent capsule mesh follows player collision volume for visual debugging.
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.
