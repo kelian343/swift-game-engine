@@ -91,6 +91,14 @@ public struct SkinnedMeshComponent {
     }
 }
 
+public struct FollowTargetComponent {
+    public var target: Entity
+
+    public init(target: Entity) {
+        self.target = target
+    }
+}
+
 public struct StaticMeshComponent {
     public var mesh: MeshData
     public var material: SurfaceMaterial

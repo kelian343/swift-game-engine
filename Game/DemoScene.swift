@@ -194,6 +194,13 @@ public final class DemoScene: RenderScene {
                                       source: ProceduralTextures.checkerboard(width: 256, height: 256, cell: 48),
                                       label: "TexB")
             let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.4, alpha: 1.0)
+            let capsuleMeshData = ProceduralMeshes.capsule(radius: playerRadius,
+                                                           halfHeight: playerHalfHeight)
+            let capsuleMesh = GPUMesh(device: device, data: capsuleMeshData, label: "PlayerCapsuleOverlay")
+            let capsuleTex = TextureResource(device: device,
+                                             source: .solid(width: 4, height: 4, r: 120, g: 160, b: 255, a: 255),
+                                             label: "PlayerCapsuleOverlayTex")
+            let capsuleMat = Material(baseColorTexture: capsuleTex, metallic: 0.0, roughness: 0.4, alpha: 0.2)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -218,6 +225,13 @@ public final class DemoScene: RenderScene {
             world.add(e, SkeletonComponent(skeleton: skeleton))
             world.add(e, PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal))
             world.add(e, SkinnedMeshComponent(mesh: skinnedData, material: mat))
+
+            let overlay = world.createEntity()
+            var to = TransformComponent()
+            to.translation = t.translation
+            world.add(overlay, to)
+            world.add(overlay, RenderComponent(mesh: capsuleMesh, material: capsuleMat))
+            world.add(overlay, FollowTargetComponent(target: e))
         }
 
         // --- NPCs: kinematic agents for separation testing

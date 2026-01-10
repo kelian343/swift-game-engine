@@ -1551,6 +1551,7 @@ public final class RenderExtractSystem {
         let rStore = world.store(RenderComponent.self)
         let skStore = world.store(SkinnedMeshComponent.self)
         let poseStore = world.store(PoseComponent.self)
+        let followStore = world.store(FollowTargetComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let timeStore = world.store(TimeComponent.self)
         let alpha: Float = {
@@ -1564,6 +1565,13 @@ public final class RenderExtractSystem {
         }()
 
         func interpolatedModelMatrix(for e: Entity) -> matrix_float4x4? {
+            if let follow = followStore[e] {
+                return interpolatedModelMatrix(forTarget: follow.target)
+            }
+            return interpolatedModelMatrix(forTarget: e)
+        }
+
+        func interpolatedModelMatrix(forTarget e: Entity) -> matrix_float4x4? {
             guard let t = tStore[e] else { return nil }
             if let p = pStore[e] {
                 let pos = p.prevPosition + (p.position - p.prevPosition) * alpha
