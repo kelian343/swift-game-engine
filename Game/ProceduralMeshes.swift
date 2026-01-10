@@ -192,6 +192,134 @@ enum ProceduralMeshes {
         return MeshData(vertices: v, indices16: i)
     }
 
+    static func humanoidSkinned(legHeight: Float = 1.8,
+                                legRadius: Float = 0.35,
+                                torsoHeight: Float = 2.0,
+                                torsoRadius: Float = 0.5,
+                                hipSeparation: Float = 0.45,
+                                radialSegments: Int = 12,
+                                heightSegments: Int = 4) -> SkinnedMeshData {
+        var vertices: [VertexSkinnedPNUT4] = []
+        var indices: [UInt16] = []
+
+        func appendVertex(_ pos: SIMD3<Float>,
+                          _ normal: SIMD3<Float>,
+                          _ uv: SIMD2<Float>,
+                          _ boneIndices: SIMD4<UInt16>,
+                          _ boneWeights: SIMD4<Float>) {
+            vertices.append(VertexSkinnedPNUT4(position: pos,
+                                               normal: normal,
+                                               uv: uv,
+                                               boneIndices: boneIndices,
+                                               boneWeights: boneWeights))
+        }
+
+        func addCylinder(centerX: Float,
+                         centerY: Float,
+                         centerZ: Float,
+                         radius: Float,
+                         height: Float,
+                         radialSegs: Int,
+                         heightSegs: Int,
+                         weightForY: (Float) -> (SIMD4<UInt16>, SIMD4<Float>)) {
+            let slices = max(radialSegs, 3)
+            let stacks = max(heightSegs, 1)
+            let twoPi = Float.pi * 2.0
+            let yMin = centerY - height * 0.5
+            let yMax = centerY + height * 0.5
+
+            let baseIndex = UInt16(vertices.count)
+
+            for y in 0...stacks {
+                let t = Float(y) / Float(stacks)
+                let yy = yMin + (yMax - yMin) * t
+                for s in 0...slices {
+                    let u = Float(s) / Float(slices)
+                    let theta = u * twoPi
+                    let x = cos(theta) * radius + centerX
+                    let z = sin(theta) * radius + centerZ
+                    let pos = SIMD3<Float>(x, yy, z)
+                    let n = simd_normalize(SIMD3<Float>(x - centerX, 0, z - centerZ))
+                    let uv = SIMD2<Float>(u, t)
+                    let (bIdx, bW) = weightForY(t)
+                    appendVertex(pos, n, uv, bIdx, bW)
+                }
+            }
+
+            let ring = slices + 1
+            for y in 0..<stacks {
+                for s in 0..<slices {
+                    let i0 = baseIndex + UInt16(y * ring + s)
+                    let i1 = baseIndex + UInt16((y + 1) * ring + s)
+                    let i2 = baseIndex + UInt16((y + 1) * ring + s + 1)
+                    let i3 = baseIndex + UInt16(y * ring + s + 1)
+                    indices += [i0, i1, i2, i0, i2, i3]
+                }
+            }
+        }
+
+        func torsoWeights(_ t: Float) -> (SIMD4<UInt16>, SIMD4<Float>) {
+            let pelvis: UInt16 = 0
+            let spine: UInt16 = 1
+            let head: UInt16 = 2
+            let chest: UInt16 = 7
+
+            var w = SIMD4<Float>(0, 0, 0, 0)
+            if t < 0.4 {
+                let a = t / 0.4
+                w = SIMD4<Float>(1 - a, a, 0, 0)
+                return (SIMD4<UInt16>(pelvis, spine, chest, head), w)
+            } else if t < 0.7 {
+                let a = (t - 0.4) / 0.3
+                w = SIMD4<Float>(0, 1 - a, a, 0)
+                return (SIMD4<UInt16>(pelvis, spine, chest, head), w)
+            } else {
+                let a = (t - 0.7) / 0.3
+                w = SIMD4<Float>(0, 0, 1 - a, a)
+                return (SIMD4<UInt16>(pelvis, spine, chest, head), w)
+            }
+        }
+
+        func legWeights(thigh: UInt16, calf: UInt16, t: Float) -> (SIMD4<UInt16>, SIMD4<Float>) {
+            let a = min(max(t, 0), 1)
+            let wThigh = a
+            let wCalf = 1 - a
+            return (SIMD4<UInt16>(thigh, calf, 0, 0), SIMD4<Float>(wThigh, wCalf, 0, 0))
+        }
+
+        // Torso centered above hips
+        addCylinder(centerX: 0,
+                    centerY: torsoHeight * 0.5,
+                    centerZ: 0,
+                    radius: torsoRadius,
+                    height: torsoHeight,
+                    radialSegs: radialSegments,
+                    heightSegs: heightSegments,
+                    weightForY: torsoWeights)
+
+        // Left leg
+        addCylinder(centerX: -hipSeparation,
+                    centerY: -legHeight * 0.5,
+                    centerZ: 0,
+                    radius: legRadius,
+                    height: legHeight,
+                    radialSegs: radialSegments,
+                    heightSegs: heightSegments,
+                    weightForY: { t in legWeights(thigh: 3, calf: 4, t: t) })
+
+        // Right leg
+        addCylinder(centerX: hipSeparation,
+                    centerY: -legHeight * 0.5,
+                    centerZ: 0,
+                    radius: legRadius,
+                    height: legHeight,
+                    radialSegs: radialSegments,
+                    heightSegs: heightSegments,
+                    weightForY: { t in legWeights(thigh: 5, calf: 6, t: t) })
+
+        return SkinnedMeshData(vertices: vertices, indices16: indices)
+    }
+
     static func dome(radius: Float = 4,
                      radialSegments: Int = 32,
                      ringSegments: Int = 12) -> MeshData {

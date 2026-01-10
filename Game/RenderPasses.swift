@@ -30,6 +30,7 @@ final class MainPass: RenderPass {
         encoder.setArgumentTable(frame.context.fragmentTable, stages: .fragment)
 
         for item in frame.items {
+            guard let mesh = item.mesh else { continue }
             encoder.setCullMode(item.material.cullMode)
             encoder.setFrontFacing(item.material.frontFacing)
 
@@ -43,7 +44,7 @@ final class MainPass: RenderPass {
             frame.context.vertexTable.setAddress(uAddr, index: BufferIndex.uniforms.rawValue)
             frame.context.fragmentTable.setAddress(uAddr, index: BufferIndex.uniforms.rawValue)
 
-            frame.context.vertexTable.setAddress(item.mesh.vertexBuffer.gpuAddress,
+            frame.context.vertexTable.setAddress(mesh.vertexBuffer.gpuAddress,
                                                  index: BufferIndex.meshVertices.rawValue)
 
             let tex = item.material.baseColorTexture?.texture ?? frame.fallbackWhite.texture
@@ -51,10 +52,10 @@ final class MainPass: RenderPass {
 
             encoder.drawIndexedPrimitives(
                 primitiveType: .triangle,
-                indexCount: item.mesh.indexCount,
-                indexType: item.mesh.indexType,
-                indexBuffer: item.mesh.indexBuffer.gpuAddress,
-                indexBufferLength: item.mesh.indexBuffer.length
+                indexCount: mesh.indexCount,
+                indexType: mesh.indexType,
+                indexBuffer: mesh.indexBuffer.gpuAddress,
+                indexBufferLength: mesh.indexBuffer.length
             )
         }
     }

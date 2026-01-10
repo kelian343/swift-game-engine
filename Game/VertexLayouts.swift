@@ -21,6 +21,27 @@ public struct VertexPNUT {
     }
 }
 
+/// CPU skinned vertex layout (position+normal+uv + 4 weights)
+public struct VertexSkinnedPNUT4 {
+    public var position: SIMD3<Float>
+    public var normal: SIMD3<Float>
+    public var uv: SIMD2<Float>
+    public var boneIndices: SIMD4<UInt16>
+    public var boneWeights: SIMD4<Float>
+
+    public init(position: SIMD3<Float>,
+                normal: SIMD3<Float>,
+                uv: SIMD2<Float>,
+                boneIndices: SIMD4<UInt16>,
+                boneWeights: SIMD4<Float>) {
+        self.position = position
+        self.normal = normal
+        self.uv = uv
+        self.boneIndices = boneIndices
+        self.boneWeights = boneWeights
+    }
+}
+
 public enum IndexType {
     case uint16, uint32
 

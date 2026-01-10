@@ -24,6 +24,7 @@ public final class DemoScene: RenderScene {
     private let oscillateMoveSystem = OscillateMoveSystem()
     private let jumpSystem = JumpSystem()
     private let gravitySystem = GravitySystem()
+    private let proceduralPoseSystem = ProceduralPoseSystem()
     private let platformMotionSystem = KinematicPlatformMotionSystem()
     private let kinematicMoveSystem = KinematicMoveStopSystem()
     private let agentSeparationSystem = AgentSeparationSystem()
@@ -46,7 +47,8 @@ public final class DemoScene: RenderScene {
                     gravitySystem,
                     kinematicMoveSystem,
                     agentSeparationSystem,
-                    physicsIntegrateSystem],
+                    physicsIntegrateSystem,
+                    proceduralPoseSystem],
             postFixed: [physicsWritebackSystem]
         )
     }
@@ -181,9 +183,13 @@ public final class DemoScene: RenderScene {
         do {
             let playerRadius: Float = 1.5
             let playerHalfHeight: Float = 1.0
-            let meshData = ProceduralMeshes.capsule(radius: playerRadius,
-                                                    halfHeight: playerHalfHeight)
-            let mesh = GPUMesh(device: device, data: meshData, label: "PlayerCapsule")
+            let skinnedData = ProceduralMeshes.humanoidSkinned(legHeight: 1.8,
+                                                              legRadius: 0.35,
+                                                              torsoHeight: 2.0,
+                                                              torsoRadius: 0.55,
+                                                              hipSeparation: 0.45,
+                                                              radialSegments: 12,
+                                                              heightSegments: 4)
             let tex = TextureResource(device: device,
                                       source: ProceduralTextures.checkerboard(width: 256, height: 256, cell: 48),
                                       label: "TexB")
@@ -194,7 +200,6 @@ public final class DemoScene: RenderScene {
             let groundContactY = groundY + playerRadius + playerHalfHeight
             t.translation = SIMD3<Float>(0, groundContactY + 8.0, 0)
             world.add(e, t)
-            world.add(e, RenderComponent(mesh: mesh, material: mat))
             inputSystem.setPlayer(e)
             world.add(e, PhysicsBodyComponent(bodyType: .dynamic,
                                               position: t.translation,
@@ -208,6 +213,11 @@ public final class DemoScene: RenderScene {
                                                       skinWidth: 0.3,
                                                       groundSnapSkin: 0.05))
             world.add(e, AgentCollisionComponent(massWeight: 3.0))
+
+            let skeleton = Skeleton.humanoid8()
+            world.add(e, SkeletonComponent(skeleton: skeleton))
+            world.add(e, PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal))
+            world.add(e, SkinnedMeshComponent(mesh: skinnedData, material: mat))
         }
 
         // --- NPCs: kinematic agents for separation testing

@@ -57,8 +57,8 @@ final class RayTracingRenderer {
                 commandQueue: MTLCommandQueue) {
         guard let commandBuffer = commandQueue.makeCommandBuffer() else { return }
 
-        let tlas = rtScene.buildAccelerationStructures(items: items, commandBuffer: commandBuffer)
         let geometry = rtScene.buildGeometryBuffers(items: items)
+        let tlas = rtScene.buildAccelerationStructures(items: items, commandBuffer: commandBuffer)
 
         let viewProj = simd_mul(projection, viewMatrix)
         let invViewProj = simd_inverse(viewProj)

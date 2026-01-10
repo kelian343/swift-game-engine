@@ -56,6 +56,41 @@ public struct RenderComponent {
     }
 }
 
+// MARK: - Skeleton / Pose (skinning)
+
+public struct SkeletonComponent {
+    public var skeleton: Skeleton
+
+    public init(skeleton: Skeleton) {
+        self.skeleton = skeleton
+    }
+}
+
+public struct PoseComponent {
+    public var local: [matrix_float4x4]
+    public var model: [matrix_float4x4]
+    public var palette: [matrix_float4x4]
+    public var phase: Float
+
+    public init(boneCount: Int, local: [matrix_float4x4]? = nil) {
+        let base = local ?? Array(repeating: matrix_identity_float4x4, count: boneCount)
+        self.local = base
+        self.model = base
+        self.palette = base
+        self.phase = 0
+    }
+}
+
+public struct SkinnedMeshComponent {
+    public var mesh: SkinnedMeshData
+    public var material: Material
+
+    public init(mesh: SkinnedMeshData, material: Material) {
+        self.mesh = mesh
+        self.material = material
+    }
+}
+
 public struct StaticMeshComponent {
     public var mesh: MeshData
     public var material: SurfaceMaterial

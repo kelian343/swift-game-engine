@@ -1547,13 +1547,10 @@ public final class RenderExtractSystem {
     public init() {}
 
     public func extract(world: World) -> [RenderItem] {
-        // ✅ Stable ordering for deterministic draw-call order (picking/debug/sorting friendly)
-        let entities = world
-            .query(TransformComponent.self, RenderComponent.self)
-            .sorted { $0.id < $1.id }
-
         let tStore = world.store(TransformComponent.self)
         let rStore = world.store(RenderComponent.self)
+        let skStore = world.store(SkinnedMeshComponent.self)
+        let poseStore = world.store(PoseComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let timeStore = world.store(TimeComponent.self)
         let alpha: Float = {
@@ -1566,19 +1563,47 @@ public final class RenderExtractSystem {
             return min(max(a, 0), 1)
         }()
 
-        var items: [RenderItem] = []
-        items.reserveCapacity(entities.count)
-
-        for e in entities {
-            guard let t = tStore[e], let r = rStore[e] else { continue }
+        func interpolatedModelMatrix(for e: Entity) -> matrix_float4x4? {
+            guard let t = tStore[e] else { return nil }
             if let p = pStore[e] {
                 let pos = p.prevPosition + (p.position - p.prevPosition) * alpha
                 let rot = simd_slerp(p.prevRotation, p.rotation, alpha)
                 let interp = TransformComponent(translation: pos, rotation: rot, scale: t.scale)
-                items.append(RenderItem(mesh: r.mesh, material: r.material, modelMatrix: interp.modelMatrix))
-            } else {
-                items.append(RenderItem(mesh: r.mesh, material: r.material, modelMatrix: t.modelMatrix))
+                return interp.modelMatrix
             }
+            return t.modelMatrix
+        }
+
+        // ✅ Stable ordering for deterministic draw-call order (picking/debug/sorting friendly)
+        let skinnedEntities = world
+            .query(TransformComponent.self, SkinnedMeshComponent.self, PoseComponent.self)
+            .sorted { $0.id < $1.id }
+
+        let skinnedSet = Set(skinnedEntities)
+
+        // ✅ Stable ordering for deterministic draw-call order (picking/debug/sorting friendly)
+        let entities = world
+            .query(TransformComponent.self, RenderComponent.self)
+            .sorted { $0.id < $1.id }
+
+        var items: [RenderItem] = []
+        items.reserveCapacity(entities.count + skinnedEntities.count)
+
+        for e in skinnedEntities {
+            guard let sk = skStore[e], let pose = poseStore[e] else { continue }
+            guard let modelMatrix = interpolatedModelMatrix(for: e) else { continue }
+            items.append(RenderItem(mesh: nil,
+                                    skinnedMesh: sk.mesh,
+                                    skinningPalette: pose.palette,
+                                    material: sk.material,
+                                    modelMatrix: modelMatrix))
+        }
+
+        for e in entities {
+            if skinnedSet.contains(e) { continue }
+            guard let r = rStore[e] else { continue }
+            guard let modelMatrix = interpolatedModelMatrix(for: e) else { continue }
+            items.append(RenderItem(mesh: r.mesh, material: r.material, modelMatrix: modelMatrix))
         }
         return items
     }

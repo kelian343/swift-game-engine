@@ -11,10 +11,6 @@ import simd
 final class RayTracingScene {
     private let device: MTLDevice
 
-    private var blasForMesh: [ObjectIdentifier: MTLAccelerationStructure] = [:]
-    private var blasDescriptorForMesh: [ObjectIdentifier: MTLAccelerationStructureDescriptor] = [:]
-    private var blasScratchForMesh: [ObjectIdentifier: MTLBuffer] = [:]
-
     private var tlas: MTLAccelerationStructure?
     private var tlasSize: Int = 0
     private var tlasScratch: MTLBuffer?
@@ -24,6 +20,9 @@ final class RayTracingScene {
     private var geometryVertexBuffer: MTLBuffer?
     private var geometryIndexBuffer: MTLBuffer?
     private var geometryInstanceInfoBuffer: MTLBuffer?
+    private var lastGeometrySlices: [GeometrySlice] = []
+    private var transientBLAS: [MTLAccelerationStructure] = []
+    private var transientScratch: [MTLBuffer] = []
 
     init(device: MTLDevice) {
         self.device = device
@@ -37,32 +36,38 @@ final class RayTracingScene {
         let textures: [MTLTexture]
     }
 
+    private struct GeometrySlice {
+        let baseVertex: Int
+        let baseIndex: Int
+        let indexCount: Int
+    }
+
     func buildAccelerationStructures(items: [RenderItem],
                                      commandBuffer: MTLCommandBuffer) -> MTLAccelerationStructure? {
         guard !items.isEmpty else { return nil }
+        guard let vb = geometryVertexBuffer,
+              let ib = geometryIndexBuffer,
+              lastGeometrySlices.count == items.count else {
+            return nil
+        }
 
         var blasList: [MTLAccelerationStructure] = []
-        var blasIndexForMesh: [ObjectIdentifier: Int] = [:]
+        blasList.reserveCapacity(items.count)
+        transientBLAS.removeAll(keepingCapacity: true)
+        transientScratch.removeAll(keepingCapacity: true)
 
-        for item in items {
-            let key = ObjectIdentifier(item.mesh)
-            if let existing = blasForMesh[key] {
-                if blasIndexForMesh[key] == nil {
-                    blasIndexForMesh[key] = blasList.count
-                    blasList.append(existing)
-                }
-                continue
-            }
-
+        let encoder = commandBuffer.makeAccelerationStructureCommandEncoder()!
+        for (i, _) in items.enumerated() {
+            let slice = lastGeometrySlices[i]
             let geometry = MTLAccelerationStructureTriangleGeometryDescriptor()
-            geometry.vertexBuffer = item.mesh.vertexBuffer
-            geometry.vertexBufferOffset = 0
-            geometry.vertexStride = MemoryLayout<VertexPNUT>.stride
+            geometry.vertexBuffer = vb
+            geometry.vertexBufferOffset = slice.baseVertex * MemoryLayout<SIMD3<Float>>.stride
+            geometry.vertexStride = MemoryLayout<SIMD3<Float>>.stride
             geometry.vertexFormat = .float3
-            geometry.indexBuffer = item.mesh.indexBuffer
-            geometry.indexBufferOffset = 0
-            geometry.indexType = item.mesh.indexType
-            geometry.triangleCount = item.mesh.indexCount / 3
+            geometry.indexBuffer = ib
+            geometry.indexBufferOffset = slice.baseIndex * MemoryLayout<UInt32>.stride
+            geometry.indexType = .uint32
+            geometry.triangleCount = slice.indexCount / 3
             geometry.opaque = true
 
             let desc = MTLPrimitiveAccelerationStructureDescriptor()
@@ -73,30 +78,23 @@ final class RayTracingScene {
             let scratch = device.makeBuffer(length: sizes.buildScratchBufferSize,
                                             options: .storageModePrivate)!
 
-            let encoder = commandBuffer.makeAccelerationStructureCommandEncoder()!
             encoder.build(accelerationStructure: blas,
                           descriptor: desc,
                           scratchBuffer: scratch,
                           scratchBufferOffset: 0)
-            encoder.endEncoding()
 
-            blasForMesh[key] = blas
-            blasDescriptorForMesh[key] = desc
-            blasScratchForMesh[key] = scratch
-
-            blasIndexForMesh[key] = blasList.count
+            transientBLAS.append(blas)
+            transientScratch.append(scratch)
             blasList.append(blas)
         }
+        encoder.endEncoding()
 
         var instances: [MTLAccelerationStructureInstanceDescriptor] = []
         instances.reserveCapacity(items.count)
 
-        for (_, item) in items.enumerated() {
-            let key = ObjectIdentifier(item.mesh)
-            guard let blasIndex = blasIndexForMesh[key] else { continue }
-
+        for (i, item) in items.enumerated() {
             var desc = MTLAccelerationStructureInstanceDescriptor()
-            desc.accelerationStructureIndex = UInt32(blasIndex)
+            desc.accelerationStructureIndex = UInt32(i)
             desc.mask = 0xFF
             desc.options = []
             desc.intersectionFunctionTableOffset = 0
@@ -164,35 +162,59 @@ final class RayTracingScene {
         vertices.reserveCapacity(items.count * 256)
         indices.reserveCapacity(items.count * 256)
         instances.reserveCapacity(items.count)
+        lastGeometrySlices.removeAll(keepingCapacity: true)
+        lastGeometrySlices.reserveCapacity(items.count)
 
         for item in items {
             let baseVertex = UInt32(vertices.count)
             let baseIndex = UInt32(indices.count)
+            var indexCount = 0
 
-            let vCount = item.mesh.vertexBuffer.length / MemoryLayout<VertexPNUT>.stride
-            let vPtr = item.mesh.vertexBuffer.contents().bindMemory(to: VertexPNUT.self,
-                                                                    capacity: vCount)
-            for i in 0..<vCount {
-                vertices.append(vPtr[i].position)
-                uvs.append(vPtr[i].uv)
-            }
+            if let skinned = item.skinnedMesh, let palette = item.skinningPalette {
+                let vCount = skinned.vertices.count
+                vertices.reserveCapacity(vertices.count + vCount)
+                uvs.reserveCapacity(uvs.count + vCount)
+                for v in skinned.vertices {
+                    vertices.append(skinPosition(vertex: v, palette: palette))
+                    uvs.append(v.uv)
+                }
 
-            let indexCount = item.mesh.indexCount
-            switch item.mesh.indexType {
-            case .uint16:
-                let iPtr = item.mesh.indexBuffer.contents().bindMemory(to: UInt16.self,
-                                                                       capacity: indexCount)
-                for i in 0..<indexCount {
-                    indices.append(UInt32(iPtr[i]))
+                indexCount = skinned.indexCount
+                if let i16 = skinned.indices16 {
+                    for i in i16 {
+                        indices.append(UInt32(i))
+                    }
+                } else if let i32 = skinned.indices32 {
+                    indices.append(contentsOf: i32)
                 }
-            case .uint32:
-                let iPtr = item.mesh.indexBuffer.contents().bindMemory(to: UInt32.self,
-                                                                       capacity: indexCount)
-                for i in 0..<indexCount {
-                    indices.append(iPtr[i])
+            } else if let mesh = item.mesh {
+                let vCount = mesh.vertexBuffer.length / MemoryLayout<VertexPNUT>.stride
+                let vPtr = mesh.vertexBuffer.contents().bindMemory(to: VertexPNUT.self,
+                                                                   capacity: vCount)
+                for i in 0..<vCount {
+                    vertices.append(vPtr[i].position)
+                    uvs.append(vPtr[i].uv)
                 }
-            @unknown default:
-                break
+
+                indexCount = mesh.indexCount
+                switch mesh.indexType {
+                case .uint16:
+                    let iPtr = mesh.indexBuffer.contents().bindMemory(to: UInt16.self,
+                                                                      capacity: indexCount)
+                    for i in 0..<indexCount {
+                        indices.append(UInt32(iPtr[i]))
+                    }
+                case .uint32:
+                    let iPtr = mesh.indexBuffer.contents().bindMemory(to: UInt32.self,
+                                                                      capacity: indexCount)
+                    for i in 0..<indexCount {
+                        indices.append(iPtr[i])
+                    }
+                @unknown default:
+                    break
+                }
+            } else {
+                continue
             }
 
             let baseTexIndex: UInt32 = {
@@ -221,6 +243,10 @@ final class RayTracingScene {
                                                  padding2: .zero,
                                                  baseColorTexIndex: baseTexIndex,
                                                  padding3: .zero))
+
+            lastGeometrySlices.append(GeometrySlice(baseVertex: Int(baseVertex),
+                                                    baseIndex: Int(baseIndex),
+                                                    indexCount: indexCount))
         }
 
         let vBytes = vertices.count * MemoryLayout<SIMD3<Float>>.stride
@@ -258,4 +284,33 @@ final class RayTracingScene {
 
         return nil
     }
+}
+
+private func skinPosition(vertex: VertexSkinnedPNUT4,
+                          palette: [matrix_float4x4]) -> SIMD3<Float> {
+    let idx = vertex.boneIndices
+    let w = vertex.boneWeights
+
+    var p = SIMD3<Float>(0, 0, 0)
+    if w.x > 0 {
+        let m = palette[Int(idx.x)]
+        let v = simd_mul(m, SIMD4<Float>(vertex.position, 1))
+        p += SIMD3<Float>(v.x, v.y, v.z) * w.x
+    }
+    if w.y > 0 {
+        let m = palette[Int(idx.y)]
+        let v = simd_mul(m, SIMD4<Float>(vertex.position, 1))
+        p += SIMD3<Float>(v.x, v.y, v.z) * w.y
+    }
+    if w.z > 0 {
+        let m = palette[Int(idx.z)]
+        let v = simd_mul(m, SIMD4<Float>(vertex.position, 1))
+        p += SIMD3<Float>(v.x, v.y, v.z) * w.z
+    }
+    if w.w > 0 {
+        let m = palette[Int(idx.w)]
+        let v = simd_mul(m, SIMD4<Float>(vertex.position, 1))
+        p += SIMD3<Float>(v.x, v.y, v.z) * w.w
+    }
+    return p
 }

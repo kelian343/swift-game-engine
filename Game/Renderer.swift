@@ -91,7 +91,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         if scene.revision == lastSceneRevision { return }
         lastSceneRevision = scene.revision
 
-        let meshes = items.map { $0.mesh }
+        let meshes = items.compactMap { $0.mesh }
         let textures = items.compactMap { $0.material.baseColorTexture?.texture }
 
         // include: base textures + fallback + uniform buffer
