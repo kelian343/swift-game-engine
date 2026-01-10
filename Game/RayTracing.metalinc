@@ -79,6 +79,28 @@ inline float3 eval_env_sh(float3 n, constant RTFrameUniforms& frame) {
     return result;
 }
 
+inline float sample_alpha(RTInstanceInfo inst,
+                          uint i0,
+                          uint i1,
+                          uint i2,
+                          float2 bary,
+                          constant RTFrameUniforms& frame,
+                          device const float2 *rtUVs,
+                          array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures) {
+    float alpha = clamp(inst.baseAlpha, 0.0, 1.0);
+    if (inst.baseColorTexIndex < frame.textureCount && inst.baseColorTexIndex < MAX_RT_TEXTURES) {
+        constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+        float w = 1.0 - bary.x - bary.y;
+        float2 uv0 = rtUVs[inst.baseVertex + i0];
+        float2 uv1 = rtUVs[inst.baseVertex + i1];
+        float2 uv2 = rtUVs[inst.baseVertex + i2];
+        float2 uv = uv0 * w + uv1 * bary.x + uv2 * bary.y;
+        float4 tex = baseColorTextures[inst.baseColorTexIndex].sample(colorSamp, uv);
+        alpha *= tex.w;
+    }
+    return alpha;
+}
+
 kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(0)]],
                            array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(1)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
@@ -110,81 +132,121 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
     current.min_distance = 0.001;
     current.max_distance = 1e6;
 
-    intersection_result<triangle_data, instancing> hit = isect.intersect(current, accel);
-    if (hit.type != intersection_type::triangle) {
-        float3 env = float3(0.02, 0.02, 0.03);
-        outTexture.write(float4(env, 1.0), gid);
-        return;
+    float3 accumColor = float3(0.0);
+    float accumAlpha = 0.0;
+    const uint maxLayers = 4;
+
+    for (uint layer = 0; layer < maxLayers && accumAlpha < 0.99; ++layer) {
+        intersection_result<triangle_data, instancing> hit = isect.intersect(current, accel);
+        if (hit.type != intersection_type::triangle) {
+            break;
+        }
+
+        RTInstanceInfo inst = rtInstances[hit.instance_id];
+        uint triBase = inst.baseIndex + hit.primitive_id * 3;
+        if (triBase + 2 >= inst.baseIndex + inst.indexCount) {
+            break;
+        }
+
+        uint i0 = rtIndices[triBase + 0];
+        uint i1 = rtIndices[triBase + 1];
+        uint i2 = rtIndices[triBase + 2];
+
+        float3 v0 = rtVertices[inst.baseVertex + i0];
+        float3 v1 = rtVertices[inst.baseVertex + i1];
+        float3 v2 = rtVertices[inst.baseVertex + i2];
+
+        float3 w0 = (inst.modelMatrix * float4(v0, 1.0)).xyz;
+        float3 w1 = (inst.modelMatrix * float4(v1, 1.0)).xyz;
+        float3 w2 = (inst.modelMatrix * float4(v2, 1.0)).xyz;
+
+        float3 N = normalize(cross(w1 - w0, w2 - w0));
+        if (dot(N, current.direction) > 0.0) { N = -N; }
+
+        float3 base = inst.baseColor;
+        float alpha = clamp(inst.baseAlpha, 0.0, 1.0);
+        float metallic = clamp(inst.metallic, 0.0, 1.0);
+        float roughness = clamp(inst.roughness, 0.05, 1.0);
+
+        if (inst.baseColorTexIndex < frame.textureCount && inst.baseColorTexIndex < MAX_RT_TEXTURES) {
+            constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+            float2 bary = hit.triangle_barycentric_coord;
+            float w = 1.0 - bary.x - bary.y;
+            float2 uv0 = rtUVs[inst.baseVertex + i0];
+            float2 uv1 = rtUVs[inst.baseVertex + i1];
+            float2 uv2 = rtUVs[inst.baseVertex + i2];
+            float2 uv = uv0 * w + uv1 * bary.x + uv2 * bary.y;
+            float4 tex = baseColorTextures[inst.baseColorTexIndex].sample(colorSamp, uv);
+            base *= tex.xyz;
+            alpha *= tex.w;
+        }
+
+        float3 V = normalize(-current.direction);
+        float3 hitPos = current.origin + current.direction * hit.distance;
+        float bias = shadow_bias(hit.distance);
+
+        float3 direct = float3(0.0);
+        for (uint i = 0; i < frame.dirLightCount; ++i) {
+            RTDirectionalLight l = dirLights[i];
+            float3 L = normalize(-l.direction);
+            float NdotL = max(dot(N, L), 0.0);
+            if (NdotL <= 0.0) { continue; }
+
+            ray shadowRay;
+            shadowRay.origin = hitPos + N * bias;
+            shadowRay.direction = L;
+            shadowRay.min_distance = bias * 0.5;
+            shadowRay.max_distance = 1e6;
+
+            float shadow = 1.0;
+            const uint maxShadowLayers = 4;
+            for (uint s = 0; s < maxShadowLayers && shadow > 0.02; ++s) {
+                intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
+                if (shadowHit.type != intersection_type::triangle) {
+                    break;
+                }
+
+                RTInstanceInfo shInst = rtInstances[shadowHit.instance_id];
+                uint shTriBase = shInst.baseIndex + shadowHit.primitive_id * 3;
+                if (shTriBase + 2 >= shInst.baseIndex + shInst.indexCount) {
+                    break;
+                }
+
+                uint shI0 = rtIndices[shTriBase + 0];
+                uint shI1 = rtIndices[shTriBase + 1];
+                uint shI2 = rtIndices[shTriBase + 2];
+                float shAlpha = sample_alpha(shInst,
+                                             shI0,
+                                             shI1,
+                                             shI2,
+                                             shadowHit.triangle_barycentric_coord,
+                                             frame,
+                                             rtUVs,
+                                             baseColorTextures);
+                shadow *= (1.0 - shAlpha);
+
+                float3 shHitPos = shadowRay.origin + shadowRay.direction * shadowHit.distance;
+                shadowRay.origin = shHitPos + L * bias * 2.0;
+                shadowRay.min_distance = 0.001;
+            }
+            float3 brdf = eval_brdf(N, V, L, base, metallic, roughness);
+            float3 Li = l.color * l.intensity;
+            direct += brdf * Li * (NdotL * shadow);
+        }
+
+        float3 ambient = base * eval_env_sh(N, frame) * frame.ambientIntensity;
+        float3 color = direct + ambient;
+
+        float oneMinus = 1.0 - accumAlpha;
+        accumColor += color * alpha * oneMinus;
+        accumAlpha += alpha * oneMinus;
+
+        current.origin = hitPos + current.direction * (bias * 2.0);
+        current.min_distance = 0.001;
+        current.max_distance = 1e6;
     }
 
-    RTInstanceInfo inst = rtInstances[hit.instance_id];
-    uint triBase = inst.baseIndex + hit.primitive_id * 3;
-    if (triBase + 2 >= inst.baseIndex + inst.indexCount) {
-        outTexture.write(float4(0.0, 0.0, 0.0, 1.0), gid);
-        return;
-    }
-
-    uint i0 = rtIndices[triBase + 0];
-    uint i1 = rtIndices[triBase + 1];
-    uint i2 = rtIndices[triBase + 2];
-
-    float3 v0 = rtVertices[inst.baseVertex + i0];
-    float3 v1 = rtVertices[inst.baseVertex + i1];
-    float3 v2 = rtVertices[inst.baseVertex + i2];
-
-    float3 w0 = (inst.modelMatrix * float4(v0, 1.0)).xyz;
-    float3 w1 = (inst.modelMatrix * float4(v1, 1.0)).xyz;
-    float3 w2 = (inst.modelMatrix * float4(v2, 1.0)).xyz;
-
-    float3 N = normalize(cross(w1 - w0, w2 - w0));
-    if (dot(N, current.direction) > 0.0) { N = -N; }
-
-    float3 base = inst.baseColor;
-    float metallic = clamp(inst.metallic, 0.0, 1.0);
-    float roughness = clamp(inst.roughness, 0.05, 1.0);
-
-    if (inst.baseColorTexIndex < frame.textureCount && inst.baseColorTexIndex < MAX_RT_TEXTURES) {
-        constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
-        float2 bary = hit.triangle_barycentric_coord;
-        float w = 1.0 - bary.x - bary.y;
-        float2 uv0 = rtUVs[inst.baseVertex + i0];
-        float2 uv1 = rtUVs[inst.baseVertex + i1];
-        float2 uv2 = rtUVs[inst.baseVertex + i2];
-        float2 uv = uv0 * w + uv1 * bary.x + uv2 * bary.y;
-        float3 tex = float3(baseColorTextures[inst.baseColorTexIndex].sample(colorSamp, uv).xyz);
-        base *= tex;
-    }
-
-    float3 V = normalize(-current.direction);
-    float3 hitPos = current.origin + current.direction * hit.distance;
-    float bias = shadow_bias(hit.distance);
-
-    float3 direct = float3(0.0);
-    float shadowSum = 0.0;
-    float shadowCount = 0.0;
-
-    for (uint i = 0; i < frame.dirLightCount; ++i) {
-        RTDirectionalLight l = dirLights[i];
-        float3 L = normalize(-l.direction);
-        float NdotL = max(dot(N, L), 0.0);
-        if (NdotL <= 0.0) { continue; }
-
-        ray shadowRay;
-        shadowRay.origin = hitPos + N * bias;
-        shadowRay.direction = L;
-        shadowRay.min_distance = bias * 0.5;
-        shadowRay.max_distance = 1e6;
-
-        intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
-        float shadow = (shadowHit.type == intersection_type::triangle) ? 0.0 : 1.0;
-        float3 brdf = eval_brdf(N, V, L, base, metallic, roughness);
-        float3 Li = l.color * l.intensity;
-        direct += brdf * Li * (NdotL * shadow);
-        shadowSum += shadow;
-        shadowCount += 1.0;
-    }
-
-    float3 ambient = base * eval_env_sh(N, frame) * frame.ambientIntensity;
-    float3 color = direct + ambient;
-    outTexture.write(float4(color, 1.0), gid);
+    float3 bg = float3(0.02, 0.02, 0.03);
+    float3 outColor = accumColor + bg * (1.0 - accumAlpha);
+    outTexture.write(float4(outColor, 1.0), gid);
 }

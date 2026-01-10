@@ -237,9 +237,10 @@ final class RayTracingScene {
                                                  indexCount: UInt32(indexCount),
                                                  padding: 0,
                                                  modelMatrix: item.modelMatrix,
-                                                 baseColor: SIMD3<Float>(1, 1, 1),
+                                                 baseColor: item.material.baseColor,
                                                  metallic: item.material.metallic,
                                                  roughness: item.material.roughness,
+                                                 baseAlpha: item.material.alpha,
                                                  padding2: .zero,
                                                  baseColorTexIndex: baseTexIndex,
                                                  padding3: .zero))

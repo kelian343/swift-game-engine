@@ -43,7 +43,8 @@ struct RTInstanceInfoSwift {
     var baseColor: SIMD3<Float>
     var metallic: Float
     var roughness: Float
-    var padding2: SIMD3<Float>
+    var baseAlpha: Float
+    var padding2: SIMD2<Float>
     var baseColorTexIndex: UInt32
     var padding3: SIMD3<UInt32>
 }

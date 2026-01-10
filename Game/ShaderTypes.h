@@ -83,7 +83,8 @@ typedef struct
     vector_float3 baseColor;
     float metallic;
     float roughness;
-    vector_float3 padding2;
+    float baseAlpha;
+    vector_float2 padding2;
     uint32_t baseColorTexIndex;
     vector_uint3 padding3;
 } RTInstanceInfo;

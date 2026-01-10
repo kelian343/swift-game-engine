@@ -12,6 +12,7 @@
 - Fixed-step frequency increased to 120Hz with maxSubsteps=8 to reduce large per-step motion.
 - Jump height increased (jumpSpeed raised).
 - Demo tweaks: ground plane enlarged; dynamic oscillating NPC added for push tests (higher massWeight); test wall and ramp heights doubled.
+- RT-only procedural skinned character MVP complete: 8-bone rig, procedural pose, CPU skinning into RT geometry buffers, per-frame BLAS/TLAS rebuild; player now uses skinned mesh in RT path.
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.
@@ -66,6 +67,7 @@ Goal: remove old penetration/solver paths.
 - Phase 6 next: kinematic platforms + carry.
 - Continue tuning agent collision weights/margins as needed for push feel.
 - Phase 7 later: cleanup (remove old penetration/solver paths; keep triggers).
+- Next optional: improve skinned character (foot bones/IK) or reduce RT cost (GPU skinning, BLAS refit).
 
 ## Phase 6 (Planned): Kinematic Platforms + Carry
 Goal: platform carry without tunneling or jitter.
@@ -83,3 +85,36 @@ Goal: remove old penetration/solver paths.
 
 ## Debug Logging Currently Enabled
 - None (all debug logging removed).
+
+## RT-only MVP Plan (Implemented)
+Goal: procedural skinned character visible in RayTracing without Raster.
+- ECS data: Skeleton (8-bone rig), PoseComponent, SkinnedMeshComponent.
+  - Skeleton: parent[], bindLocal[], invBindModel[].
+  - PoseComponent: local[], model[], palette[], phase.
+  - SkinnedMeshComponent: SkinnedMeshData (CPU vertices + weights), material, skeletonRef.
+- ProceduralPoseSystem (fixed-step):
+  - Inputs: PhysicsBodyComponent, CharacterControllerComponent, MoveIntentComponent.
+  - Outputs: PoseComponent.local/model/palette.
+  - Behavior: speed-driven phase, groundNormal pelvis tilt, leg swing + subtle breathing.
+- Skinned mesh data + generation:
+  - SkinnedMeshData (position/normal/uv + boneIndices + boneWeights; UInt16/UInt32 indices).
+  - ProceduralMeshes.humanoidSkinned (torso + legL + legR).
+    - Torso weights: pelvis/spine/chest/head.
+    - Legs weights: thigh/calf per side.
+- CPU skinning (per frame):
+  - Use palette to compute skinned positions (and normals if needed).
+  - Output packed arrays for RT (positions + uvs).
+- RT geometry update:
+  - RayTracingScene.buildGeometryBuffers: append skinned vertex/uv data (skip mesh vertex buffer).
+  - RayTracingScene.buildAccelerationStructures: rebuild BLAS per frame from packed buffers.
+- Render extraction:
+  - RenderItem carries SkinningPayload (SkinnedMeshData + PoseComponent.palette).
+  - RenderExtractSystem emits skinned items; normal items unchanged.
+- Demo scene:
+  - Player keeps PhysicsBody + CharacterController.
+  - Render uses SkeletonComponent + PoseComponent + SkinnedMeshComponent.
+  - Rendering remains RayTracingRenderer.render.
+- Verification:
+  - RayTracing shows walking/sway/tilt.
+  - Per-frame BLAS rebuild is stable.
+  - Movement/slope changes are visible.
