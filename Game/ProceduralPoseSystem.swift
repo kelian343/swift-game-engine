@@ -47,9 +47,10 @@ public final class ProceduralPoseSystem: FixedStepSystem {
             let tiltQuat = useTilt ? rotationFromUp(to: groundNormal) : simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0))
 
             var local = skeleton.bindLocal
+            let yawFix = matrix4x4_rotation(radians: .pi, axis: SIMD3<Float>(0, 1, 0))
             local[0] = simd_mul(local[0],
                                 simd_mul(matrix4x4_translation(0, pelvisBob, 0),
-                                         matrix_float4x4(tiltQuat)))
+                                         simd_mul(matrix_float4x4(tiltQuat), yawFix)))
 
             let thighAmp: Float = 0.7
             let calfAmp: Float = 0.6
