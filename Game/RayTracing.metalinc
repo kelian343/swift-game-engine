@@ -312,91 +312,109 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
             refl.min_distance = bias * 0.5;
             refl.max_distance = 1e6;
 
-            intersection_result<triangle_data, instancing> reflHit = isect.intersect(refl, accel);
-            float3 reflColor = float3(0.02, 0.02, 0.03);
-            if (reflHit.type == intersection_type::triangle) {
+            float3 reflAccum = float3(0.0);
+            float reflAlpha = 0.0;
+            const uint maxReflLayers = 4;
+            ray rCurrent = refl;
+            for (uint rLayer = 0; rLayer < maxReflLayers && reflAlpha < 0.99; ++rLayer) {
+                intersection_result<triangle_data, instancing> reflHit = isect.intersect(rCurrent, accel);
+                if (reflHit.type != intersection_type::triangle) {
+                    break;
+                }
                 RTInstanceInfo rInst = rtInstances[reflHit.instance_id];
                 uint rTriBase = rInst.baseIndex + reflHit.primitive_id * 3;
-                if (rTriBase + 2 < rInst.baseIndex + rInst.indexCount) {
-                    device const float3 *rVerts = rInst.bufferIndex == 0 ? rtVertices : rtVerticesDynamic;
-                    device const uint *rInds = rInst.bufferIndex == 0 ? rtIndices : rtIndicesDynamic;
-                    uint rI0 = rInds[rTriBase + 0];
-                    uint rI1 = rInds[rTriBase + 1];
-                    uint rI2 = rInds[rTriBase + 2];
-
-                    float3 rv0 = rVerts[rInst.baseVertex + rI0];
-                    float3 rv1 = rVerts[rInst.baseVertex + rI1];
-                    float3 rv2 = rVerts[rInst.baseVertex + rI2];
-
-                    float3 rw0 = (rInst.modelMatrix * float4(rv0, 1.0)).xyz;
-                    float3 rw1 = (rInst.modelMatrix * float4(rv1, 1.0)).xyz;
-                    float3 rw2 = (rInst.modelMatrix * float4(rv2, 1.0)).xyz;
-                    float3 rN = normalize(cross(rw1 - rw0, rw2 - rw0));
-                    if (dot(rN, refl.direction) > 0.0) { rN = -rN; }
-
-                    PBRSample rm = sample_material(rInst,
-                                                   rI0,
-                                                   rI1,
-                                                   rI2,
-                                                   reflHit.triangle_barycentric_coord,
-                                                   frame,
-                                                   rtUVs,
-                                                   rtUVsDynamic,
-                                                   baseColorTextures);
-                    float3 rV = normalize(-refl.direction);
-                    float3 rHitPos = refl.origin + refl.direction * reflHit.distance;
-                    float rBias = shadow_bias(reflHit.distance);
-                    float3 rDirect = float3(0.0);
-                    for (uint i = 0; i < frame.dirLightCount; ++i) {
-                        RTDirectionalLight l = dirLights[i];
-                        float3 L = normalize(-l.direction);
-                        float rNdotL = max(dot(rN, L), 0.0);
-                        if (rNdotL <= 0.0) { continue; }
-
-                        ray shadowRay;
-                        shadowRay.origin = rHitPos + rN * rBias;
-                        shadowRay.direction = L;
-                        shadowRay.min_distance = rBias * 0.5;
-                        shadowRay.max_distance = 1e6;
-
-                        float shadow = 1.0;
-                        const uint maxShadowLayers = 4;
-                        for (uint s = 0; s < maxShadowLayers && shadow > 0.02; ++s) {
-                            intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
-                            if (shadowHit.type != intersection_type::triangle) {
-                                break;
-                            }
-                            RTInstanceInfo shInst = rtInstances[shadowHit.instance_id];
-                            uint shTriBase = shInst.baseIndex + shadowHit.primitive_id * 3;
-                            if (shTriBase + 2 >= shInst.baseIndex + shInst.indexCount) {
-                                break;
-                            }
-                            device const uint *shInds = shInst.bufferIndex == 0 ? rtIndices : rtIndicesDynamic;
-                            uint shI0 = shInds[shTriBase + 0];
-                            uint shI1 = shInds[shTriBase + 1];
-                            uint shI2 = shInds[shTriBase + 2];
-                            float shAlpha = sample_alpha(shInst,
-                                                         shI0,
-                                                         shI1,
-                                                         shI2,
-                                                         shadowHit.triangle_barycentric_coord,
-                                                         frame,
-                                                         rtUVs,
-                                                         rtUVsDynamic,
-                                                         baseColorTextures);
-                            shadow *= (1.0 - shAlpha);
-                            float3 shHitPos = shadowRay.origin + shadowRay.direction * shadowHit.distance;
-                            shadowRay.origin = shHitPos + L * rBias * 2.0;
-                            shadowRay.min_distance = 0.001;
-                        }
-                        float3 brdf = eval_brdf(rN, rV, L, rm.base, rm.metallic, rm.roughness);
-                        float3 Li = l.color * l.intensity;
-                        rDirect += brdf * Li * (rNdotL * shadow);
-                    }
-                    float3 rAmbient = rm.base * eval_env_sh(rN, frame) * frame.ambientIntensity * rm.occlusion;
-                    reflColor = rDirect + rAmbient + rm.emissive;
+                if (rTriBase + 2 >= rInst.baseIndex + rInst.indexCount) {
+                    break;
                 }
+
+                device const float3 *rVerts = rInst.bufferIndex == 0 ? rtVertices : rtVerticesDynamic;
+                device const uint *rInds = rInst.bufferIndex == 0 ? rtIndices : rtIndicesDynamic;
+                uint rI0 = rInds[rTriBase + 0];
+                uint rI1 = rInds[rTriBase + 1];
+                uint rI2 = rInds[rTriBase + 2];
+
+                float3 rv0 = rVerts[rInst.baseVertex + rI0];
+                float3 rv1 = rVerts[rInst.baseVertex + rI1];
+                float3 rv2 = rVerts[rInst.baseVertex + rI2];
+
+                float3 rw0 = (rInst.modelMatrix * float4(rv0, 1.0)).xyz;
+                float3 rw1 = (rInst.modelMatrix * float4(rv1, 1.0)).xyz;
+                float3 rw2 = (rInst.modelMatrix * float4(rv2, 1.0)).xyz;
+                float3 rN = normalize(cross(rw1 - rw0, rw2 - rw0));
+                if (dot(rN, rCurrent.direction) > 0.0) { rN = -rN; }
+
+                PBRSample rm = sample_material(rInst,
+                                               rI0,
+                                               rI1,
+                                               rI2,
+                                               reflHit.triangle_barycentric_coord,
+                                               frame,
+                                               rtUVs,
+                                               rtUVsDynamic,
+                                               baseColorTextures);
+                float3 rV = normalize(-rCurrent.direction);
+                float3 rHitPos = rCurrent.origin + rCurrent.direction * reflHit.distance;
+                float rBias = shadow_bias(reflHit.distance);
+                float3 rDirect = float3(0.0);
+                for (uint i = 0; i < frame.dirLightCount; ++i) {
+                    RTDirectionalLight l = dirLights[i];
+                    float3 L = normalize(-l.direction);
+                    float rNdotL = max(dot(rN, L), 0.0);
+                    if (rNdotL <= 0.0) { continue; }
+
+                    ray shadowRay;
+                    shadowRay.origin = rHitPos + rN * rBias;
+                    shadowRay.direction = L;
+                    shadowRay.min_distance = rBias * 0.5;
+                    shadowRay.max_distance = 1e6;
+
+                    float shadow = 1.0;
+                    const uint maxShadowLayers = 4;
+                    for (uint s = 0; s < maxShadowLayers && shadow > 0.02; ++s) {
+                        intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
+                        if (shadowHit.type != intersection_type::triangle) {
+                            break;
+                        }
+                        RTInstanceInfo shInst = rtInstances[shadowHit.instance_id];
+                        uint shTriBase = shInst.baseIndex + shadowHit.primitive_id * 3;
+                        if (shTriBase + 2 >= shInst.baseIndex + shInst.indexCount) {
+                            break;
+                        }
+                        device const uint *shInds = shInst.bufferIndex == 0 ? rtIndices : rtIndicesDynamic;
+                        uint shI0 = shInds[shTriBase + 0];
+                        uint shI1 = shInds[shTriBase + 1];
+                        uint shI2 = shInds[shTriBase + 2];
+                        float shAlpha = sample_alpha(shInst,
+                                                     shI0,
+                                                     shI1,
+                                                     shI2,
+                                                     shadowHit.triangle_barycentric_coord,
+                                                     frame,
+                                                     rtUVs,
+                                                     rtUVsDynamic,
+                                                     baseColorTextures);
+                        shadow *= (1.0 - shAlpha);
+                        float3 shHitPos = shadowRay.origin + shadowRay.direction * shadowHit.distance;
+                        shadowRay.origin = shHitPos + L * rBias * 2.0;
+                        shadowRay.min_distance = 0.001;
+                    }
+                    float3 brdf = eval_brdf(rN, rV, L, rm.base, rm.metallic, rm.roughness);
+                    float3 Li = l.color * l.intensity;
+                    rDirect += brdf * Li * (rNdotL * shadow);
+                }
+                float3 rAmbient = rm.base * eval_env_sh(rN, frame) * frame.ambientIntensity * rm.occlusion;
+                float3 rColor = rDirect + rAmbient + rm.emissive;
+
+                float oneMinus = 1.0 - reflAlpha;
+                reflAccum += rColor * rm.alpha * oneMinus;
+                reflAlpha += rm.alpha * oneMinus;
+
+                rCurrent.origin = rHitPos + rCurrent.direction * (rBias * 2.0);
+                rCurrent.min_distance = 0.001;
+                rCurrent.max_distance = 1e6;
             }
+
+            float3 reflColor = reflAccum + float3(0.02, 0.02, 0.03) * (1.0 - reflAlpha);
 
             float3 F0 = mix(float3(0.04), m.base, m.metallic);
             float3 F = fresnel_schlick(sat(dot(N, V)), F0);
