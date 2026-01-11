@@ -156,4 +156,43 @@ public enum ProceduralTextureGenerator {
                      height: height,
                      color: SIMD4<UInt8>(r, g, b, 255))
     }
+
+    public static func normalMapFromHeight(width: Int = 256,
+                                           height: Int = 256,
+                                           amplitude: Float = 1.0,
+                                           frequency: Float = 6.0) -> ProceduralTexture {
+        func heightFunc(_ u: Float, _ v: Float) -> Float {
+            let s = sin(u * frequency * Float.pi * 2.0)
+            let c = cos(v * frequency * Float.pi * 2.0)
+            return s * c * 0.5 + 0.5
+        }
+
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let du = 1.0 / Float(width)
+        let dv = 1.0 / Float(height)
+        for y in 0..<height {
+            for x in 0..<width {
+                let u = Float(x) * du
+                let v = Float(y) * dv
+                let hL = heightFunc(u - du, v)
+                let hR = heightFunc(u + du, v)
+                let hD = heightFunc(u, v - dv)
+                let hU = heightFunc(u, v + dv)
+                let dx = (hR - hL) * amplitude
+                let dy = (hU - hD) * amplitude
+                var n = SIMD3<Float>(-dx, -dy, 1.0)
+                n = simd_normalize(n)
+                let idx = (y * width + x) * 4
+                bytes[idx + 0] = UInt8(max(0, min(255, Int((n.x * 0.5 + 0.5) * 255))))
+                bytes[idx + 1] = UInt8(max(0, min(255, Int((n.y * 0.5 + 0.5) * 255))))
+                bytes[idx + 2] = UInt8(max(0, min(255, Int((n.z * 0.5 + 0.5) * 255))))
+                bytes[idx + 3] = 255
+            }
+        }
+
+        return ProceduralTexture(width: width,
+                                 height: height,
+                                 format: .rgba8Unorm,
+                                 bytes: bytes)
+    }
 }

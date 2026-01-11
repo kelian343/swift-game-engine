@@ -342,10 +342,24 @@ public final class DemoScene: RenderScene {
                                                             depth: 10.0,
                                                             height: rampHeight))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestRamp")
-            let mat = makeSolidMaterial(label: "RampMat",
-                                        color: SIMD4<UInt8>(80, 160, 255, 255),
-                                        metallic: 0.0,
-                                        roughness: 0.6)
+            let base = ProceduralTextureGenerator.solid(width: 4,
+                                                        height: 4,
+                                                        color: SIMD4<UInt8>(80, 160, 255, 255))
+            let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                  height: 4,
+                                                                  metallic: 0.0,
+                                                                  roughness: 0.6)
+            let normal = ProceduralTextureGenerator.normalMapFromHeight(width: 256,
+                                                                        height: 256,
+                                                                        amplitude: 1.2,
+                                                                        frequency: 6.0)
+            let desc = MaterialDescriptor(baseColor: base,
+                                          normal: normal,
+                                          metallicRoughness: mr,
+                                          metallicFactor: 1.0,
+                                          roughnessFactor: 1.0,
+                                          alpha: 1.0)
+            let mat = MaterialFactory.make(device: device, descriptor: desc, label: "RampMat")
 
             let e = world.createEntity()
             var t = TransformComponent()
