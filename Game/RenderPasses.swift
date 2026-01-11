@@ -7,6 +7,36 @@
 
 import Metal
 
+private func encodeItems(_ items: [RenderItem],
+                         frame: FrameContext,
+                         encoder: MTLRenderCommandEncoder) {
+    for item in items {
+        guard let mesh = item.mesh else { continue }
+        encoder.setCullMode(item.material.cullMode)
+        encoder.setFrontFacing(item.material.frontFacing)
+
+        let u = frame.uniformRing.allocate()
+        writeUniforms(u.pointer,
+                      projection: frame.projection,
+                      view: frame.viewMatrix,
+                      model: item.modelMatrix)
+
+        let tex = item.material.baseColorTexture?.texture ?? frame.fallbackWhite.texture
+        encoder.setVertexBuffer(mesh.vertexBuffer, offset: 0, index: BufferIndex.meshVertices.rawValue)
+        encoder.setVertexBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
+        encoder.setFragmentBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
+        encoder.setFragmentTexture(tex, index: TextureIndex.baseColor.rawValue)
+
+        encoder.drawIndexedPrimitives(
+            type: .triangle,
+            indexCount: mesh.indexCount,
+            indexType: mesh.indexType,
+            indexBuffer: mesh.indexBuffer,
+            indexBufferOffset: 0
+        )
+    }
+}
+
 final class MainPass: RenderPass {
     let name = "Main Pass"
 
@@ -26,31 +56,7 @@ final class MainPass: RenderPass {
         encoder.setRenderPipelineState(frame.pipelineState)
         encoder.setDepthStencilState(frame.depthState)
 
-        for item in frame.items {
-            guard let mesh = item.mesh else { continue }
-            encoder.setCullMode(item.material.cullMode)
-            encoder.setFrontFacing(item.material.frontFacing)
-
-            let u = frame.uniformRing.allocate()
-            writeUniforms(u.pointer,
-                          projection: frame.projection,
-                          view: frame.viewMatrix,
-                          model: item.modelMatrix)
-
-            let tex = item.material.baseColorTexture?.texture ?? frame.fallbackWhite.texture
-            encoder.setVertexBuffer(mesh.vertexBuffer, offset: 0, index: BufferIndex.meshVertices.rawValue)
-            encoder.setVertexBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
-            encoder.setFragmentBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
-            encoder.setFragmentTexture(tex, index: TextureIndex.baseColor.rawValue)
-
-            encoder.drawIndexedPrimitives(
-                type: .triangle,
-                indexCount: mesh.indexCount,
-                indexType: mesh.indexType,
-                indexBuffer: mesh.indexBuffer,
-                indexBufferOffset: 0
-            )
-        }
+        encodeItems(frame.items, frame: frame, encoder: encoder)
     }
 }
 
@@ -89,31 +95,7 @@ final class CompositePass: RenderPass {
         encoder.setRenderPipelineState(frame.pipelineState)
         encoder.setDepthStencilState(frame.depthState)
 
-        for item in frame.compositeItems {
-            guard let mesh = item.mesh else { continue }
-            encoder.setCullMode(item.material.cullMode)
-            encoder.setFrontFacing(item.material.frontFacing)
-
-            let u = frame.uniformRing.allocate()
-            writeUniforms(u.pointer,
-                          projection: frame.projection,
-                          view: frame.viewMatrix,
-                          model: item.modelMatrix)
-
-            let tex = item.material.baseColorTexture?.texture ?? frame.fallbackWhite.texture
-            encoder.setVertexBuffer(mesh.vertexBuffer, offset: 0, index: BufferIndex.meshVertices.rawValue)
-            encoder.setVertexBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
-            encoder.setFragmentBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
-            encoder.setFragmentTexture(tex, index: TextureIndex.baseColor.rawValue)
-
-            encoder.drawIndexedPrimitives(
-                type: .triangle,
-                indexCount: mesh.indexCount,
-                indexType: mesh.indexType,
-                indexBuffer: mesh.indexBuffer,
-                indexBufferOffset: 0
-            )
-        }
+        encodeItems(frame.compositeItems, frame: frame, encoder: encoder)
     }
 }
 
@@ -151,30 +133,6 @@ final class UIPass: RenderPass {
         encoder.setRenderPipelineState(frame.pipelineState)
         encoder.setDepthStencilState(frame.depthState)
 
-        for item in frame.overlayItems {
-            guard let mesh = item.mesh else { continue }
-            encoder.setCullMode(item.material.cullMode)
-            encoder.setFrontFacing(item.material.frontFacing)
-
-            let u = frame.uniformRing.allocate()
-            writeUniforms(u.pointer,
-                          projection: frame.projection,
-                          view: frame.viewMatrix,
-                          model: item.modelMatrix)
-
-            let tex = item.material.baseColorTexture?.texture ?? frame.fallbackWhite.texture
-            encoder.setVertexBuffer(mesh.vertexBuffer, offset: 0, index: BufferIndex.meshVertices.rawValue)
-            encoder.setVertexBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
-            encoder.setFragmentBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
-            encoder.setFragmentTexture(tex, index: TextureIndex.baseColor.rawValue)
-
-            encoder.drawIndexedPrimitives(
-                type: .triangle,
-                indexCount: mesh.indexCount,
-                indexType: mesh.indexType,
-                indexBuffer: mesh.indexBuffer,
-                indexBufferOffset: 0
-            )
-        }
+        encodeItems(frame.overlayItems, frame: frame, encoder: encoder)
     }
 }
