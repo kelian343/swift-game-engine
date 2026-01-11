@@ -15,7 +15,7 @@ public final class DemoScene: RenderScene {
     public private(set) var renderItems: [RenderItem] = []
     public private(set) var overlayItems: [RenderItem] = []
     public private(set) var revision: UInt64 = 0
-    public var toneMappingExposure: Float = 4.0
+    public var toneMappingExposure: Float = 3.0
     public var toneMappingEnabled: Bool = true
     public var directionalLights: [DirectionalLight] = []
     private var fpsOverlaySystem: FPSOverlaySystem?
@@ -105,12 +105,16 @@ public final class DemoScene: RenderScene {
 
         let groundY: Float = -3.0
         directionalLights = [
-            DirectionalLight(direction: SIMD3<Float>(-0.2, -1.0, -0.4),
-                             intensity: 2.4,
-                             color: SIMD3<Float>(1.0, 0.95, 0.85)),
+            DirectionalLight(direction: SIMD3<Float>(0.0, -1.0, 0.0),
+                             intensity: 3.6,
+                             color: SIMD3<Float>(1.0, 0.98, 0.92),
+                             enabled: true,
+                             maxDistance: 400.0),
             DirectionalLight(direction: SIMD3<Float>(0.6, -0.8, 0.2),
-                             intensity: 1.2,
-                             color: SIMD3<Float>(0.6, 0.7, 1.0))
+                             intensity: 0.6,
+                             color: SIMD3<Float>(0.65, 0.75, 1.0),
+                             enabled: true,
+                             maxDistance: 300.0)
         ]
 
         // --- Ground: platform plane (4x area)

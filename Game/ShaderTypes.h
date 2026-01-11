@@ -125,7 +125,9 @@ typedef struct
     vector_float3 direction;
     float intensity;
     vector_float3 color;
-    float padding;
+    float enabled;
+    float maxDistance;
+    vector_float3 padding;
 } RTDirectionalLight;
 
 #endif /* ShaderTypes_h */

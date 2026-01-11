@@ -32,7 +32,9 @@ struct RTDirectionalLightSwift {
     var direction: SIMD3<Float>
     var intensity: Float
     var color: SIMD3<Float>
-    var padding: Float
+    var enabled: Float
+    var maxDistance: Float
+    var padding: SIMD3<Float>
 }
 
 

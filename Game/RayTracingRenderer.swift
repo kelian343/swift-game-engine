@@ -157,14 +157,18 @@ final class RayTracingRenderer {
             dirPtr[0] = RTDirectionalLightSwift(direction: SIMD3<Float>(-0.2, -1.0, -0.4),
                                                 intensity: 2.6,
                                                 color: SIMD3<Float>(1.0, 0.95, 0.85),
-                                                padding: 0)
+                                                enabled: 1.0,
+                                                maxDistance: 200.0,
+                                                padding: .zero)
         } else {
             for i in 0..<lights.count {
                 let l = lights[i]
                 dirPtr[i] = RTDirectionalLightSwift(direction: l.direction,
                                                     intensity: l.intensity,
                                                     color: l.color,
-                                                    padding: 0)
+                                                    enabled: l.enabled ? 1.0 : 0.0,
+                                                    maxDistance: l.maxDistance,
+                                                    padding: .zero)
             }
         }
     }

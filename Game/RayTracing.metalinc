@@ -311,6 +311,10 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         float3 direct = float3(0.0);
         for (uint i = 0; i < frame.dirLightCount; ++i) {
             RTDirectionalLight l = dirLights[i];
+            if (l.enabled < 0.5) { continue; }
+            float maxDist = l.maxDistance > 0.0 ? l.maxDistance : 1e6;
+            float camDist = length(hitPos - frame.cameraPosition);
+            if (camDist > maxDist) { continue; }
             float3 L = normalize(-l.direction);
             float NdotL = max(dot(N, L), 0.0);
             if (NdotL <= 0.0) { continue; }
@@ -319,7 +323,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
             shadowRay.origin = hitPos + N * bias;
             shadowRay.direction = L;
             shadowRay.min_distance = bias * 0.5;
-            shadowRay.max_distance = 1e6;
+            shadowRay.max_distance = maxDist;
 
             float shadow = 1.0;
             const uint maxShadowLayers = 4;
@@ -456,6 +460,10 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                 float3 rDirect = float3(0.0);
                 for (uint i = 0; i < frame.dirLightCount; ++i) {
                     RTDirectionalLight l = dirLights[i];
+                    if (l.enabled < 0.5) { continue; }
+                    float maxDist = l.maxDistance > 0.0 ? l.maxDistance : 1e6;
+                    float camDist = length(rHitPos - frame.cameraPosition);
+                    if (camDist > maxDist) { continue; }
                     float3 L = normalize(-l.direction);
                     float rNdotL = max(dot(rN, L), 0.0);
                     if (rNdotL <= 0.0) { continue; }
@@ -464,7 +472,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                     shadowRay.origin = rHitPos + rN * rBias;
                     shadowRay.direction = L;
                     shadowRay.min_distance = rBias * 0.5;
-                    shadowRay.max_distance = 1e6;
+                    shadowRay.max_distance = maxDist;
 
                     float shadow = 1.0;
                     const uint maxShadowLayers = 4;
