@@ -285,7 +285,7 @@ final class RayTracingScene {
                     dynamicIndices.append(contentsOf: i32)
                 }
                 bufferIndex = 1
-            } else if let mesh = item.mesh {
+            } else if item.mesh != nil {
                 if staticSliceIndex >= cachedStaticSlices.count { return nil }
                 let slice = cachedStaticSlices[staticSliceIndex]
                 staticSliceIndex += 1
