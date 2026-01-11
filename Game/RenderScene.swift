@@ -32,6 +32,9 @@ public protocol RenderScene: AnyObject {
     /// Enable/disable tone mapping in composite pass.
     var toneMappingEnabled: Bool { get }
 
+    /// Directional lights for rendering (RT uses all; raster may ignore extras).
+    var directionalLights: [DirectionalLight] { get }
+
     func viewportDidChange(size: SIMD2<Float>)
 }
 
@@ -42,4 +45,5 @@ extension RenderScene {
 
     var toneMappingExposure: Float { 1.0 }
     var toneMappingEnabled: Bool { true }
+    var directionalLights: [DirectionalLight] { [] }
 }

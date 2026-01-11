@@ -16,7 +16,8 @@ final class RayTracingRenderer {
     private let rtScene: RayTracingScene
     private let rtFrameBuffer: MTLBuffer
 
-    private let dirLightBuffer: MTLBuffer
+    private var dirLightBuffer: MTLBuffer
+    private var dirLightCapacity: Int = 0
     private let ibl: IBLResources
 
     init?(device: MTLDevice) {
@@ -29,12 +30,13 @@ final class RayTracingRenderer {
         }
         self.rtFrameBuffer = rtBuffer
 
-        guard let dirBuf = device.makeBuffer(length: MemoryLayout<RTDirectionalLightSwift>.stride * 4,
+        guard let dirBuf = device.makeBuffer(length: max(MemoryLayout<RTDirectionalLightSwift>.stride, 1),
                                              options: [.storageModeShared]) else {
             return nil
         }
         dirBuf.label = "RTDirectionalLights"
         self.dirLightBuffer = dirBuf
+        self.dirLightCapacity = MemoryLayout<RTDirectionalLightSwift>.stride
 
         do {
             let library = device.makeDefaultLibrary()
@@ -54,6 +56,7 @@ final class RayTracingRenderer {
                 outputTexture: MTLTexture,
                 outputSize: CGSize,
                 items: [RenderItem],
+                lights: [DirectionalLight],
                 camera: Camera,
                 projection: matrix_float4x4,
                 viewMatrix: matrix_float4x4) {
@@ -73,7 +76,7 @@ final class RayTracingRenderer {
             ambientIntensity: 0.2,
             pad0: 0,
             textureCount: UInt32(geometry?.textures.count ?? 0),
-            dirLightCount: 1,
+            dirLightCount: UInt32(lights.count),
             envMipCount: ibl.envMipCount,
             pad1: 0,
             envSH0: envSH0,
@@ -88,7 +91,7 @@ final class RayTracingRenderer {
         )
         memcpy(rtFrameBuffer.contents(), &rtFrame, MemoryLayout<RTFrameUniformsSwift>.stride)
 
-        updateLightBuffers()
+        updateLightBuffers(lights: lights)
 
         encodeRaytracePass(commandBuffer: commandBuffer,
                            tlas: tlas,
@@ -141,12 +144,29 @@ final class RayTracingRenderer {
         enc.endEncoding()
     }
 
-    private func updateLightBuffers() {
-        let dirPtr = dirLightBuffer.contents().bindMemory(to: RTDirectionalLightSwift.self, capacity: 4)
-        dirPtr[0] = RTDirectionalLightSwift(direction: SIMD3<Float>(-0.2, -1.0, -0.4),
-                                            intensity: 2.6,
-                                            color: SIMD3<Float>(1.0, 0.95, 0.85),
-                                            padding: 0)
+    private func updateLightBuffers(lights: [DirectionalLight]) {
+        let count = max(lights.count, 1)
+        let bytes = count * MemoryLayout<RTDirectionalLightSwift>.stride
+        if bytes > dirLightCapacity {
+            dirLightCapacity = bytes
+            dirLightBuffer = device.makeBuffer(length: bytes, options: [.storageModeShared])!
+            dirLightBuffer.label = "RTDirectionalLights"
+        }
+        let dirPtr = dirLightBuffer.contents().bindMemory(to: RTDirectionalLightSwift.self, capacity: count)
+        if lights.isEmpty {
+            dirPtr[0] = RTDirectionalLightSwift(direction: SIMD3<Float>(-0.2, -1.0, -0.4),
+                                                intensity: 2.6,
+                                                color: SIMD3<Float>(1.0, 0.95, 0.85),
+                                                padding: 0)
+        } else {
+            for i in 0..<lights.count {
+                let l = lights[i]
+                dirPtr[i] = RTDirectionalLightSwift(direction: l.direction,
+                                                    intensity: l.intensity,
+                                                    color: l.color,
+                                                    padding: 0)
+            }
+        }
     }
 
     private func dispatch(enc: MTLComputeCommandEncoder, width: Int, height: Int) {

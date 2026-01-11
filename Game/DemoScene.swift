@@ -17,6 +17,7 @@ public final class DemoScene: RenderScene {
     public private(set) var revision: UInt64 = 0
     public var toneMappingExposure: Float = 4.0
     public var toneMappingEnabled: Bool = true
+    public var directionalLights: [DirectionalLight] = []
     private var fpsOverlaySystem: FPSOverlaySystem?
 
     // ECS
@@ -103,6 +104,14 @@ public final class DemoScene: RenderScene {
         camera.updateView()
 
         let groundY: Float = -3.0
+        directionalLights = [
+            DirectionalLight(direction: SIMD3<Float>(-0.2, -1.0, -0.4),
+                             intensity: 2.4,
+                             color: SIMD3<Float>(1.0, 0.95, 0.85)),
+            DirectionalLight(direction: SIMD3<Float>(0.6, -0.8, 0.2),
+                             intensity: 1.2,
+                             color: SIMD3<Float>(0.6, 0.7, 1.0))
+        ]
 
         // --- Ground: platform plane (4x area)
         do {

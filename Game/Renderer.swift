@@ -176,6 +176,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                               outputTexture: rtTarget,
                               outputSize: view.drawableSize,
                               items: items,
+                              lights: scene.directionalLights,
                               camera: scene.camera,
                               projection: projection,
                               viewMatrix: viewM)
