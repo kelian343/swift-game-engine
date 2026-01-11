@@ -55,7 +55,10 @@ fragment float4 fragmentShader(Varyings in [[stage_in]],
     float3 V = normalize(u.cameraPosition - in.worldPos);
     float NoV = clamp(dot(normalize(in.normalW), V), 0.0, 1.0);
     float graze = smoothstep(0.05, 0.5, NoV);
-    float2 xy = nTex.xy * (u.normalScale * graze);
+    float ns = u.normalScale;
+    float excess = max(ns - 4.0, 0.0);
+    ns = 4.0 + excess * 0.25;
+    float2 xy = nTex.xy * (ns * graze);
     float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
     nTex = float3(xy.x, xy.y, z);
     float3 B = normalize(cross(in.normalW, in.tangentW) * in.tangentSign);

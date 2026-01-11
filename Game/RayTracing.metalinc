@@ -295,7 +295,10 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
             float3 nTex = baseColorTextures[inst.normalTexIndex].sample(nSamp, uv).xyz * 2.0 - 1.0;
             float NoV = sat(dot(Ngeom, V));
             float graze = smoothstep(0.05, 0.5, NoV);
-            float2 xy = nTex.xy * (inst.normalScale * graze);
+            float ns = inst.normalScale;
+            float excess = max(ns - 4.0, 0.0);
+            ns = 4.0 + excess * 0.25;
+            float2 xy = nTex.xy * (ns * graze);
             float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
             nTex = float3(xy.x, xy.y, z);
             N = normalize(tW * nTex.x + bW * nTex.y + nW * nTex.z);
@@ -429,7 +432,10 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                     float3 nTex = baseColorTextures[rInst.normalTexIndex].sample(nSamp, uv).xyz * 2.0 - 1.0;
                     float NoV = sat(dot(rNgeom, rV));
                     float graze = smoothstep(0.05, 0.5, NoV);
-                    float2 xy = nTex.xy * (rInst.normalScale * graze);
+                    float ns = rInst.normalScale;
+                    float excess = max(ns - 4.0, 0.0);
+                    ns = 4.0 + excess * 0.25;
+                    float2 xy = nTex.xy * (ns * graze);
                     float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
                     nTex = float3(xy.x, xy.y, z);
                     rN = normalize(tW * nTex.x + bW * nTex.y + nW * nTex.z);
