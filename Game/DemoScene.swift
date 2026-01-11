@@ -94,6 +94,7 @@ public final class DemoScene: RenderScene {
             return MaterialFactory.make(device: device, descriptor: desc, label: label)
         }
 
+
         // Camera initial state
         camera.position = SIMD3<Float>(0, 0, 8)
         camera.target = SIMD3<Float>(0, 0, 0)
@@ -382,10 +383,25 @@ public final class DemoScene: RenderScene {
                                                            radialSegments: 32,
                                                            ringSegments: 12))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestDome")
-            let mat = makeSolidMaterial(label: "DomeMat",
-                                        color: SIMD4<UInt8>(120, 200, 140, 255),
-                                        metallic: 0.0,
-                                        roughness: 0.5)
+            let base = ProceduralTextureGenerator.solid(width: 4,
+                                                        height: 4,
+                                                        color: SIMD4<UInt8>(120, 200, 140, 255))
+            let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                  height: 4,
+                                                                  metallic: 0.0,
+                                                                  roughness: 0.5)
+            let ao = ProceduralTextureGenerator.occlusionRadial(width: 256,
+                                                                height: 256,
+                                                                innerRadius: 0.05,
+                                                                outerRadius: 0.75)
+            let desc = MaterialDescriptor(baseColor: base,
+                                          metallicRoughness: mr,
+                                          occlusion: ao,
+                                          metallicFactor: 1.0,
+                                          roughnessFactor: 1.0,
+                                          occlusionStrength: 1.6,
+                                          alpha: 1.0)
+            let mat = MaterialFactory.make(device: device, descriptor: desc, label: "DomeMat")
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -399,6 +415,7 @@ public final class DemoScene: RenderScene {
                                               rotation: t.rotation))
             world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(4, 4, 4))))
         }
+
 
         // --- Test Step: small ledge
         do {

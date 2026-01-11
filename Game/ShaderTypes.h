@@ -69,8 +69,8 @@ typedef struct
     float unlit;
     float normalScale;
     float pad1;
+    float occlusionStrength;
     float pad2;
-    float pad3;
     vector_float3 cameraPosition;
     float pad4;
 } Uniforms;

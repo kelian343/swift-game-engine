@@ -23,6 +23,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let fallbackWhite: TextureResource
     private let fallbackNormal: TextureResource
     private let fallbackEmissive: TextureResource
+    private let fallbackOcclusion: TextureResource
 
     private let rayTracing: RayTracingRenderer
 
@@ -97,6 +98,13 @@ final class Renderer: NSObject, MTKViewDelegate {
                                                      color: SIMD4<UInt8>(0, 0, 0, 255)),
             label: "FallbackEmissive"
         )
+        self.fallbackOcclusion = TextureResource(
+            device: device,
+            source: ProceduralTextureGenerator.occlusion(width: 1,
+                                                         height: 1,
+                                                         occlusion: 1.0),
+            label: "FallbackOcclusion"
+        )
         guard let rt = RayTracingRenderer(device: device) else { return nil }
         self.rayTracing = rt
         self.renderGraph.addPass(compositePass)
@@ -136,7 +144,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         // include: base textures + fallback + uniform buffer
         context.prepareResidency(
             meshes: meshes,
-            textures: textures + [fallbackWhite.texture, fallbackNormal.texture, fallbackEmissive.texture],
+            textures: textures + [fallbackWhite.texture, fallbackNormal.texture, fallbackEmissive.texture, fallbackOcclusion.texture],
             uniforms: uniformRing.buffer
         )
     }
@@ -194,6 +202,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                                  fallbackWhite: fallbackWhite,
                                  fallbackNormal: fallbackNormal,
                                  fallbackEmissive: fallbackEmissive,
+                                 fallbackOcclusion: fallbackOcclusion,
                                  projection: overlayProjection,
                                  viewMatrix: overlayView,
                                  cameraPosition: scene.camera.position)

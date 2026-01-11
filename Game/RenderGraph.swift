@@ -103,6 +103,7 @@ struct FrameContext {
     let fallbackWhite: TextureResource
     let fallbackNormal: TextureResource
     let fallbackEmissive: TextureResource
+    let fallbackOcclusion: TextureResource
 
     let projection: matrix_float4x4
     let viewMatrix: matrix_float4x4

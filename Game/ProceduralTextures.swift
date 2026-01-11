@@ -145,6 +145,45 @@ public enum ProceduralTextureGenerator {
                      height: height,
                      color: SIMD4<UInt8>(o, o, o, 255))
     }
+    
+    public static func occlusionRadial(width: Int = 256,
+                                       height: Int = 256,
+                                       innerRadius: Float = 0.2,
+                                       outerRadius: Float = 0.9) -> ProceduralTexture {
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let cx = Float(width - 1) * 0.5
+        let cy = Float(height - 1) * 0.5
+        let maxR = max(cx, cy)
+        let inner = max(0.0, min(innerRadius, 1.0))
+        let outer = max(inner, min(outerRadius, 1.0))
+
+        func smoothstep(_ a: Float, _ b: Float, _ x: Float) -> Float {
+            let t = max(0.0, min((x - a) / max(b - a, 1e-4), 1.0))
+            return t * t * (3.0 - 2.0 * t)
+        }
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let dx = (Float(x) - cx) / maxR
+                let dy = (Float(y) - cy) / maxR
+                let r = sqrt(dx * dx + dy * dy)
+                let occ = smoothstep(inner, outer, r)
+                let o = UInt8(max(0, min(255, Int(occ * 255))))
+                let idx = (y * width + x) * 4
+                bytes[idx + 0] = o
+                bytes[idx + 1] = o
+                bytes[idx + 2] = o
+                bytes[idx + 3] = 255
+            }
+        }
+
+        return ProceduralTexture(width: width,
+                                 height: height,
+                                 format: .rgba8Unorm,
+                                 bytes: bytes)
+    }
+
+    
 
     public static func emissive(width: Int = 4,
                                 height: Int = 4,
