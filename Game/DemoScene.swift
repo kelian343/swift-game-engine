@@ -360,7 +360,7 @@ public final class DemoScene: RenderScene {
                                           metallicFactor: 1.0,
                                           roughnessFactor: 1.0,
                                           alpha: 1.0,
-                                          normalScale: 10.0)
+                                          normalScale: 6.5)
             let mat = MaterialFactory.make(device: device, descriptor: desc, label: "RampMat")
 
             let e = world.createEntity()
