@@ -27,12 +27,14 @@
 - GPU skinning (RT path): CPU skinning replaced by compute kernel writing dynamic vertex buffer; skinned source buffers cached, palettes uploaded per frame.
 - Procedural mesh API fully migrated: MeshData/SkinnedMeshData and ProceduralMeshBridge removed; ECS components and render items now carry ProceduralMeshDescriptor/SkinnedMeshDescriptor.
 - Procedural mesh usage updated across demo/UI/renderer: GPUMesh now builds directly from descriptor streams; collision static mesh reads descriptor positions/indices.
+- Procedural PBR materials migrated: new ProceduralTextureGenerator + MaterialDescriptor/MaterialFactory; materials now use PBR textures (baseColor/normal/metallicRoughness/emissive/occlusion) and factors; old ProceduralTextures/TextureSourceRGBA8 removed; shaders + RT instance info updated accordingly.
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.
 - Physics architecture is being rebuilt around kinematic capsule movement + sweep CCD against static TriMesh.
 - Static geometry is derived from ProceduralMeshes and fed to CollisionQuery/StaticTriMesh.
 - RenderGraph now drives composite + UI passes; RT output is composited before UI.
+- Procedural PBR materials: texture generation + material creation are now unified under new APIs, with all call sites migrated.
 
 ## Full Plan (Reference)
 ### Phase 1: Static TriMesh + Uniform Grid Query Layer

@@ -320,8 +320,8 @@ public final class DemoScene: RenderScene {
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestWall")
             let mat = makeSolidMaterial(label: "WallMat",
                                         color: SIMD4<UInt8>(255, 80, 80, 255),
-                                        metallic: 0.0,
-                                        roughness: 0.7)
+                                        metallic: 1.0,
+                                        roughness: 0.02)
 
             let e = world.createEntity()
             var t = TransformComponent()
