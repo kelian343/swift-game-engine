@@ -319,7 +319,7 @@ public final class DemoScene: RenderScene {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 6.0))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestWall")
             let mat = makeSolidMaterial(label: "WallMat",
-                                        color: SIMD4<UInt8>(255, 80, 80, 255),
+                                        color: SIMD4<UInt8>(220, 220, 230, 255),
                                         metallic: 1.0,
                                         roughness: 0.02)
 
