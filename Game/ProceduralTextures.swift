@@ -183,6 +183,67 @@ public enum ProceduralTextureGenerator {
                                  bytes: bytes)
     }
 
+    public static func occlusionCracks(width: Int = 256,
+                                       height: Int = 256,
+                                       density: Int = 12,
+                                       thickness: Float = 0.015) -> ProceduralTexture {
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        let w = Float(width)
+        let h = Float(height)
+        let t = max(0.001, min(thickness, 0.2))
+
+        func hash2(_ x: Int, _ y: Int) -> Float {
+            let ux = UInt32(bitPattern: Int32(truncatingIfNeeded: x))
+            let uy = UInt32(bitPattern: Int32(truncatingIfNeeded: y))
+            var n = (ux &* 374761393) &+ (uy &* 668265263) &+ 0x9E3779B9
+            n ^= n >> 13
+            n &*= 1274126177
+            return Float(n & 0x00FFFFFF) / Float(0x01000000)
+        }
+
+        func lineDist(_ p: SIMD2<Float>, _ a: SIMD2<Float>, _ b: SIMD2<Float>) -> Float {
+            let ab = b - a
+            let t = max(0.0, min(simd_dot(p - a, ab) / max(simd_dot(ab, ab), 1e-6), 1.0))
+            let q = a + ab * t
+            return simd_length(p - q)
+        }
+
+        var segments: [(SIMD2<Float>, SIMD2<Float>)] = []
+        segments.reserveCapacity(density)
+        for i in 0..<density {
+            let x0 = hash2(i, 1) * w
+            let y0 = hash2(i, 2) * h
+            let x1 = hash2(i, 3) * w
+            let y1 = hash2(i, 4) * h
+            segments.append((SIMD2<Float>(x0, y0), SIMD2<Float>(x1, y1)))
+        }
+
+        for y in 0..<height {
+            for x in 0..<width {
+                let p = SIMD2<Float>(Float(x), Float(y))
+                var occ: Float = 1.0
+                for (a, b) in segments {
+                    let d = lineDist(p, a, b) / max(w, h)
+                    if d < t {
+                        let v = max(0.0, min(1.0 - d / t, 1.0))
+                        occ = min(occ, 1.0 - v * 0.9)
+                    }
+                }
+                let o = UInt8(max(0, min(255, Int(occ * 255))))
+                let idx = (y * width + x) * 4
+                bytes[idx + 0] = o
+                bytes[idx + 1] = o
+                bytes[idx + 2] = o
+                bytes[idx + 3] = 255
+            }
+        }
+
+        return ProceduralTexture(width: width,
+                                 height: height,
+                                 format: .rgba8Unorm,
+                                 bytes: bytes)
+    }
+
     
 
     public static func emissive(width: Int = 4,

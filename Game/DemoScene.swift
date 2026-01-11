@@ -355,11 +355,17 @@ public final class DemoScene: RenderScene {
                                                                    amplitude: 9.0,
                                                                    frequency: 3.0,
                                                                    octaves: 5)
+            let ao = ProceduralTextureGenerator.occlusionCracks(width: 256,
+                                                                height: 256,
+                                                                density: 14,
+                                                                thickness: 0.02)
             let desc = MaterialDescriptor(baseColor: base,
                                           normal: normal,
                                           metallicRoughness: mr,
+                                          occlusion: ao,
                                           metallicFactor: 1.0,
                                           roughnessFactor: 1.0,
+                                          occlusionStrength: 1.2,
                                           alpha: 1.0,
                                           normalScale: 6.5)
             let mat = MaterialFactory.make(device: device, descriptor: desc, label: "RampMat")
@@ -383,25 +389,10 @@ public final class DemoScene: RenderScene {
                                                            radialSegments: 32,
                                                            ringSegments: 12))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestDome")
-            let base = ProceduralTextureGenerator.solid(width: 4,
-                                                        height: 4,
-                                                        color: SIMD4<UInt8>(120, 200, 140, 255))
-            let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
-                                                                  height: 4,
-                                                                  metallic: 0.0,
-                                                                  roughness: 0.5)
-            let ao = ProceduralTextureGenerator.occlusionRadial(width: 256,
-                                                                height: 256,
-                                                                innerRadius: 0.05,
-                                                                outerRadius: 0.75)
-            let desc = MaterialDescriptor(baseColor: base,
-                                          metallicRoughness: mr,
-                                          occlusion: ao,
-                                          metallicFactor: 1.0,
-                                          roughnessFactor: 1.0,
-                                          occlusionStrength: 1.6,
-                                          alpha: 1.0)
-            let mat = MaterialFactory.make(device: device, descriptor: desc, label: "DomeMat")
+            let mat = makeSolidMaterial(label: "DomeMat",
+                                        color: SIMD4<UInt8>(120, 200, 140, 255),
+                                        metallic: 0.0,
+                                        roughness: 0.5)
 
             let e = world.createEntity()
             var t = TransformComponent()
