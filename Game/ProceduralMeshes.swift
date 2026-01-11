@@ -10,29 +10,21 @@ import simd
 /// Demo generator: a textured box with normals + UVs.
 /// You can replace this with any procedural generator (marching cubes, hull, parametric, etc).
 enum ProceduralMeshes {
-    private static func descriptorFromPNUT(vertices: [VertexPNUT],
-                                           indices16: [UInt16],
-                                           name: String) -> ProceduralMeshDescriptor {
-        let positions = vertices.map { $0.position }
-        let normals = vertices.map { $0.normal }
-        let uvs = vertices.map { $0.uv }
-        let streams = VertexStreams(positions: positions, normals: normals, uvs: uvs)
-        return ProceduralMeshDescriptor(topology: .triangles,
-                                        streams: streams,
+    private static func buildDescriptor(name: String,
+                                        vertices: [VertexPNUT],
+                                        indices16: [UInt16]) -> ProceduralMeshDescriptor {
+        var builder = ProceduralMeshBuilder()
+        builder.setName(name)
+        builder.setPositions(vertices.map { $0.position })
+        builder.setNormals(vertices.map { $0.normal })
+        builder.setUVs(vertices.map { $0.uv })
+        builder.setIndices16(indices16)
+        return builder.build()
+            ?? ProceduralMeshDescriptor(topology: .triangles,
+                                        streams: VertexStreams(positions: vertices.map { $0.position },
+                                                               normals: vertices.map { $0.normal },
+                                                               uvs: vertices.map { $0.uv }),
                                         indices16: indices16,
-                                        name: name)
-    }
-
-    private static func descriptorFromPNUT(vertices: [VertexPNUT],
-                                           indices32: [UInt32],
-                                           name: String) -> ProceduralMeshDescriptor {
-        let positions = vertices.map { $0.position }
-        let normals = vertices.map { $0.normal }
-        let uvs = vertices.map { $0.uv }
-        let streams = VertexStreams(positions: positions, normals: normals, uvs: uvs)
-        return ProceduralMeshDescriptor(topology: .triangles,
-                                        streams: streams,
-                                        indices32: indices32,
                                         name: name)
     }
     static func plane(size: Float = 20) -> ProceduralMeshDescriptor {
@@ -46,7 +38,7 @@ enum ProceduralMeshes {
             VertexPNUT(position: SIMD3<Float>(-s, 0, -s), normal: n, uv: SIMD2<Float>(0, 1)),
         ]
         let i: [UInt16] = [0, 1, 2, 0, 2, 3]
-        return descriptorFromPNUT(vertices: v, indices16: i, name: "plane")
+        return buildDescriptor(name: "plane", vertices: v, indices16: i)
     }
 
     static func box(size: Float = 4) -> ProceduralMeshDescriptor {
@@ -93,7 +85,7 @@ enum ProceduralMeshes {
                 SIMD3<Float>(-s, -s, -s), SIMD3<Float>( s, -s, -s),
                 SIMD3<Float>( s, -s,  s), SIMD3<Float>(-s, -s,  s))
 
-        return descriptorFromPNUT(vertices: v, indices16: i, name: "box")
+        return buildDescriptor(name: "box", vertices: v, indices16: i)
     }
 
     static func tetrahedron(size: Float = 4) -> ProceduralMeshDescriptor {
@@ -120,7 +112,7 @@ enum ProceduralMeshes {
         addFace(p0, p3, p1)
         addFace(p1, p3, p2)
 
-        return descriptorFromPNUT(vertices: v, indices16: i, name: "tetrahedron")
+        return buildDescriptor(name: "tetrahedron", vertices: v, indices16: i)
     }
 
     static func triangularPrism(size: Float = 4, height: Float = 3) -> ProceduralMeshDescriptor {
@@ -166,7 +158,7 @@ enum ProceduralMeshes {
         addQuad(b0, c0, c1, b1)
         addQuad(c0, a0, a1, c1)
 
-        return descriptorFromPNUT(vertices: v, indices16: i, name: "triangularPrism")
+        return buildDescriptor(name: "triangularPrism", vertices: v, indices16: i)
     }
 
     static func ramp(width: Float = 8, depth: Float = 8, height: Float = 4) -> ProceduralMeshDescriptor {
@@ -214,7 +206,7 @@ enum ProceduralMeshes {
         // Right side
         addTri(frontRight, backRightTop, backRight)
 
-        return descriptorFromPNUT(vertices: v, indices16: i, name: "ramp")
+        return buildDescriptor(name: "ramp", vertices: v, indices16: i)
     }
 
     static func humanoidSkinned(legHeight: Float = 1.8,
@@ -346,13 +338,21 @@ enum ProceduralMeshes {
                     heightSegs: heightSegments,
                     weightForY: { t in legWeights(thigh: 5, calf: 6, t: t) })
 
-        let streams = SkinnedVertexStreams(positions: positions,
-                                           normals: normals,
-                                           uvs: uvs,
-                                           boneIndices: boneIndices,
-                                           boneWeights: boneWeights)
-        return SkinnedMeshDescriptor(topology: .triangles,
-                                     streams: streams,
+        var builder = SkinnedMeshBuilder()
+        builder.setName("humanoidSkinned")
+        builder.setPositions(positions)
+        builder.setNormals(normals)
+        builder.setUVs(uvs)
+        builder.setBoneIndices(boneIndices)
+        builder.setBoneWeights(boneWeights)
+        builder.setIndices16(indices)
+        return builder.build()
+            ?? SkinnedMeshDescriptor(topology: .triangles,
+                                     streams: SkinnedVertexStreams(positions: positions,
+                                                                   normals: normals,
+                                                                   uvs: uvs,
+                                                                   boneIndices: boneIndices,
+                                                                   boneWeights: boneWeights),
                                      indices16: indices,
                                      name: "humanoidSkinned")
     }
@@ -421,7 +421,7 @@ enum ProceduralMeshes {
             i += [i0, i2, i1]
         }
 
-        return descriptorFromPNUT(vertices: v, indices16: i, name: "dome")
+        return buildDescriptor(name: "dome", vertices: v, indices16: i)
     }
 
     static func capsule(radius: Float = 1.5,
@@ -503,7 +503,7 @@ enum ProceduralMeshes {
             }
         }
 
-        return descriptorFromPNUT(vertices: v, indices16: i, name: "capsule")
+        return buildDescriptor(name: "capsule", vertices: v, indices16: i)
     }
 
     static func quad(width: Float = 1,
@@ -518,7 +518,7 @@ enum ProceduralMeshes {
             VertexPNUT(position: SIMD3<Float>(0, height, 0), normal: normal, uv: SIMD2<Float>(uvMin.x, uvMax.y))
         ]
         let i: [UInt16] = [0, 1, 2, 0, 2, 3]
-        return descriptorFromPNUT(vertices: v, indices16: i, name: "quad")
+        return buildDescriptor(name: "quad", vertices: v, indices16: i)
     }
 }
 
