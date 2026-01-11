@@ -335,10 +335,10 @@ public final class DemoScene: RenderScene {
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 6.0))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestWall")
-            let mat = makeSolidMaterial(label: "WallMat",
-                                        color: SIMD4<UInt8>(220, 220, 230, 255),
-                                        metallic: 1.0,
-                                        roughness: 0.02)
+            let mat = Material(baseColorFactor: SIMD3<Float>(0.85, 0.85, 0.9),
+                               metallicFactor: 0.0,
+                               roughnessFactor: 0.8,
+                               alpha: 1.0)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -359,32 +359,10 @@ public final class DemoScene: RenderScene {
                                                             depth: 10.0,
                                                             height: rampHeight))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestRamp")
-            let base = ProceduralTextureGenerator.solid(width: 4,
-                                                        height: 4,
-                                                        color: SIMD4<UInt8>(80, 160, 255, 255))
-            let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
-                                                                  height: 4,
-                                                                  metallic: 0.0,
-                                                                  roughness: 0.6)
-            let normal = ProceduralTextureGenerator.normalMapNoise(width: 256,
-                                                                   height: 256,
-                                                                   amplitude: 9.0,
-                                                                   frequency: 3.0,
-                                                                   octaves: 5)
-            let ao = ProceduralTextureGenerator.occlusionGrime(width: 256,
-                                                               height: 256,
-                                                               frequency: 2.5,
-                                                               contrast: 1.8)
-            let desc = MaterialDescriptor(baseColor: base,
-                                          normal: normal,
-                                          metallicRoughness: mr,
-                                          occlusion: ao,
-                                          metallicFactor: 1.0,
-                                          roughnessFactor: 1.0,
-                                          occlusionStrength: 1.2,
-                                          alpha: 1.0,
-                                          normalScale: 6.5)
-            let mat = MaterialFactory.make(device: device, descriptor: desc, label: "RampMat")
+            let mat = Material(baseColorFactor: SIMD3<Float>(0.45, 0.55, 0.75),
+                               metallicFactor: 0.0,
+                               roughnessFactor: 0.9,
+                               alpha: 1.0)
 
             let e = world.createEntity()
             var t = TransformComponent()

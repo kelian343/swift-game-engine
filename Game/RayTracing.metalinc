@@ -323,44 +323,46 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
             float NdotL = max(dot(N, L), 0.0);
             if (NdotL <= 0.0) { continue; }
 
-            ray shadowRay;
-            shadowRay.origin = hitPos + N * bias;
-            shadowRay.direction = L;
-            shadowRay.min_distance = bias * 0.5;
-            shadowRay.max_distance = maxDist;
-
             float shadow = 1.0;
-            const uint maxShadowLayers = 4;
-            for (uint s = 0; s < maxShadowLayers && shadow > 0.02; ++s) {
-                intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
-                if (shadowHit.type != intersection_type::triangle) {
-                    break;
+            if (i == 0) {
+                ray shadowRay;
+                shadowRay.origin = hitPos + N * bias;
+                shadowRay.direction = L;
+                shadowRay.min_distance = bias * 0.5;
+                shadowRay.max_distance = maxDist;
+
+                const uint maxShadowLayers = 4;
+                for (uint s = 0; s < maxShadowLayers && shadow > 0.02; ++s) {
+                    intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
+                    if (shadowHit.type != intersection_type::triangle) {
+                        break;
+                    }
+
+                    RTInstanceInfo shInst = rtInstances[shadowHit.instance_id];
+                    uint shTriBase = shInst.baseIndex + shadowHit.primitive_id * 3;
+                    if (shTriBase + 2 >= shInst.baseIndex + shInst.indexCount) {
+                        break;
+                    }
+
+                    device const uint *shInds = shInst.bufferIndex == 0 ? rtIndices : rtIndicesDynamic;
+                    uint shI0 = shInds[shTriBase + 0];
+                    uint shI1 = shInds[shTriBase + 1];
+                    uint shI2 = shInds[shTriBase + 2];
+                    float shAlpha = sample_alpha(shInst,
+                                                 shI0,
+                                                 shI1,
+                                                 shI2,
+                                                 shadowHit.triangle_barycentric_coord,
+                                                 frame,
+                                                 rtUVs,
+                                                 rtUVsDynamic,
+                                                 baseColorTextures);
+                    shadow *= (1.0 - shAlpha);
+
+                    float3 shHitPos = shadowRay.origin + shadowRay.direction * shadowHit.distance;
+                    shadowRay.origin = shHitPos + L * bias * 2.0;
+                    shadowRay.min_distance = 0.001;
                 }
-
-                RTInstanceInfo shInst = rtInstances[shadowHit.instance_id];
-                uint shTriBase = shInst.baseIndex + shadowHit.primitive_id * 3;
-                if (shTriBase + 2 >= shInst.baseIndex + shInst.indexCount) {
-                    break;
-                }
-
-                device const uint *shInds = shInst.bufferIndex == 0 ? rtIndices : rtIndicesDynamic;
-                uint shI0 = shInds[shTriBase + 0];
-                uint shI1 = shInds[shTriBase + 1];
-                uint shI2 = shInds[shTriBase + 2];
-                float shAlpha = sample_alpha(shInst,
-                                             shI0,
-                                             shI1,
-                                             shI2,
-                                             shadowHit.triangle_barycentric_coord,
-                                             frame,
-                                             rtUVs,
-                                             rtUVsDynamic,
-                                             baseColorTextures);
-                shadow *= (1.0 - shAlpha);
-
-                float3 shHitPos = shadowRay.origin + shadowRay.direction * shadowHit.distance;
-                shadowRay.origin = shHitPos + L * bias * 2.0;
-                shadowRay.min_distance = 0.001;
             }
             float3 brdf = eval_brdf(N, V, L, m.base, m.metallic, m.roughness);
             float3 Li = l.color * l.intensity;
@@ -472,41 +474,43 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                     float rNdotL = max(dot(rN, L), 0.0);
                     if (rNdotL <= 0.0) { continue; }
 
-                    ray shadowRay;
-                    shadowRay.origin = rHitPos + rN * rBias;
-                    shadowRay.direction = L;
-                    shadowRay.min_distance = rBias * 0.5;
-                    shadowRay.max_distance = maxDist;
-
                     float shadow = 1.0;
-                    const uint maxShadowLayers = 4;
-                    for (uint s = 0; s < maxShadowLayers && shadow > 0.02; ++s) {
-                        intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
-                        if (shadowHit.type != intersection_type::triangle) {
-                            break;
+                    if (i == 0) {
+                        ray shadowRay;
+                        shadowRay.origin = rHitPos + rN * rBias;
+                        shadowRay.direction = L;
+                        shadowRay.min_distance = rBias * 0.5;
+                        shadowRay.max_distance = maxDist;
+
+                        const uint maxShadowLayers = 4;
+                        for (uint s = 0; s < maxShadowLayers && shadow > 0.02; ++s) {
+                            intersection_result<triangle_data, instancing> shadowHit = isect.intersect(shadowRay, accel);
+                            if (shadowHit.type != intersection_type::triangle) {
+                                break;
+                            }
+                            RTInstanceInfo shInst = rtInstances[shadowHit.instance_id];
+                            uint shTriBase = shInst.baseIndex + shadowHit.primitive_id * 3;
+                            if (shTriBase + 2 >= shInst.baseIndex + shInst.indexCount) {
+                                break;
+                            }
+                            device const uint *shInds = shInst.bufferIndex == 0 ? rtIndices : rtIndicesDynamic;
+                            uint shI0 = shInds[shTriBase + 0];
+                            uint shI1 = shInds[shTriBase + 1];
+                            uint shI2 = shInds[shTriBase + 2];
+                            float shAlpha = sample_alpha(shInst,
+                                                         shI0,
+                                                         shI1,
+                                                         shI2,
+                                                         shadowHit.triangle_barycentric_coord,
+                                                         frame,
+                                                         rtUVs,
+                                                         rtUVsDynamic,
+                                                         baseColorTextures);
+                            shadow *= (1.0 - shAlpha);
+                            float3 shHitPos = shadowRay.origin + shadowRay.direction * shadowHit.distance;
+                            shadowRay.origin = shHitPos + L * rBias * 2.0;
+                            shadowRay.min_distance = 0.001;
                         }
-                        RTInstanceInfo shInst = rtInstances[shadowHit.instance_id];
-                        uint shTriBase = shInst.baseIndex + shadowHit.primitive_id * 3;
-                        if (shTriBase + 2 >= shInst.baseIndex + shInst.indexCount) {
-                            break;
-                        }
-                        device const uint *shInds = shInst.bufferIndex == 0 ? rtIndices : rtIndicesDynamic;
-                        uint shI0 = shInds[shTriBase + 0];
-                        uint shI1 = shInds[shTriBase + 1];
-                        uint shI2 = shInds[shTriBase + 2];
-                        float shAlpha = sample_alpha(shInst,
-                                                     shI0,
-                                                     shI1,
-                                                     shI2,
-                                                     shadowHit.triangle_barycentric_coord,
-                                                     frame,
-                                                     rtUVs,
-                                                     rtUVsDynamic,
-                                                     baseColorTextures);
-                        shadow *= (1.0 - shAlpha);
-                        float3 shHitPos = shadowRay.origin + shadowRay.direction * shadowHit.distance;
-                        shadowRay.origin = shHitPos + L * rBias * 2.0;
-                        shadowRay.min_distance = 0.001;
                     }
                     float3 brdf = eval_brdf(rN, rV, L, rm.base, rm.metallic, rm.roughness);
                     float3 Li = l.color * l.intensity;
