@@ -24,8 +24,8 @@ final class FrameSync {
         event.wait(untilSignaledValue: UInt64(previousValueToWaitFor), timeoutMS: timeoutMS)
     }
 
-    func signalNextFrame(on queue: MTL4CommandQueue) {
-        queue.signalEvent(event, value: UInt64(frameIndex))
+    func signalNextFrame(on commandBuffer: MTLCommandBuffer) {
+        commandBuffer.encodeSignalEvent(event, value: UInt64(frameIndex))
         frameIndex += 1
     }
 }

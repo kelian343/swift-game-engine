@@ -15,6 +15,8 @@
 - RT-only procedural skinned character MVP complete: 8-bone rig, procedural pose, CPU skinning into RT geometry buffers, per-frame BLAS/TLAS rebuild; player now uses skinned mesh in RT path.
 - RT transparency support added: alpha-driven layered ray integration (multi-layer) and transmissive shadow attenuation; transparent capsules tuned to alpha=0.2.
 - Player overlay capsule added: semi-transparent capsule mesh follows player collision volume for visual debugging.
+- Input updated: right stick controls camera view; left stick controls movement and turning (turn speed limited).
+- Facing fix: procedural skinned character yaw corrected so forward aligns with camera-forward convention.
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.

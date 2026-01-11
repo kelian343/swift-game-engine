@@ -468,9 +468,75 @@ enum ProceduralMeshes {
 
         return MeshData(vertices: v, indices16: i)
     }
+
+    static func quad(width: Float = 1,
+                     height: Float = 1,
+                     uvMin: SIMD2<Float> = SIMD2<Float>(0, 0),
+                     uvMax: SIMD2<Float> = SIMD2<Float>(1, 1)) -> MeshData {
+        let normal = SIMD3<Float>(0, 0, 1)
+        let v: [VertexPNUT] = [
+            VertexPNUT(position: SIMD3<Float>(0, 0, 0), normal: normal, uv: SIMD2<Float>(uvMin.x, uvMin.y)),
+            VertexPNUT(position: SIMD3<Float>(width, 0, 0), normal: normal, uv: SIMD2<Float>(uvMax.x, uvMin.y)),
+            VertexPNUT(position: SIMD3<Float>(width, height, 0), normal: normal, uv: SIMD2<Float>(uvMax.x, uvMax.y)),
+            VertexPNUT(position: SIMD3<Float>(0, height, 0), normal: normal, uv: SIMD2<Float>(uvMin.x, uvMax.y))
+        ]
+        let i: [UInt16] = [0, 1, 2, 0, 2, 3]
+        return MeshData(vertices: v, indices16: i)
+    }
 }
 
 enum ProceduralTextures {
+    static let digitsAtlasCellWidth: Int = 8
+    static let digitsAtlasCellHeight: Int = 12
+
+    /// Digits atlas (0-9) in a single row, alpha-masked for overlay text.
+    static func digitsAtlas() -> TextureSourceRGBA8 {
+        let cellW = digitsAtlasCellWidth
+        let cellH = digitsAtlasCellHeight
+        let atlasW = cellW * 10
+        let atlasH = cellH
+        var bytes = [UInt8](repeating: 0, count: atlasW * atlasH * 4)
+
+        let glyphs: [[String]] = [
+            ["01110","10001","10011","10101","11001","10001","01110"], // 0
+            ["00100","01100","00100","00100","00100","00100","01110"], // 1
+            ["01110","10001","00001","00010","00100","01000","11111"], // 2
+            ["11110","00001","00001","01110","00001","00001","11110"], // 3
+            ["00010","00110","01010","10010","11111","00010","00010"], // 4
+            ["11111","10000","11110","00001","00001","10001","01110"], // 5
+            ["00110","01000","10000","11110","10001","10001","01110"], // 6
+            ["11111","00001","00010","00100","01000","01000","01000"], // 7
+            ["01110","10001","10001","01110","10001","10001","01110"], // 8
+            ["01110","10001","10001","01111","00001","00010","11100"]  // 9
+        ]
+
+        let padX = max((cellW - 5) / 2, 0)
+        let padY = max((cellH - 7) / 2, 0)
+
+        for digit in 0..<10 {
+            let originX = digit * cellW + padX
+            let originY = padY
+            let rows = glyphs[digit]
+            for y in 0..<rows.count {
+                let row = Array(rows[y])
+                for x in 0..<row.count {
+                    if row[x] == "1" {
+                        let px = originX + x
+                        let py = originY + y
+                        if px < atlasW && py < atlasH {
+                            let idx = (py * atlasW + px) * 4
+                            bytes[idx+0] = 255
+                            bytes[idx+1] = 255
+                            bytes[idx+2] = 255
+                            bytes[idx+3] = 255
+                        }
+                    }
+                }
+            }
+        }
+        return .rgba8(width: atlasW, height: atlasH, bytes: bytes)
+    }
+
     /// Simple checkerboard RGBA8
     static func checkerboard(width: Int = 256, height: Int = 256, cell: Int = 32) -> TextureSourceRGBA8 {
         var bytes = [UInt8](repeating: 0, count: width * height * 4)

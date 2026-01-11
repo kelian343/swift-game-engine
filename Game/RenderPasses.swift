@@ -22,12 +22,9 @@ final class MainPass: RenderPass {
         []
     }
 
-    func encode(frame: FrameContext, resources: RenderGraphResources, encoder: MTL4RenderCommandEncoder) {
+    func encode(frame: FrameContext, resources: RenderGraphResources, encoder: MTLRenderCommandEncoder) {
         encoder.setRenderPipelineState(frame.pipelineState)
         encoder.setDepthStencilState(frame.depthState)
-
-        encoder.setArgumentTable(frame.context.vertexTable, stages: .vertex)
-        encoder.setArgumentTable(frame.context.fragmentTable, stages: .fragment)
 
         for item in frame.items {
             guard let mesh = item.mesh else { continue }
@@ -40,22 +37,18 @@ final class MainPass: RenderPass {
                           view: frame.viewMatrix,
                           model: item.modelMatrix)
 
-            let uAddr = u.buffer.gpuAddress + UInt64(u.offset)
-            frame.context.vertexTable.setAddress(uAddr, index: BufferIndex.uniforms.rawValue)
-            frame.context.fragmentTable.setAddress(uAddr, index: BufferIndex.uniforms.rawValue)
-
-            frame.context.vertexTable.setAddress(mesh.vertexBuffer.gpuAddress,
-                                                 index: BufferIndex.meshVertices.rawValue)
-
             let tex = item.material.baseColorTexture?.texture ?? frame.fallbackWhite.texture
-            frame.context.fragmentTable.setTexture(tex.gpuResourceID, index: TextureIndex.baseColor.rawValue)
+            encoder.setVertexBuffer(mesh.vertexBuffer, offset: 0, index: BufferIndex.meshVertices.rawValue)
+            encoder.setVertexBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
+            encoder.setFragmentBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
+            encoder.setFragmentTexture(tex, index: TextureIndex.baseColor.rawValue)
 
             encoder.drawIndexedPrimitives(
-                primitiveType: .triangle,
+                type: .triangle,
                 indexCount: mesh.indexCount,
                 indexType: mesh.indexType,
-                indexBuffer: mesh.indexBuffer.gpuAddress,
-                indexBufferLength: mesh.indexBuffer.length
+                indexBuffer: mesh.indexBuffer,
+                indexBufferOffset: 0
             )
         }
     }

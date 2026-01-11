@@ -162,7 +162,7 @@ protocol RenderPass {
     func makeTarget(frame: FrameContext) -> RenderTargetSource?
     func readResources(frame: FrameContext) -> [RenderResourceID]
     func writeResources(frame: FrameContext) -> [RenderResourceID]
-    func encode(frame: FrameContext, resources: RenderGraphResources, encoder: MTL4RenderCommandEncoder)
+    func encode(frame: FrameContext, resources: RenderGraphResources, encoder: MTLRenderCommandEncoder)
 }
 
 final class RenderGraph {
@@ -178,7 +178,7 @@ final class RenderGraph {
         return TemporaryTexture(id: nextTempID, desc: desc)
     }
 
-    func execute(frame: FrameContext, view: MTKView) {
+    func execute(frame: FrameContext, view: MTKView, commandBuffer: MTLCommandBuffer) {
         let passInfos = buildPassInfos(frame: frame)
         let livePasses = pruneUnusedPasses(passInfos: passInfos)
         let orderedPasses = sortPasses(passInfos: livePasses)
@@ -191,7 +191,7 @@ final class RenderGraph {
                                                      frame: frame,
                                                      view: view,
                                                      resources: resources) else { continue }
-            guard let enc = frame.context.commandBuffer.makeRenderCommandEncoder(descriptor: rpd) else { continue }
+            guard let enc = commandBuffer.makeRenderCommandEncoder(descriptor: rpd) else { continue }
             enc.label = info.pass.name
             info.pass.encode(frame: frame, resources: resources, encoder: enc)
             enc.endEncoding()
@@ -201,12 +201,12 @@ final class RenderGraph {
     private func makeRenderPassDescriptor(target: RenderTargetSource,
                                           frame: FrameContext,
                                           view: MTKView,
-                                          resources: RenderGraphResources) -> MTL4RenderPassDescriptor? {
+                                          resources: RenderGraphResources) -> MTLRenderPassDescriptor? {
         switch target {
         case .view:
             return frame.context.currentRenderPassDescriptor(from: view)
         case .offscreen(let rt):
-            let rpd = MTL4RenderPassDescriptor()
+            let rpd = MTLRenderPassDescriptor()
             for (index, color) in rt.colorAttachments.enumerated() {
                 guard let att = rpd.colorAttachments[index] else { continue }
                 att.texture = resources.resolveTexture(color.resource)

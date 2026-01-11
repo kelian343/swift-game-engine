@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import simd
 
 public protocol RenderScene: AnyObject {
     /// Scene-owned camera (Renderer should not assume concrete scene types)
@@ -20,6 +21,17 @@ public protocol RenderScene: AnyObject {
     /// Current draw calls.
     var renderItems: [RenderItem] { get }
 
+    /// Optional overlay draw calls (UI/debug).
+    var overlayItems: [RenderItem] { get }
+
     /// Increment this when renderItems/resources change (mesh/texture/material changes).
     var revision: UInt64 { get }
+
+    func viewportDidChange(size: SIMD2<Float>)
+}
+
+extension RenderScene {
+    func viewportDidChange(size: SIMD2<Float>) {
+        _ = size
+    }
 }

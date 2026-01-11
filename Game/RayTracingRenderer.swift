@@ -48,15 +48,13 @@ final class RayTracingRenderer {
         }
     }
 
-    func render(drawable: CAMetalDrawable,
+    func encode(commandBuffer: MTLCommandBuffer,
+                drawable: CAMetalDrawable,
                 drawableSize: CGSize,
                 items: [RenderItem],
                 camera: Camera,
                 projection: matrix_float4x4,
-                viewMatrix: matrix_float4x4,
-                commandQueue: MTLCommandQueue) {
-        guard let commandBuffer = commandQueue.makeCommandBuffer() else { return }
-
+                viewMatrix: matrix_float4x4) {
         let geometry = rtScene.buildGeometryBuffers(items: items)
         let tlas = rtScene.buildAccelerationStructures(items: items, commandBuffer: commandBuffer)
 
@@ -95,9 +93,6 @@ final class RayTracingRenderer {
                            drawable: drawable,
                            width: width,
                            height: height)
-
-        commandBuffer.present(drawable)
-        commandBuffer.commit()
     }
 
     private func encodeRaytracePass(commandBuffer: MTLCommandBuffer,

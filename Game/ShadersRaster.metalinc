@@ -31,6 +31,7 @@ fragment float4 fragmentShader(Varyings in [[stage_in]],
                                texture2d<half> baseColor [[texture(TextureIndexBaseColor)]])
 {
     constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
-    float3 albedo = float3(baseColor.sample(colorSamp, in.uv).xyz);
-    return float4(albedo, 1.0);
+    half4 tex = baseColor.sample(colorSamp, in.uv);
+    float3 albedo = float3(tex.xyz);
+    return float4(albedo, float(tex.w));
 }

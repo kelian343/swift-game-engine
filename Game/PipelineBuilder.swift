@@ -20,25 +20,31 @@ enum PipelineBuilder {
                                    vertexDescriptor: MTLVertexDescriptor) throws -> MTLRenderPipelineState {
 
         let library = device.makeDefaultLibrary()
-        let compiler = try device.makeCompiler(descriptor: MTL4CompilerDescriptor())
+        guard let vertexFunction = library?.makeFunction(name: "vertexShader"),
+              let fragmentFunction = library?.makeFunction(name: "fragmentShader") else {
+            throw RendererError.badVertexDescriptor
+        }
 
-        let vfd = MTL4LibraryFunctionDescriptor()
-        vfd.library = library
-        vfd.name = "vertexShader"
-
-        let ffd = MTL4LibraryFunctionDescriptor()
-        ffd.library = library
-        ffd.name = "fragmentShader"
-
-        let pd = MTL4RenderPipelineDescriptor()
+        let pd = MTLRenderPipelineDescriptor()
         pd.label = "RenderPipeline"
         pd.rasterSampleCount = view.sampleCount
-        pd.vertexFunctionDescriptor = vfd
-        pd.fragmentFunctionDescriptor = ffd
+        pd.vertexFunction = vertexFunction
+        pd.fragmentFunction = fragmentFunction
         pd.vertexDescriptor = vertexDescriptor
         pd.colorAttachments[0].pixelFormat = view.colorPixelFormat
+        pd.depthAttachmentPixelFormat = view.depthStencilPixelFormat
+        pd.stencilAttachmentPixelFormat = view.depthStencilPixelFormat
+        if let color = pd.colorAttachments[0] {
+            color.isBlendingEnabled = true
+            color.rgbBlendOperation = .add
+            color.alphaBlendOperation = .add
+            color.sourceRGBBlendFactor = .sourceAlpha
+            color.sourceAlphaBlendFactor = .sourceAlpha
+            color.destinationRGBBlendFactor = .oneMinusSourceAlpha
+            color.destinationAlphaBlendFactor = .oneMinusSourceAlpha
+        }
 
-        return try compiler.makeRenderPipelineState(descriptor: pd)
+        return try device.makeRenderPipelineState(descriptor: pd)
     }
 
     static func makeDepthState(device: MTLDevice) -> MTLDepthStencilState? {

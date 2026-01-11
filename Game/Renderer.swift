@@ -107,6 +107,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     func draw(in view: MTKView) {
         guard let scene = scene else { return }
         guard let drawable = view.currentDrawable else { return }
+        guard let commandBuffer = context.commandQueue.makeCommandBuffer() else { return }
 
         let now = CACurrentMediaTime()
         let dt = Float(max(0.0, min(now - lastTime, 0.1)))
@@ -115,22 +116,61 @@ final class Renderer: NSObject, MTKViewDelegate {
         scene.update(dt: dt)
 
         let items = scene.renderItems
+        let overlayItems = scene.overlayItems
         rebuildResidencyIfNeeded(items: items)
 
         // Camera matrices
         let projection = scene.camera.projection
         let viewM = scene.camera.view
 
-        rayTracing.render(drawable: drawable,
+        rayTracing.encode(commandBuffer: commandBuffer,
+                          drawable: drawable,
                           drawableSize: view.drawableSize,
                           items: items,
                           camera: scene.camera,
                           projection: projection,
-                          viewMatrix: viewM,
-                          commandQueue: context.rtCommandQueue)
+                          viewMatrix: viewM)
+
+        if !overlayItems.isEmpty, let rpd = view.currentRenderPassDescriptor {
+            rpd.colorAttachments[0].loadAction = .load
+            rpd.colorAttachments[0].storeAction = .store
+            if let depth = rpd.depthAttachment {
+                depth.loadAction = .clear
+                depth.storeAction = .dontCare
+                depth.clearDepth = 1.0
+            }
+
+            _ = uniformRing.beginFrame()
+
+            let overlayProjection = orthoRH(left: 0,
+                                            right: Float(view.drawableSize.width),
+                                            bottom: Float(view.drawableSize.height),
+                                            top: 0,
+                                            near: -1,
+                                            far: 1)
+            let overlayView = matrix_identity_float4x4
+            let frame = FrameContext(scene: scene,
+                                     items: overlayItems,
+                                     context: context,
+                                     uniformRing: uniformRing,
+                                     pipelineState: pipelineState,
+                                     depthState: depthState,
+                                     fallbackWhite: fallbackWhite,
+                                     projection: overlayProjection,
+                                     viewMatrix: overlayView)
+            if let enc = commandBuffer.makeRenderCommandEncoder(descriptor: rpd) {
+                enc.label = mainPass.name
+                mainPass.encode(frame: frame, resources: RenderGraphResources(device: device, view: view), encoder: enc)
+                enc.endEncoding()
+            }
+        }
+
+        commandBuffer.present(drawable)
+        commandBuffer.commit()
     }
 
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         scene?.camera.updateProjection(width: Float(size.width), height: Float(size.height))
+        scene?.viewportDidChange(size: SIMD2<Float>(Float(size.width), Float(size.height)))
     }
 }
