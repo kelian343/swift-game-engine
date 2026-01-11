@@ -261,3 +261,28 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
     float3 outColor = accumColor + bg * (1.0 - accumAlpha);
     outTexture.write(float4(outColor, 1.0), gid);
 }
+
+struct SkinningParams {
+    uint baseVertex;
+    uint vertexCount;
+};
+
+kernel void skinningKernel(device const float3 *inPositions [[buffer(0)]],
+                           device const ushort4 *inBoneIndices [[buffer(1)]],
+                           device const float4 *inBoneWeights [[buffer(2)]],
+                           device const float4x4 *palette [[buffer(3)]],
+                           device float3 *outPositions [[buffer(4)]],
+                           constant SkinningParams &params [[buffer(5)]],
+                           uint gid [[thread_position_in_grid]]) {
+    if (gid >= params.vertexCount) { return; }
+    float4 p = float4(inPositions[gid], 1.0);
+    ushort4 idx = inBoneIndices[gid];
+    float4 w = inBoneWeights[gid];
+
+    float3 acc = float3(0.0);
+    if (w.x > 0.0) { acc += (palette[idx.x] * p).xyz * w.x; }
+    if (w.y > 0.0) { acc += (palette[idx.y] * p).xyz * w.y; }
+    if (w.z > 0.0) { acc += (palette[idx.z] * p).xyz * w.z; }
+    if (w.w > 0.0) { acc += (palette[idx.w] * p).xyz * w.w; }
+    outPositions[params.baseVertex + gid] = acc;
+}

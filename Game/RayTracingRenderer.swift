@@ -55,7 +55,7 @@ final class RayTracingRenderer {
                 camera: Camera,
                 projection: matrix_float4x4,
                 viewMatrix: matrix_float4x4) {
-        let geometry = rtScene.buildGeometryBuffers(items: items)
+        let geometry = rtScene.buildGeometryBuffers(items: items, commandBuffer: commandBuffer)
         let tlas = rtScene.buildAccelerationStructures(items: items, commandBuffer: commandBuffer)
 
         let viewProj = simd_mul(projection, viewMatrix)

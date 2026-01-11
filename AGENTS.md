@@ -24,6 +24,7 @@
 - RT BLAS refit: dynamic BLAS are now refit in place when topology is unchanged (build only on topology change).
 - RT scene refactor: RayTracingScene split into RTGeometryCache (buffers/slices) and RTAccelerationBuilder (BLAS/TLAS build/refit).
 - RT TLAS refit: TLAS now refits when instance/BLAS counts are stable, falling back to rebuild on topology changes.
+- GPU skinning (RT path): CPU skinning replaced by compute kernel writing dynamic vertex buffer; skinned source buffers cached, palettes uploaded per frame.
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.

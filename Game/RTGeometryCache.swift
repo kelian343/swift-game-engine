@@ -33,6 +33,16 @@ struct RTGeometryState {
     let dynamicSlices: [RTGeometrySlice]
     let staticChanged: Bool
     let dynamicChanged: Bool
+    let skinningJobs: [RTSkinningJob]
+}
+
+struct RTSkinningJob {
+    let sourcePositions: MTLBuffer
+    let sourceBoneIndices: MTLBuffer
+    let sourceBoneWeights: MTLBuffer
+    let paletteBuffer: MTLBuffer
+    let vertexCount: Int
+    let dstBaseVertex: Int
 }
 
 final class RTGeometryCache {
@@ -49,6 +59,8 @@ final class RTGeometryCache {
     private var dynamicIndexCapacity: Int = 0
     private var dynamicUVCapacity: Int = 0
     private var instanceInfoCapacity: Int = 0
+    private var dynamicVertexIsPrivate: Bool = false
+    private var skinnedSources: [SkinnedSourceKey: SkinnedSource] = [:]
 
     private var cachedStaticSlices: [RTGeometrySlice] = []
     private var cachedDynamicSlices: [RTGeometrySlice] = []
@@ -71,12 +83,26 @@ final class RTGeometryCache {
         let indexCount: Int
     }
 
+    private struct SkinnedSourceKey: Hashable {
+        let vertexPtr: UInt
+        let vertexCount: Int
+        let indexCount: Int
+    }
+
+    private struct SkinnedSource {
+        let positions: MTLBuffer
+        let boneIndices: MTLBuffer
+        let boneWeights: MTLBuffer
+        let vertexCount: Int
+    }
+
     func build(items: [RenderItem]) -> RTGeometryState? {
         guard !items.isEmpty else { return nil }
 
         var dynamicVertices: [SIMD3<Float>] = []
         var dynamicUVs: [SIMD2<Float>] = []
         var dynamicIndices: [UInt32] = []
+        var skinningJobs: [RTSkinningJob] = []
         var instances: [RTInstanceInfoSwift] = []
         var textureIndexForTexture: [ObjectIdentifier: Int] = [:]
         var texturesByIndex: [MTLTexture] = []
@@ -182,7 +208,7 @@ final class RTGeometryCache {
                 baseVertex = UInt32(dynamicVertices.count)
                 baseIndex = UInt32(dynamicIndices.count)
                 for v in skinned.vertices {
-                    dynamicVertices.append(skinPosition(vertex: v, palette: palette))
+                    dynamicVertices.append(.zero)
                     dynamicUVs.append(v.uv)
                 }
 
@@ -200,6 +226,12 @@ final class RTGeometryCache {
                                                      baseIndex: Int(baseIndex),
                                                      indexCount: indexCount,
                                                      bufferIndex: bufferIndex))
+
+                if let job = makeSkinningJob(skinned: skinned,
+                                             palette: palette,
+                                             dstBaseVertex: Int(baseVertex)) {
+                    skinningJobs.append(job)
+                }
             } else if item.mesh != nil {
                 if staticSliceIndex >= cachedStaticSlices.count { return nil }
                 let slice = cachedStaticSlices[staticSliceIndex]
@@ -255,11 +287,17 @@ final class RTGeometryCache {
         let iBytes = dynamicIndices.count * MemoryLayout<UInt32>.stride
         let instBytes = instances.count * MemoryLayout<RTInstanceInfoSwift>.stride
 
-        if dynamicVertexBuffer == nil || vBytes > dynamicVertexCapacity {
+        let useGPUSkinning = !skinningJobs.isEmpty
+        if dynamicVertexBuffer == nil
+            || vBytes > dynamicVertexCapacity
+            || (dynamicVertexIsPrivate && !useGPUSkinning)
+            || (!dynamicVertexIsPrivate && useGPUSkinning) {
             dynamicVertexCapacity = max(vBytes, 1)
+            let options: MTLResourceOptions = useGPUSkinning ? .storageModePrivate : .storageModeShared
             dynamicVertexBuffer = device.makeBuffer(length: dynamicVertexCapacity,
-                                                    options: [.storageModeShared])
+                                                    options: options)
             dynamicVertexBuffer?.label = "RTDynamicVertices"
+            dynamicVertexIsPrivate = useGPUSkinning
         }
         if dynamicUVBuffer == nil || uvBytes > dynamicUVCapacity {
             dynamicUVCapacity = max(uvBytes, 1)
@@ -280,7 +318,7 @@ final class RTGeometryCache {
             geometryInstanceInfoBuffer?.label = "RTInstanceInfo"
         }
 
-        if let buf = dynamicVertexBuffer, !dynamicVertices.isEmpty {
+        if let buf = dynamicVertexBuffer, !dynamicVertices.isEmpty, !useGPUSkinning {
             _ = dynamicVertices.withUnsafeBytes { raw in
                 memcpy(buf.contents(), raw.baseAddress!, raw.count)
             }
@@ -325,35 +363,82 @@ final class RTGeometryCache {
                                staticSlices: cachedStaticSlices,
                                dynamicSlices: cachedDynamicSlices,
                                staticChanged: staticChanged,
-                               dynamicChanged: dynamicChanged)
+                               dynamicChanged: dynamicChanged,
+                               skinningJobs: skinningJobs)
     }
-}
 
-private func skinPosition(vertex: VertexSkinnedPNUT4,
-                          palette: [matrix_float4x4]) -> SIMD3<Float> {
-    let idx = vertex.boneIndices
-    let w = vertex.boneWeights
+    private func makeSkinningJob(skinned: SkinnedMeshData,
+                                 palette: [matrix_float4x4],
+                                 dstBaseVertex: Int) -> RTSkinningJob? {
+        let vertexCount = skinned.vertices.count
+        let indexCount = skinned.indexCount
+        guard vertexCount > 0 else { return nil }
 
-    var p = SIMD3<Float>(0, 0, 0)
-    if w.x > 0 {
-        let m = palette[Int(idx.x)]
-        let v = simd_mul(m, SIMD4<Float>(vertex.position, 1))
-        p += SIMD3<Float>(v.x, v.y, v.z) * w.x
+        let vertexPtr = skinned.vertices.withUnsafeBytes { raw in
+            UInt(bitPattern: raw.baseAddress ?? UnsafeRawPointer(bitPattern: 0x1))
+        }
+        let key = SkinnedSourceKey(vertexPtr: vertexPtr,
+                                   vertexCount: vertexCount,
+                                   indexCount: indexCount)
+        let source: SkinnedSource = {
+            if let existing = skinnedSources[key] {
+                return existing
+            }
+
+            var positions: [SIMD3<Float>] = []
+            var boneIndices: [SIMD4<UInt16>] = []
+            var boneWeights: [SIMD4<Float>] = []
+            positions.reserveCapacity(vertexCount)
+            boneIndices.reserveCapacity(vertexCount)
+            boneWeights.reserveCapacity(vertexCount)
+
+            for v in skinned.vertices {
+                positions.append(v.position)
+                boneIndices.append(v.boneIndices)
+                boneWeights.append(v.boneWeights)
+            }
+
+            let posBytes = positions.count * MemoryLayout<SIMD3<Float>>.stride
+            let idxBytes = boneIndices.count * MemoryLayout<SIMD4<UInt16>>.stride
+            let wBytes = boneWeights.count * MemoryLayout<SIMD4<Float>>.stride
+
+            let posBuf = device.makeBuffer(bytes: positions,
+                                           length: max(posBytes, 1),
+                                           options: [.storageModeShared])!
+            let idxBuf = device.makeBuffer(bytes: boneIndices,
+                                           length: max(idxBytes, 1),
+                                           options: [.storageModeShared])!
+            let wBuf = device.makeBuffer(bytes: boneWeights,
+                                         length: max(wBytes, 1),
+                                         options: [.storageModeShared])!
+            posBuf.label = "RTSkinnedPositions"
+            idxBuf.label = "RTSkinnedBoneIndices"
+            wBuf.label = "RTSkinnedBoneWeights"
+            let created = SkinnedSource(positions: posBuf,
+                                        boneIndices: idxBuf,
+                                        boneWeights: wBuf,
+                                        vertexCount: vertexCount)
+            skinnedSources[key] = created
+            return created
+        }()
+
+        let paletteBytes = palette.count * MemoryLayout<matrix_float4x4>.stride
+        guard let paletteBuffer = device.makeBuffer(length: max(paletteBytes, 1),
+                                                    options: [.storageModeShared]) else {
+            return nil
+        }
+        paletteBuffer.label = "RTSkinningPalette"
+        if paletteBytes > 0 {
+            _ = palette.withUnsafeBytes { raw in
+                memcpy(paletteBuffer.contents(), raw.baseAddress!, raw.count)
+            }
+        }
+
+        return RTSkinningJob(sourcePositions: source.positions,
+                             sourceBoneIndices: source.boneIndices,
+                             sourceBoneWeights: source.boneWeights,
+                             paletteBuffer: paletteBuffer,
+                             vertexCount: source.vertexCount,
+                             dstBaseVertex: dstBaseVertex)
     }
-    if w.y > 0 {
-        let m = palette[Int(idx.y)]
-        let v = simd_mul(m, SIMD4<Float>(vertex.position, 1))
-        p += SIMD3<Float>(v.x, v.y, v.z) * w.y
-    }
-    if w.z > 0 {
-        let m = palette[Int(idx.z)]
-        let v = simd_mul(m, SIMD4<Float>(vertex.position, 1))
-        p += SIMD3<Float>(v.x, v.y, v.z) * w.z
-    }
-    if w.w > 0 {
-        let m = palette[Int(idx.w)]
-        let v = simd_mul(m, SIMD4<Float>(vertex.position, 1))
-        p += SIMD3<Float>(v.x, v.y, v.z) * w.w
-    }
-    return p
 }
