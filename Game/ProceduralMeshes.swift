@@ -7,6 +7,110 @@
 
 import simd
 
+public struct PlaneParams {
+    public var size: Float
+    public init(size: Float = 20) { self.size = size }
+}
+
+public struct BoxParams {
+    public var size: Float
+    public init(size: Float = 4) { self.size = size }
+}
+
+public struct TetrahedronParams {
+    public var size: Float
+    public init(size: Float = 4) { self.size = size }
+}
+
+public struct TriangularPrismParams {
+    public var size: Float
+    public var height: Float
+    public init(size: Float = 4, height: Float = 3) {
+        self.size = size
+        self.height = height
+    }
+}
+
+public struct RampParams {
+    public var width: Float
+    public var depth: Float
+    public var height: Float
+    public init(width: Float = 8, depth: Float = 8, height: Float = 4) {
+        self.width = width
+        self.depth = depth
+        self.height = height
+    }
+}
+
+public struct DomeParams {
+    public var radius: Float
+    public var radialSegments: Int
+    public var ringSegments: Int
+    public init(radius: Float = 4, radialSegments: Int = 32, ringSegments: Int = 12) {
+        self.radius = radius
+        self.radialSegments = radialSegments
+        self.ringSegments = ringSegments
+    }
+}
+
+public struct CapsuleParams {
+    public var radius: Float
+    public var halfHeight: Float
+    public var radialSegments: Int
+    public var hemisphereSegments: Int
+    public init(radius: Float = 1.5,
+                halfHeight: Float = 1.0,
+                radialSegments: Int = 24,
+                hemisphereSegments: Int = 8) {
+        self.radius = radius
+        self.halfHeight = halfHeight
+        self.radialSegments = radialSegments
+        self.hemisphereSegments = hemisphereSegments
+    }
+}
+
+public struct QuadParams {
+    public var width: Float
+    public var height: Float
+    public var uvMin: SIMD2<Float>
+    public var uvMax: SIMD2<Float>
+    public init(width: Float = 1,
+                height: Float = 1,
+                uvMin: SIMD2<Float> = SIMD2<Float>(0, 0),
+                uvMax: SIMD2<Float> = SIMD2<Float>(1, 1)) {
+        self.width = width
+        self.height = height
+        self.uvMin = uvMin
+        self.uvMax = uvMax
+    }
+}
+
+public struct HumanoidSkinnedParams {
+    public var legHeight: Float
+    public var legRadius: Float
+    public var torsoHeight: Float
+    public var torsoRadius: Float
+    public var hipSeparation: Float
+    public var radialSegments: Int
+    public var heightSegments: Int
+
+    public init(legHeight: Float = 1.8,
+                legRadius: Float = 0.35,
+                torsoHeight: Float = 2.0,
+                torsoRadius: Float = 0.5,
+                hipSeparation: Float = 0.45,
+                radialSegments: Int = 12,
+                heightSegments: Int = 4) {
+        self.legHeight = legHeight
+        self.legRadius = legRadius
+        self.torsoHeight = torsoHeight
+        self.torsoRadius = torsoRadius
+        self.hipSeparation = hipSeparation
+        self.radialSegments = radialSegments
+        self.heightSegments = heightSegments
+    }
+}
+
 /// Demo generator: a textured box with normals + UVs.
 /// You can replace this with any procedural generator (marching cubes, hull, parametric, etc).
 enum ProceduralMeshes {
@@ -27,8 +131,8 @@ enum ProceduralMeshes {
                                         indices16: indices16,
                                         name: name)
     }
-    static func plane(size: Float = 20) -> ProceduralMeshDescriptor {
-        let s = size * 0.5
+    static func plane(_ params: PlaneParams = PlaneParams()) -> ProceduralMeshDescriptor {
+        let s = params.size * 0.5
         let n = SIMD3<Float>(0, 1, 0)
 
         let v: [VertexPNUT] = [
@@ -41,8 +145,8 @@ enum ProceduralMeshes {
         return buildDescriptor(name: "plane", vertices: v, indices16: i)
     }
 
-    static func box(size: Float = 4) -> ProceduralMeshDescriptor {
-        let s = size * 0.5
+    static func box(_ params: BoxParams = BoxParams()) -> ProceduralMeshDescriptor {
+        let s = params.size * 0.5
 
         // 24 vertices (4 per face) for clean normals/UVs
         var v: [VertexPNUT] = []
@@ -88,8 +192,8 @@ enum ProceduralMeshes {
         return buildDescriptor(name: "box", vertices: v, indices16: i)
     }
 
-    static func tetrahedron(size: Float = 4) -> ProceduralMeshDescriptor {
-        let s = size * 0.5
+    static func tetrahedron(_ params: TetrahedronParams = TetrahedronParams()) -> ProceduralMeshDescriptor {
+        let s = params.size * 0.5
         let p0 = SIMD3<Float>( 0,  s,  0)
         let p1 = SIMD3<Float>(-s, -s,  s)
         let p2 = SIMD3<Float>( s, -s,  s)
@@ -115,9 +219,9 @@ enum ProceduralMeshes {
         return buildDescriptor(name: "tetrahedron", vertices: v, indices16: i)
     }
 
-    static func triangularPrism(size: Float = 4, height: Float = 3) -> ProceduralMeshDescriptor {
-        let s = size * 0.5
-        let h = height * 0.5
+    static func triangularPrism(_ params: TriangularPrismParams = TriangularPrismParams()) -> ProceduralMeshDescriptor {
+        let s = params.size * 0.5
+        let h = params.height * 0.5
 
         let a0 = SIMD3<Float>(-s, -h,  s)
         let b0 = SIMD3<Float>( s, -h,  s)
@@ -161,10 +265,10 @@ enum ProceduralMeshes {
         return buildDescriptor(name: "triangularPrism", vertices: v, indices16: i)
     }
 
-    static func ramp(width: Float = 8, depth: Float = 8, height: Float = 4) -> ProceduralMeshDescriptor {
-        let w = width * 0.5
-        let d = depth * 0.5
-        let h = height * 0.5
+    static func ramp(_ params: RampParams = RampParams()) -> ProceduralMeshDescriptor {
+        let w = params.width * 0.5
+        let d = params.depth * 0.5
+        let h = params.height * 0.5
 
         let frontLeft = SIMD3<Float>(-w, -h,  d)
         let frontRight = SIMD3<Float>( w, -h,  d)
@@ -209,13 +313,7 @@ enum ProceduralMeshes {
         return buildDescriptor(name: "ramp", vertices: v, indices16: i)
     }
 
-    static func humanoidSkinned(legHeight: Float = 1.8,
-                                legRadius: Float = 0.35,
-                                torsoHeight: Float = 2.0,
-                                torsoRadius: Float = 0.5,
-                                hipSeparation: Float = 0.45,
-                                radialSegments: Int = 12,
-                                heightSegments: Int = 4) -> SkinnedMeshDescriptor {
+    static func humanoidSkinned(_ params: HumanoidSkinnedParams = HumanoidSkinnedParams()) -> SkinnedMeshDescriptor {
         var positions: [SIMD3<Float>] = []
         var normals: [SIMD3<Float>] = []
         var uvs: [SIMD2<Float>] = []
@@ -310,32 +408,32 @@ enum ProceduralMeshes {
 
         // Torso centered above hips
         addCylinder(centerX: 0,
-                    centerY: torsoHeight * 0.5,
+                    centerY: params.torsoHeight * 0.5,
                     centerZ: 0,
-                    radius: torsoRadius,
-                    height: torsoHeight,
-                    radialSegs: radialSegments,
-                    heightSegs: heightSegments,
+                    radius: params.torsoRadius,
+                    height: params.torsoHeight,
+                    radialSegs: params.radialSegments,
+                    heightSegs: params.heightSegments,
                     weightForY: torsoWeights)
 
         // Left leg
-        addCylinder(centerX: -hipSeparation,
-                    centerY: -legHeight * 0.5,
+        addCylinder(centerX: -params.hipSeparation,
+                    centerY: -params.legHeight * 0.5,
                     centerZ: 0,
-                    radius: legRadius,
-                    height: legHeight,
-                    radialSegs: radialSegments,
-                    heightSegs: heightSegments,
+                    radius: params.legRadius,
+                    height: params.legHeight,
+                    radialSegs: params.radialSegments,
+                    heightSegs: params.heightSegments,
                     weightForY: { t in legWeights(thigh: 3, calf: 4, t: t) })
 
         // Right leg
-        addCylinder(centerX: hipSeparation,
-                    centerY: -legHeight * 0.5,
+        addCylinder(centerX: params.hipSeparation,
+                    centerY: -params.legHeight * 0.5,
                     centerZ: 0,
-                    radius: legRadius,
-                    height: legHeight,
-                    radialSegs: radialSegments,
-                    heightSegs: heightSegments,
+                    radius: params.legRadius,
+                    height: params.legHeight,
+                    radialSegs: params.radialSegments,
+                    heightSegs: params.heightSegments,
                     weightForY: { t in legWeights(thigh: 5, calf: 6, t: t) })
 
         var builder = SkinnedMeshBuilder()
@@ -357,11 +455,9 @@ enum ProceduralMeshes {
                                      name: "humanoidSkinned")
     }
 
-    static func dome(radius: Float = 4,
-                     radialSegments: Int = 32,
-                     ringSegments: Int = 12) -> ProceduralMeshDescriptor {
-        let slices = max(radialSegments, 3)
-        let rings = max(ringSegments, 2)
+    static func dome(_ params: DomeParams = DomeParams()) -> ProceduralMeshDescriptor {
+        let slices = max(params.radialSegments, 3)
+        let rings = max(params.ringSegments, 2)
 
         var v: [VertexPNUT] = []
         var i: [UInt16] = []
@@ -372,8 +468,8 @@ enum ProceduralMeshes {
         for r in 0...rings {
             let t = Float(r) / Float(rings)
             let theta = t * (Float.pi * 0.5)
-            let y = cos(theta) * radius
-            let ringR = sin(theta) * radius
+            let y = cos(theta) * params.radius
+            let ringR = sin(theta) * params.radius
 
             for s in 0...slices {
                 let u = Float(s) / Float(slices)
@@ -405,8 +501,8 @@ enum ProceduralMeshes {
         for s in 0...slices {
             let u = Float(s) / Float(slices)
             let phi = u * twoPi
-            let x = cos(phi) * radius
-            let z = sin(phi) * radius
+            let x = cos(phi) * params.radius
+            let z = sin(phi) * params.radius
             let uv = SIMD2<Float>(0.5 + 0.5 * cos(phi), 0.5 + 0.5 * sin(phi))
             v.append(VertexPNUT(position: SIMD3<Float>(x, 0, z),
                                 normal: SIMD3<Float>(0, -1, 0),
@@ -424,12 +520,9 @@ enum ProceduralMeshes {
         return buildDescriptor(name: "dome", vertices: v, indices16: i)
     }
 
-    static func capsule(radius: Float = 1.5,
-                        halfHeight: Float = 1.0,
-                        radialSegments: Int = 24,
-                        hemisphereSegments: Int = 8) -> ProceduralMeshDescriptor {
-        let slices = max(radialSegments, 3)
-        let hemi = max(hemisphereSegments, 2)
+    static func capsule(_ params: CapsuleParams = CapsuleParams()) -> ProceduralMeshDescriptor {
+        let slices = max(params.radialSegments, 3)
+        let hemi = max(params.hemisphereSegments, 2)
 
         struct Ring {
             var y: Float
@@ -443,14 +536,14 @@ enum ProceduralMeshes {
         for i in 0...hemi {
             let t = Float(i) / Float(hemi)
             let theta = t * (Float.pi * 0.5)
-            let y = halfHeight + cos(theta) * radius
-            let r = sin(theta) * radius
-            rings.append(Ring(y: y, r: r, normalCenterY: halfHeight))
+            let y = params.halfHeight + cos(theta) * params.radius
+            let r = sin(theta) * params.radius
+            rings.append(Ring(y: y, r: r, normalCenterY: params.halfHeight))
         }
 
         // Cylinder to bottom equator
-        if halfHeight > 0 {
-            rings.append(Ring(y: -halfHeight, r: radius, normalCenterY: nil))
+        if params.halfHeight > 0 {
+            rings.append(Ring(y: -params.halfHeight, r: params.radius, normalCenterY: nil))
         }
 
         // Bottom hemisphere (just below equator -> bottom pole)
@@ -458,9 +551,9 @@ enum ProceduralMeshes {
             for i in stride(from: hemi - 1, through: 0, by: -1) {
                 let t = Float(i) / Float(hemi)
                 let theta = t * (Float.pi * 0.5)
-                let y = -halfHeight - cos(theta) * radius
-                let r = sin(theta) * radius
-                rings.append(Ring(y: y, r: r, normalCenterY: -halfHeight))
+            let y = -params.halfHeight - cos(theta) * params.radius
+            let r = sin(theta) * params.radius
+            rings.append(Ring(y: y, r: r, normalCenterY: -params.halfHeight))
             }
         }
 
@@ -506,16 +599,13 @@ enum ProceduralMeshes {
         return buildDescriptor(name: "capsule", vertices: v, indices16: i)
     }
 
-    static func quad(width: Float = 1,
-                     height: Float = 1,
-                     uvMin: SIMD2<Float> = SIMD2<Float>(0, 0),
-                     uvMax: SIMD2<Float> = SIMD2<Float>(1, 1)) -> ProceduralMeshDescriptor {
+    static func quad(_ params: QuadParams = QuadParams()) -> ProceduralMeshDescriptor {
         let normal = SIMD3<Float>(0, 0, 1)
         let v: [VertexPNUT] = [
-            VertexPNUT(position: SIMD3<Float>(0, 0, 0), normal: normal, uv: SIMD2<Float>(uvMin.x, uvMin.y)),
-            VertexPNUT(position: SIMD3<Float>(width, 0, 0), normal: normal, uv: SIMD2<Float>(uvMax.x, uvMin.y)),
-            VertexPNUT(position: SIMD3<Float>(width, height, 0), normal: normal, uv: SIMD2<Float>(uvMax.x, uvMax.y)),
-            VertexPNUT(position: SIMD3<Float>(0, height, 0), normal: normal, uv: SIMD2<Float>(uvMin.x, uvMax.y))
+            VertexPNUT(position: SIMD3<Float>(0, 0, 0), normal: normal, uv: SIMD2<Float>(params.uvMin.x, params.uvMin.y)),
+            VertexPNUT(position: SIMD3<Float>(params.width, 0, 0), normal: normal, uv: SIMD2<Float>(params.uvMax.x, params.uvMin.y)),
+            VertexPNUT(position: SIMD3<Float>(params.width, params.height, 0), normal: normal, uv: SIMD2<Float>(params.uvMax.x, params.uvMax.y)),
+            VertexPNUT(position: SIMD3<Float>(0, params.height, 0), normal: normal, uv: SIMD2<Float>(params.uvMin.x, params.uvMax.y))
         ]
         let i: [UInt16] = [0, 1, 2, 0, 2, 3]
         return buildDescriptor(name: "quad", vertices: v, indices16: i)
