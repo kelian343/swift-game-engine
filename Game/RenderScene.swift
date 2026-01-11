@@ -27,6 +27,11 @@ public protocol RenderScene: AnyObject {
     /// Increment this when renderItems/resources change (mesh/texture/material changes).
     var revision: UInt64 { get }
 
+    /// Tone mapping exposure (applied in composite pass).
+    var toneMappingExposure: Float { get }
+    /// Enable/disable tone mapping in composite pass.
+    var toneMappingEnabled: Bool { get }
+
     func viewportDidChange(size: SIMD2<Float>)
 }
 
@@ -34,4 +39,7 @@ extension RenderScene {
     func viewportDidChange(size: SIMD2<Float>) {
         _ = size
     }
+
+    var toneMappingExposure: Float { 1.0 }
+    var toneMappingEnabled: Bool { true }
 }

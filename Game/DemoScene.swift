@@ -15,6 +15,8 @@ public final class DemoScene: RenderScene {
     public private(set) var renderItems: [RenderItem] = []
     public private(set) var overlayItems: [RenderItem] = []
     public private(set) var revision: UInt64 = 0
+    public var toneMappingExposure: Float = 1.0
+    public var toneMappingEnabled: Bool = true
     private var fpsOverlaySystem: FPSOverlaySystem?
 
     // ECS
@@ -458,6 +460,9 @@ public final class DemoScene: RenderScene {
         // ECS simulation step
         timeSystem.update(world: world, dt: dt)
         inputSystem.update(world: world, dt: dt)
+        if inputSystem.exposureDelta != 0 {
+            toneMappingExposure = min(max(toneMappingExposure + inputSystem.exposureDelta * dt, 0.2), 3.0)
+        }
         fixedRunner.update(world: world)
 
         camera.updateView()

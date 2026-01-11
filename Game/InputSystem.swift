@@ -20,6 +20,7 @@ final class InputSystem: System {
     // Character facing (driven by LEFT stick direction)
     private var facingYaw: Float = 0
     private var lastJumpPressed: Bool = false
+    public private(set) var exposureDelta: Float = 0
 
     var moveSpeed: Float = 10.0
     var lookSpeed: Float = 2.5      // used for right stick rotation + pitch
@@ -76,6 +77,7 @@ final class InputSystem: System {
         guard let pad = controller?.extendedGamepad else {
             mStore[player] = MoveIntentComponent()
             lastJumpPressed = false
+            exposureDelta = 0
             return
         }
 
@@ -85,6 +87,7 @@ final class InputSystem: System {
         let rawRX = pad.rightThumbstick.xAxis.value
         let rawRY = pad.rightThumbstick.yAxis.value
         let jumpPressed = pad.buttonA.isPressed
+        exposureDelta = 0
 
         // Match the "correct version" axis sign convention
         let lx = axis(-rawLX)

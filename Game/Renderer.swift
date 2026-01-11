@@ -190,7 +190,9 @@ final class Renderer: NSObject, MTKViewDelegate {
                                         near: -1,
                                         far: 1)
         let overlayView = matrix_identity_float4x4
-        let compositeItems = makeCompositeItems(size: view.drawableSize)
+        let compositeItems = makeCompositeItems(size: view.drawableSize,
+                                               exposure: scene.toneMappingExposure,
+                                               toneMapped: scene.toneMappingEnabled)
         let frame = FrameContext(scene: scene,
                                  items: [],
                                  compositeItems: compositeItems,
@@ -245,7 +247,9 @@ final class Renderer: NSObject, MTKViewDelegate {
         }
     }
 
-    private func makeCompositeItems(size: CGSize) -> [RenderItem] {
+    private func makeCompositeItems(size: CGSize,
+                                    exposure: Float,
+                                    toneMapped: Bool) -> [RenderItem] {
         guard let rtResource = rtColorResource else { return [] }
         if compositeMaterial == nil {
             var mat = Material(baseColorTexture: rtResource,
@@ -253,11 +257,14 @@ final class Renderer: NSObject, MTKViewDelegate {
                                alpha: 1.0)
             mat.cullMode = .none
             mat.unlit = true
-            mat.toneMapped = true
-            mat.exposure = 1.0
+            mat.toneMapped = toneMapped
+            mat.exposure = exposure
             compositeMaterial = mat
         }
-        guard let mat = compositeMaterial else { return [] }
+        guard var mat = compositeMaterial else { return [] }
+        mat.toneMapped = toneMapped
+        mat.exposure = exposure
+        compositeMaterial = mat
 
         let scale = SIMD3<Float>(Float(size.width), Float(size.height), 1)
         let t = TransformComponent(translation: SIMD3<Float>(0, 0, 0),
