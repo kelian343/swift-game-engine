@@ -27,6 +27,8 @@ final class RayTracingScene {
     private var lastInstanceSlices: [GeometrySlice] = []
     private var cachedStaticSlices: [GeometrySlice] = []
     private var cachedStaticKey: [StaticKey] = []
+    private var cachedStaticBLAS: [MTLAccelerationStructure] = []
+    private var staticCacheDirty: Bool = true
     private var transientBLAS: [MTLAccelerationStructure] = []
     private var transientScratch: [MTLBuffer] = []
 
@@ -70,20 +72,68 @@ final class RayTracingScene {
             return nil
         }
 
-        var blasList: [MTLAccelerationStructure] = []
-        blasList.reserveCapacity(items.count)
         transientBLAS.removeAll(keepingCapacity: true)
         transientScratch.removeAll(keepingCapacity: true)
 
+        if staticCacheDirty || cachedStaticBLAS.count != cachedStaticSlices.count {
+            cachedStaticBLAS.removeAll(keepingCapacity: true)
+            cachedStaticBLAS.reserveCapacity(cachedStaticSlices.count)
+            let encoder = commandBuffer.makeAccelerationStructureCommandEncoder()!
+            for slice in cachedStaticSlices {
+                let geometry = MTLAccelerationStructureTriangleGeometryDescriptor()
+                geometry.vertexBuffer = staticVB
+                geometry.vertexBufferOffset = slice.baseVertex * MemoryLayout<SIMD3<Float>>.stride
+                geometry.vertexStride = MemoryLayout<SIMD3<Float>>.stride
+                geometry.vertexFormat = .float3
+                geometry.indexBuffer = staticIB
+                geometry.indexBufferOffset = slice.baseIndex * MemoryLayout<UInt32>.stride
+                geometry.indexType = .uint32
+                geometry.triangleCount = slice.indexCount / 3
+                geometry.opaque = true
+
+                let desc = MTLPrimitiveAccelerationStructureDescriptor()
+                desc.geometryDescriptors = [geometry]
+
+                let sizes = device.accelerationStructureSizes(descriptor: desc)
+                let blas = device.makeAccelerationStructure(size: sizes.accelerationStructureSize)!
+                let scratch = device.makeBuffer(length: sizes.buildScratchBufferSize,
+                                                options: .storageModePrivate)!
+
+                encoder.build(accelerationStructure: blas,
+                              descriptor: desc,
+                              scratchBuffer: scratch,
+                              scratchBufferOffset: 0)
+
+                cachedStaticBLAS.append(blas)
+                transientScratch.append(scratch)
+            }
+            encoder.endEncoding()
+            staticCacheDirty = false
+        }
+
+        var blasList: [MTLAccelerationStructure] = []
+        blasList.reserveCapacity(cachedStaticBLAS.count + items.count)
+        blasList.append(contentsOf: cachedStaticBLAS)
+
+        var accelIndexForItem: [UInt32] = []
+        accelIndexForItem.reserveCapacity(items.count)
+        var staticIndex = 0
+        var dynamicIndex = 0
+
         let encoder = commandBuffer.makeAccelerationStructureCommandEncoder()!
-        for (i, _) in items.enumerated() {
-            let slice = lastInstanceSlices[i]
+        for slice in lastInstanceSlices {
+            if slice.bufferIndex == 0 {
+                accelIndexForItem.append(UInt32(staticIndex))
+                staticIndex += 1
+                continue
+            }
+
             let geometry = MTLAccelerationStructureTriangleGeometryDescriptor()
-            geometry.vertexBuffer = slice.bufferIndex == 0 ? staticVB : dynamicVB
+            geometry.vertexBuffer = dynamicVB
             geometry.vertexBufferOffset = slice.baseVertex * MemoryLayout<SIMD3<Float>>.stride
             geometry.vertexStride = MemoryLayout<SIMD3<Float>>.stride
             geometry.vertexFormat = .float3
-            geometry.indexBuffer = slice.bufferIndex == 0 ? staticIB : dynamicIB
+            geometry.indexBuffer = dynamicIB
             geometry.indexBufferOffset = slice.baseIndex * MemoryLayout<UInt32>.stride
             geometry.indexType = .uint32
             geometry.triangleCount = slice.indexCount / 3
@@ -105,6 +155,8 @@ final class RayTracingScene {
             transientBLAS.append(blas)
             transientScratch.append(scratch)
             blasList.append(blas)
+            accelIndexForItem.append(UInt32(cachedStaticBLAS.count + dynamicIndex))
+            dynamicIndex += 1
         }
         encoder.endEncoding()
 
@@ -113,7 +165,7 @@ final class RayTracingScene {
 
         for (i, item) in items.enumerated() {
             var desc = MTLAccelerationStructureInstanceDescriptor()
-            desc.accelerationStructureIndex = UInt32(i)
+            desc.accelerationStructureIndex = accelIndexForItem[i]
             desc.mask = 0xFF
             desc.options = []
             desc.intersectionFunctionTableOffset = 0
@@ -255,6 +307,7 @@ final class RayTracingScene {
             staticVertexBuffer?.label = "RTStaticVertices"
             staticUVBuffer?.label = "RTStaticUVs"
             staticIndexBuffer?.label = "RTStaticIndices"
+            staticCacheDirty = true
         }
 
         var staticSliceIndex = 0

@@ -20,6 +20,7 @@
 - Rendering pipeline refactor: migrated raster path from MTL4 to standard MTL, unified RT + raster on a single MTLCommandBuffer.
 - Added system-level UI pass via RenderGraph: RT renders to offscreen texture, composite pass draws to drawable, UI pass overlays (alpha blending enabled).
 - Debug UI overlay added: FPS digits atlas + quad-based UI rendering in top-right; viewport size hook for UI layout.
+- RT BLAS optimization: static meshes now reuse cached BLAS; dynamic meshes rebuild BLAS per frame while TLAS updates instance transforms.
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.
@@ -76,7 +77,7 @@ Goal: remove old penetration/solver paths.
 - Continue tuning agent collision weights/margins as needed for push feel.
 - Phase 7 later: cleanup (remove old penetration/solver paths; keep triggers).
 - Next optional: improve skinned character (foot bones/IK) or reduce RT cost (GPU skinning, BLAS refit).
-- Optional next: expand RT cache invalidation (mesh mutation/material changes) and consider BLAS refit for static buffers.
+- Optional next: expand RT cache invalidation (mesh mutation/material changes) and consider BLAS refit for dynamic buffers.
 
 ## Phase 6 (Planned): Kinematic Platforms + Carry
 Goal: platform carry without tunneling or jitter.
