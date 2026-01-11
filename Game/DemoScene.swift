@@ -15,7 +15,7 @@ public final class DemoScene: RenderScene {
     public private(set) var renderItems: [RenderItem] = []
     public private(set) var overlayItems: [RenderItem] = []
     public private(set) var revision: UInt64 = 0
-    public var toneMappingExposure: Float = 1.0
+    public var toneMappingExposure: Float = 4.0
     public var toneMappingEnabled: Bool = true
     private var fpsOverlaySystem: FPSOverlaySystem?
 
