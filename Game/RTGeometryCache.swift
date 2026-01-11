@@ -45,6 +45,10 @@ final class RTGeometryCache {
     private var dynamicIndexBuffer: MTLBuffer?
     private var dynamicUVBuffer: MTLBuffer?
     private var geometryInstanceInfoBuffer: MTLBuffer?
+    private var dynamicVertexCapacity: Int = 0
+    private var dynamicIndexCapacity: Int = 0
+    private var dynamicUVCapacity: Int = 0
+    private var instanceInfoCapacity: Int = 0
 
     private var cachedStaticSlices: [RTGeometrySlice] = []
     private var cachedDynamicSlices: [RTGeometrySlice] = []
@@ -251,18 +255,51 @@ final class RTGeometryCache {
         let iBytes = dynamicIndices.count * MemoryLayout<UInt32>.stride
         let instBytes = instances.count * MemoryLayout<RTInstanceInfoSwift>.stride
 
-        dynamicVertexBuffer = device.makeBuffer(bytes: dynamicVertices,
-                                                length: max(vBytes, 1),
+        if dynamicVertexBuffer == nil || vBytes > dynamicVertexCapacity {
+            dynamicVertexCapacity = max(vBytes, 1)
+            dynamicVertexBuffer = device.makeBuffer(length: dynamicVertexCapacity,
+                                                    options: [.storageModeShared])
+            dynamicVertexBuffer?.label = "RTDynamicVertices"
+        }
+        if dynamicUVBuffer == nil || uvBytes > dynamicUVCapacity {
+            dynamicUVCapacity = max(uvBytes, 1)
+            dynamicUVBuffer = device.makeBuffer(length: dynamicUVCapacity,
                                                 options: [.storageModeShared])
-        dynamicUVBuffer = device.makeBuffer(bytes: dynamicUVs,
-                                            length: max(uvBytes, 1),
-                                            options: [.storageModeShared])
-        dynamicIndexBuffer = device.makeBuffer(bytes: dynamicIndices,
-                                               length: max(iBytes, 1),
-                                               options: [.storageModeShared])
-        geometryInstanceInfoBuffer = device.makeBuffer(bytes: instances,
-                                                        length: max(instBytes, 1),
-                                                        options: [.storageModeShared])
+            dynamicUVBuffer?.label = "RTDynamicUVs"
+        }
+        if dynamicIndexBuffer == nil || iBytes > dynamicIndexCapacity {
+            dynamicIndexCapacity = max(iBytes, 1)
+            dynamicIndexBuffer = device.makeBuffer(length: dynamicIndexCapacity,
+                                                   options: [.storageModeShared])
+            dynamicIndexBuffer?.label = "RTDynamicIndices"
+        }
+        if geometryInstanceInfoBuffer == nil || instBytes > instanceInfoCapacity {
+            instanceInfoCapacity = max(instBytes, 1)
+            geometryInstanceInfoBuffer = device.makeBuffer(length: instanceInfoCapacity,
+                                                            options: [.storageModeShared])
+            geometryInstanceInfoBuffer?.label = "RTInstanceInfo"
+        }
+
+        if let buf = dynamicVertexBuffer, !dynamicVertices.isEmpty {
+            _ = dynamicVertices.withUnsafeBytes { raw in
+                memcpy(buf.contents(), raw.baseAddress!, raw.count)
+            }
+        }
+        if let buf = dynamicUVBuffer, !dynamicUVs.isEmpty {
+            _ = dynamicUVs.withUnsafeBytes { raw in
+                memcpy(buf.contents(), raw.baseAddress!, raw.count)
+            }
+        }
+        if let buf = dynamicIndexBuffer, !dynamicIndices.isEmpty {
+            _ = dynamicIndices.withUnsafeBytes { raw in
+                memcpy(buf.contents(), raw.baseAddress!, raw.count)
+            }
+        }
+        if let buf = geometryInstanceInfoBuffer, !instances.isEmpty {
+            _ = instances.withUnsafeBytes { raw in
+                memcpy(buf.contents(), raw.baseAddress!, raw.count)
+            }
+        }
 
         guard let staticVB = staticVertexBuffer,
               let staticUVB = staticUVBuffer,
@@ -273,11 +310,6 @@ final class RTGeometryCache {
               let instb = geometryInstanceInfoBuffer else {
             return nil
         }
-
-        dynamicVB.label = "RTDynamicVertices"
-        dynamicUVB.label = "RTDynamicUVs"
-        dynamicIB.label = "RTDynamicIndices"
-        instb.label = "RTInstanceInfo"
 
         let buffers = RTGeometryBuffers(staticVertexBuffer: staticVB,
                                         staticIndexBuffer: staticIB,
