@@ -39,8 +39,9 @@ final class FPSOverlaySystem {
             let u1 = Float((digit + 1) * cellW) / Float(atlasW)
             let v0: Float = 0
             let v1 = Float(cellH) / Float(atlasH)
-            let meshData = ProceduralMeshes.quad(uvMin: SIMD2<Float>(u0, v0),
-                                                 uvMax: SIMD2<Float>(u1, v1))
+            let desc = ProceduralMeshes.quad(uvMin: SIMD2<Float>(u0, v0),
+                                             uvMax: SIMD2<Float>(u1, v1))
+            let meshData = ProceduralMeshBridge.toMeshDataPNUT(desc) ?? MeshData(vertices: [], indices16: [])
             return GPUMesh(device: device, data: meshData, label: "FPSDigit\(digit)")
         }
     }

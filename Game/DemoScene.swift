@@ -68,7 +68,8 @@ public final class DemoScene: RenderScene {
 
         // --- Ground: platform plane (4x area)
         do {
-            let meshData = ProceduralMeshes.plane(size: 80.0)
+            let meshDesc = ProceduralMeshes.plane(size: 80.0)
+            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
             let mesh = GPUMesh(device: device, data: meshData, label: "Ground")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 80, g: 80, b: 80, a: 255),
@@ -90,7 +91,8 @@ public final class DemoScene: RenderScene {
 
         // --- Kinematic Platforms: elevator + ground mover
         do {
-            let meshData = ProceduralMeshes.box(size: 4.0)
+            let meshDesc = ProceduralMeshes.box(size: 4.0)
+            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
             let mesh = GPUMesh(device: device, data: meshData, label: "Platform")
             let texUp = TextureResource(device: device,
                                         source: .solid(width: 4, height: 4, r: 120, g: 200, b: 255, a: 255),
@@ -150,8 +152,9 @@ public final class DemoScene: RenderScene {
         do {
             let capsuleRadius: Float = 1.5
             let capsuleHalfHeight: Float = 1.0
-            let meshData = ProceduralMeshes.capsule(radius: capsuleRadius,
+            let meshDesc = ProceduralMeshes.capsule(radius: capsuleRadius,
                                                     halfHeight: capsuleHalfHeight)
+            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
             let mesh = GPUMesh(device: device, data: meshData, label: "KinematicCapsule")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 220, g: 120, b: 255, a: 255),
@@ -186,19 +189,23 @@ public final class DemoScene: RenderScene {
         do {
             let playerRadius: Float = 1.5
             let playerHalfHeight: Float = 1.0
-            let skinnedData = ProceduralMeshes.humanoidSkinned(legHeight: 1.8,
+            let skinnedDesc = ProceduralMeshes.humanoidSkinned(legHeight: 1.8,
                                                               legRadius: 0.35,
                                                               torsoHeight: 2.0,
                                                               torsoRadius: 0.55,
                                                               hipSeparation: 0.45,
                                                               radialSegments: 12,
                                                               heightSegments: 4)
+            let skinnedData = ProceduralMeshBridge.toSkinnedMeshData(skinnedDesc)
+                ?? SkinnedMeshData(vertices: [], indices16: [])
             let tex = TextureResource(device: device,
                                       source: ProceduralTextures.checkerboard(width: 256, height: 256, cell: 48),
                                       label: "TexB")
             let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.4, alpha: 1.0)
-            let capsuleMeshData = ProceduralMeshes.capsule(radius: playerRadius,
+            let capsuleMeshDesc = ProceduralMeshes.capsule(radius: playerRadius,
                                                            halfHeight: playerHalfHeight)
+            let capsuleMeshData = ProceduralMeshBridge.toMeshDataPNUT(capsuleMeshDesc)
+                ?? MeshData(vertices: [], indices16: [])
             let capsuleMesh = GPUMesh(device: device, data: capsuleMeshData, label: "PlayerCapsuleOverlay")
             let capsuleTex = TextureResource(device: device,
                                              source: .solid(width: 4, height: 4, r: 120, g: 160, b: 255, a: 255),
@@ -241,8 +248,9 @@ public final class DemoScene: RenderScene {
         do {
             let npcRadius: Float = 1.5
             let npcHalfHeight: Float = 1.0
-            let meshData = ProceduralMeshes.capsule(radius: npcRadius,
+            let meshDesc = ProceduralMeshes.capsule(radius: npcRadius,
                                                     halfHeight: npcHalfHeight)
+            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
             let mesh = GPUMesh(device: device, data: meshData, label: "NPCCapsule")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 255, g: 180, b: 80, a: 255),
@@ -276,7 +284,8 @@ public final class DemoScene: RenderScene {
 
         // --- Test Wall: large static blocker
         do {
-            let meshData = ProceduralMeshes.box(size: 6.0)
+            let meshDesc = ProceduralMeshes.box(size: 6.0)
+            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
             let mesh = GPUMesh(device: device, data: meshData, label: "TestWall")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 255, g: 80, b: 80, a: 255),
@@ -298,7 +307,8 @@ public final class DemoScene: RenderScene {
         // --- Test Ramp: sloped obstacle
         do {
             let rampHeight: Float = 4.0
-            let meshData = ProceduralMeshes.ramp(width: 8.0, depth: 10.0, height: rampHeight)
+            let meshDesc = ProceduralMeshes.ramp(width: 8.0, depth: 10.0, height: rampHeight)
+            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
             let mesh = GPUMesh(device: device, data: meshData, label: "TestRamp")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 80, g: 160, b: 255, a: 255),
@@ -320,9 +330,10 @@ public final class DemoScene: RenderScene {
 
         // --- Test Dome: curved top for sliding
         do {
-            let meshData = ProceduralMeshes.dome(radius: 4.0,
+            let meshDesc = ProceduralMeshes.dome(radius: 4.0,
                                                  radialSegments: 32,
                                                  ringSegments: 12)
+            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
             let mesh = GPUMesh(device: device, data: meshData, label: "TestDome")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 120, g: 200, b: 140, a: 255),
@@ -344,7 +355,8 @@ public final class DemoScene: RenderScene {
 
         // --- Test Step: small ledge
         do {
-            let meshData = ProceduralMeshes.box(size: 2.0)
+            let meshDesc = ProceduralMeshes.box(size: 2.0)
+            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
             let mesh = GPUMesh(device: device, data: meshData, label: "TestStep")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 255, g: 220, b: 120, a: 255),

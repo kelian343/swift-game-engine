@@ -86,7 +86,8 @@ final class Renderer: NSObject, MTKViewDelegate {
         self.renderGraph.addPass(compositePass)
         self.renderGraph.addPass(uiPass)
 
-        let quadMeshData = ProceduralMeshes.quad(width: 1, height: 1)
+        let quadDesc = ProceduralMeshes.quad(width: 1, height: 1)
+        let quadMeshData = ProceduralMeshBridge.toMeshDataPNUT(quadDesc) ?? MeshData(vertices: [], indices16: [])
         self.compositeMesh = GPUMesh(device: device, data: quadMeshData, label: "CompositeQuad")
 
         super.init()

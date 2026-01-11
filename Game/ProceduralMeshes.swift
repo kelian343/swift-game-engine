@@ -10,7 +10,32 @@ import simd
 /// Demo generator: a textured box with normals + UVs.
 /// You can replace this with any procedural generator (marching cubes, hull, parametric, etc).
 enum ProceduralMeshes {
-    static func plane(size: Float = 20) -> MeshData {
+    private static func descriptorFromPNUT(vertices: [VertexPNUT],
+                                           indices16: [UInt16],
+                                           name: String) -> ProceduralMeshDescriptor {
+        let positions = vertices.map { $0.position }
+        let normals = vertices.map { $0.normal }
+        let uvs = vertices.map { $0.uv }
+        let streams = VertexStreams(positions: positions, normals: normals, uvs: uvs)
+        return ProceduralMeshDescriptor(topology: .triangles,
+                                        streams: streams,
+                                        indices16: indices16,
+                                        name: name)
+    }
+
+    private static func descriptorFromPNUT(vertices: [VertexPNUT],
+                                           indices32: [UInt32],
+                                           name: String) -> ProceduralMeshDescriptor {
+        let positions = vertices.map { $0.position }
+        let normals = vertices.map { $0.normal }
+        let uvs = vertices.map { $0.uv }
+        let streams = VertexStreams(positions: positions, normals: normals, uvs: uvs)
+        return ProceduralMeshDescriptor(topology: .triangles,
+                                        streams: streams,
+                                        indices32: indices32,
+                                        name: name)
+    }
+    static func plane(size: Float = 20) -> ProceduralMeshDescriptor {
         let s = size * 0.5
         let n = SIMD3<Float>(0, 1, 0)
 
@@ -21,10 +46,10 @@ enum ProceduralMeshes {
             VertexPNUT(position: SIMD3<Float>(-s, 0, -s), normal: n, uv: SIMD2<Float>(0, 1)),
         ]
         let i: [UInt16] = [0, 1, 2, 0, 2, 3]
-        return MeshData(vertices: v, indices16: i)
+        return descriptorFromPNUT(vertices: v, indices16: i, name: "plane")
     }
 
-    static func box(size: Float = 4) -> MeshData {
+    static func box(size: Float = 4) -> ProceduralMeshDescriptor {
         let s = size * 0.5
 
         // 24 vertices (4 per face) for clean normals/UVs
@@ -68,10 +93,10 @@ enum ProceduralMeshes {
                 SIMD3<Float>(-s, -s, -s), SIMD3<Float>( s, -s, -s),
                 SIMD3<Float>( s, -s,  s), SIMD3<Float>(-s, -s,  s))
 
-        return MeshData(vertices: v, indices16: i)
+        return descriptorFromPNUT(vertices: v, indices16: i, name: "box")
     }
 
-    static func tetrahedron(size: Float = 4) -> MeshData {
+    static func tetrahedron(size: Float = 4) -> ProceduralMeshDescriptor {
         let s = size * 0.5
         let p0 = SIMD3<Float>( 0,  s,  0)
         let p1 = SIMD3<Float>(-s, -s,  s)
@@ -95,10 +120,10 @@ enum ProceduralMeshes {
         addFace(p0, p3, p1)
         addFace(p1, p3, p2)
 
-        return MeshData(vertices: v, indices16: i)
+        return descriptorFromPNUT(vertices: v, indices16: i, name: "tetrahedron")
     }
 
-    static func triangularPrism(size: Float = 4, height: Float = 3) -> MeshData {
+    static func triangularPrism(size: Float = 4, height: Float = 3) -> ProceduralMeshDescriptor {
         let s = size * 0.5
         let h = height * 0.5
 
@@ -141,10 +166,10 @@ enum ProceduralMeshes {
         addQuad(b0, c0, c1, b1)
         addQuad(c0, a0, a1, c1)
 
-        return MeshData(vertices: v, indices16: i)
+        return descriptorFromPNUT(vertices: v, indices16: i, name: "triangularPrism")
     }
 
-    static func ramp(width: Float = 8, depth: Float = 8, height: Float = 4) -> MeshData {
+    static func ramp(width: Float = 8, depth: Float = 8, height: Float = 4) -> ProceduralMeshDescriptor {
         let w = width * 0.5
         let d = depth * 0.5
         let h = height * 0.5
@@ -189,7 +214,7 @@ enum ProceduralMeshes {
         // Right side
         addTri(frontRight, backRightTop, backRight)
 
-        return MeshData(vertices: v, indices16: i)
+        return descriptorFromPNUT(vertices: v, indices16: i, name: "ramp")
     }
 
     static func humanoidSkinned(legHeight: Float = 1.8,
@@ -198,20 +223,24 @@ enum ProceduralMeshes {
                                 torsoRadius: Float = 0.5,
                                 hipSeparation: Float = 0.45,
                                 radialSegments: Int = 12,
-                                heightSegments: Int = 4) -> SkinnedMeshData {
-        var vertices: [VertexSkinnedPNUT4] = []
+                                heightSegments: Int = 4) -> SkinnedMeshDescriptor {
+        var positions: [SIMD3<Float>] = []
+        var normals: [SIMD3<Float>] = []
+        var uvs: [SIMD2<Float>] = []
+        var boneIndices: [SIMD4<UInt16>] = []
+        var boneWeights: [SIMD4<Float>] = []
         var indices: [UInt16] = []
 
         func appendVertex(_ pos: SIMD3<Float>,
                           _ normal: SIMD3<Float>,
                           _ uv: SIMD2<Float>,
-                          _ boneIndices: SIMD4<UInt16>,
-                          _ boneWeights: SIMD4<Float>) {
-            vertices.append(VertexSkinnedPNUT4(position: pos,
-                                               normal: normal,
-                                               uv: uv,
-                                               boneIndices: boneIndices,
-                                               boneWeights: boneWeights))
+                          _ joints: SIMD4<UInt16>,
+                          _ weights: SIMD4<Float>) {
+            positions.append(pos)
+            normals.append(normal)
+            uvs.append(uv)
+            boneIndices.append(joints)
+            boneWeights.append(weights)
         }
 
         func addCylinder(centerX: Float,
@@ -228,7 +257,7 @@ enum ProceduralMeshes {
             let yMin = centerY - height * 0.5
             let yMax = centerY + height * 0.5
 
-            let baseIndex = UInt16(vertices.count)
+            let baseIndex = UInt16(positions.count)
 
             for y in 0...stacks {
                 let t = Float(y) / Float(stacks)
@@ -317,12 +346,20 @@ enum ProceduralMeshes {
                     heightSegs: heightSegments,
                     weightForY: { t in legWeights(thigh: 5, calf: 6, t: t) })
 
-        return SkinnedMeshData(vertices: vertices, indices16: indices)
+        let streams = SkinnedVertexStreams(positions: positions,
+                                           normals: normals,
+                                           uvs: uvs,
+                                           boneIndices: boneIndices,
+                                           boneWeights: boneWeights)
+        return SkinnedMeshDescriptor(topology: .triangles,
+                                     streams: streams,
+                                     indices16: indices,
+                                     name: "humanoidSkinned")
     }
 
     static func dome(radius: Float = 4,
                      radialSegments: Int = 32,
-                     ringSegments: Int = 12) -> MeshData {
+                     ringSegments: Int = 12) -> ProceduralMeshDescriptor {
         let slices = max(radialSegments, 3)
         let rings = max(ringSegments, 2)
 
@@ -384,13 +421,13 @@ enum ProceduralMeshes {
             i += [i0, i2, i1]
         }
 
-        return MeshData(vertices: v, indices16: i)
+        return descriptorFromPNUT(vertices: v, indices16: i, name: "dome")
     }
 
     static func capsule(radius: Float = 1.5,
                         halfHeight: Float = 1.0,
                         radialSegments: Int = 24,
-                        hemisphereSegments: Int = 8) -> MeshData {
+                        hemisphereSegments: Int = 8) -> ProceduralMeshDescriptor {
         let slices = max(radialSegments, 3)
         let hemi = max(hemisphereSegments, 2)
 
@@ -466,13 +503,13 @@ enum ProceduralMeshes {
             }
         }
 
-        return MeshData(vertices: v, indices16: i)
+        return descriptorFromPNUT(vertices: v, indices16: i, name: "capsule")
     }
 
     static func quad(width: Float = 1,
                      height: Float = 1,
                      uvMin: SIMD2<Float> = SIMD2<Float>(0, 0),
-                     uvMax: SIMD2<Float> = SIMD2<Float>(1, 1)) -> MeshData {
+                     uvMax: SIMD2<Float> = SIMD2<Float>(1, 1)) -> ProceduralMeshDescriptor {
         let normal = SIMD3<Float>(0, 0, 1)
         let v: [VertexPNUT] = [
             VertexPNUT(position: SIMD3<Float>(0, 0, 0), normal: normal, uv: SIMD2<Float>(uvMin.x, uvMin.y)),
@@ -481,7 +518,7 @@ enum ProceduralMeshes {
             VertexPNUT(position: SIMD3<Float>(0, height, 0), normal: normal, uv: SIMD2<Float>(uvMin.x, uvMax.y))
         ]
         let i: [UInt16] = [0, 1, 2, 0, 2, 3]
-        return MeshData(vertices: v, indices16: i)
+        return descriptorFromPNUT(vertices: v, indices16: i, name: "quad")
     }
 }
 
