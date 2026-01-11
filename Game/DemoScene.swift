@@ -355,10 +355,10 @@ public final class DemoScene: RenderScene {
                                                                    amplitude: 9.0,
                                                                    frequency: 3.0,
                                                                    octaves: 5)
-            let ao = ProceduralTextureGenerator.occlusionCracks(width: 256,
-                                                                height: 256,
-                                                                density: 14,
-                                                                thickness: 0.02)
+            let ao = ProceduralTextureGenerator.occlusionGrime(width: 256,
+                                                               height: 256,
+                                                               frequency: 2.5,
+                                                               contrast: 1.8)
             let desc = MaterialDescriptor(baseColor: base,
                                           normal: normal,
                                           metallicRoughness: mr,

@@ -183,14 +183,14 @@ public enum ProceduralTextureGenerator {
                                  bytes: bytes)
     }
 
-    public static func occlusionCracks(width: Int = 256,
-                                       height: Int = 256,
-                                       density: Int = 12,
-                                       thickness: Float = 0.015) -> ProceduralTexture {
+    public static func occlusionPores(width: Int = 256,
+                                      height: Int = 256,
+                                      count: Int = 80,
+                                      radius: Float = 0.06) -> ProceduralTexture {
         var bytes = [UInt8](repeating: 255, count: width * height * 4)
         let w = Float(width)
         let h = Float(height)
-        let t = max(0.001, min(thickness, 0.2))
+        let r = max(0.002, min(radius, 0.25))
 
         func hash2(_ x: Int, _ y: Int) -> Float {
             let ux = UInt32(bitPattern: Int32(truncatingIfNeeded: x))
@@ -201,32 +201,25 @@ public enum ProceduralTextureGenerator {
             return Float(n & 0x00FFFFFF) / Float(0x01000000)
         }
 
-        func lineDist(_ p: SIMD2<Float>, _ a: SIMD2<Float>, _ b: SIMD2<Float>) -> Float {
-            let ab = b - a
-            let t = max(0.0, min(simd_dot(p - a, ab) / max(simd_dot(ab, ab), 1e-6), 1.0))
-            let q = a + ab * t
-            return simd_length(p - q)
-        }
-
-        var segments: [(SIMD2<Float>, SIMD2<Float>)] = []
-        segments.reserveCapacity(density)
-        for i in 0..<density {
-            let x0 = hash2(i, 1) * w
-            let y0 = hash2(i, 2) * h
-            let x1 = hash2(i, 3) * w
-            let y1 = hash2(i, 4) * h
-            segments.append((SIMD2<Float>(x0, y0), SIMD2<Float>(x1, y1)))
+        var centers: [SIMD3<Float>] = []
+        centers.reserveCapacity(count)
+        for i in 0..<count {
+            let cx = hash2(i, 11) * w
+            let cy = hash2(i, 17) * h
+            let rr = r * (0.5 + hash2(i, 23))
+            centers.append(SIMD3<Float>(cx, cy, rr))
         }
 
         for y in 0..<height {
             for x in 0..<width {
                 let p = SIMD2<Float>(Float(x), Float(y))
                 var occ: Float = 1.0
-                for (a, b) in segments {
-                    let d = lineDist(p, a, b) / max(w, h)
-                    if d < t {
-                        let v = max(0.0, min(1.0 - d / t, 1.0))
-                        occ = min(occ, 1.0 - v * 0.9)
+                for c in centers {
+                    let d = simd_length(p - SIMD2<Float>(c.x, c.y)) / max(w, h)
+                    if d < c.z {
+                        let t = d / max(c.z, 1e-4)
+                        let v = 1.0 - t * t
+                        occ = min(occ, 1.0 - v * 0.85)
                     }
                 }
                 let o = UInt8(max(0, min(255, Int(occ * 255))))
@@ -359,6 +352,75 @@ public enum ProceduralTextureGenerator {
                 bytes[idx + 0] = UInt8(max(0, min(255, Int((n.x * 0.5 + 0.5) * 255))))
                 bytes[idx + 1] = UInt8(max(0, min(255, Int((n.y * 0.5 + 0.5) * 255))))
                 bytes[idx + 2] = UInt8(max(0, min(255, Int((n.z * 0.5 + 0.5) * 255))))
+                bytes[idx + 3] = 255
+            }
+        }
+
+        return ProceduralTexture(width: width,
+                                 height: height,
+                                 format: .rgba8Unorm,
+                                 bytes: bytes)
+    }
+
+    public static func occlusionGrime(width: Int = 256,
+                                      height: Int = 256,
+                                      frequency: Float = 2.5,
+                                      contrast: Float = 1.6) -> ProceduralTexture {
+        func hash2(_ x: Int, _ y: Int) -> Float {
+            let ux = UInt32(bitPattern: Int32(truncatingIfNeeded: x))
+            let uy = UInt32(bitPattern: Int32(truncatingIfNeeded: y))
+            var n = (ux &* 374761393) &+ (uy &* 668265263) &+ 0x9E3779B9
+            n ^= n >> 13
+            n &*= 1274126177
+            return Float(n & 0x00FFFFFF) / Float(0x01000000)
+        }
+
+        func smooth(_ t: Float) -> Float { t * t * (3.0 - 2.0 * t) }
+
+        func noise(_ u: Float, _ v: Float) -> Float {
+            let x0 = Int(floor(u))
+            let y0 = Int(floor(v))
+            let x1 = x0 + 1
+            let y1 = y0 + 1
+            let tx = smooth(u - Float(x0))
+            let ty = smooth(v - Float(y0))
+            let a = hash2(x0, y0)
+            let b = hash2(x1, y0)
+            let c = hash2(x0, y1)
+            let d = hash2(x1, y1)
+            let ab = a + (b - a) * tx
+            let cd = c + (d - c) * tx
+            return ab + (cd - ab) * ty
+        }
+
+        func fbm(_ u: Float, _ v: Float) -> Float {
+            var sum: Float = 0
+            var amp: Float = 0.6
+            var freq: Float = 1.0
+            for _ in 0..<4 {
+                sum += noise(u * freq, v * freq) * amp
+                freq *= 2.0
+                amp *= 0.5
+            }
+            return sum
+        }
+
+        var bytes = [UInt8](repeating: 255, count: width * height * 4)
+        let du = 1.0 / Float(width)
+        let dv = 1.0 / Float(height)
+        for y in 0..<height {
+            for x in 0..<width {
+                let u = Float(x) * du * frequency
+                let v = Float(y) * dv * frequency
+                var n = fbm(u, v)
+                n = max(0.0, min(n, 1.0))
+                let grime = pow(n, contrast)
+                let occ = 1.0 - grime * 0.85
+                let o = UInt8(max(0, min(255, Int(occ * 255))))
+                let idx = (y * width + x) * 4
+                bytes[idx + 0] = o
+                bytes[idx + 1] = o
+                bytes[idx + 2] = o
                 bytes[idx + 3] = 255
             }
         }
