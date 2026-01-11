@@ -349,16 +349,18 @@ public final class DemoScene: RenderScene {
                                                                   height: 4,
                                                                   metallic: 0.0,
                                                                   roughness: 0.6)
-            let normal = ProceduralTextureGenerator.normalMapFromHeight(width: 256,
-                                                                        height: 256,
-                                                                        amplitude: 1.2,
-                                                                        frequency: 6.0)
+            let normal = ProceduralTextureGenerator.normalMapNoise(width: 256,
+                                                                   height: 256,
+                                                                   amplitude: 2.0,
+                                                                   frequency: 3.0,
+                                                                   octaves: 5)
             let desc = MaterialDescriptor(baseColor: base,
                                           normal: normal,
                                           metallicRoughness: mr,
                                           metallicFactor: 1.0,
                                           roughnessFactor: 1.0,
-                                          alpha: 1.0)
+                                          alpha: 1.0,
+                                          normalScale: 1.6)
             let mat = MaterialFactory.make(device: device, descriptor: desc, label: "RampMat")
 
             let e = world.createEntity()

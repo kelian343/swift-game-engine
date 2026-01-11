@@ -195,4 +195,77 @@ public enum ProceduralTextureGenerator {
                                  format: .rgba8Unorm,
                                  bytes: bytes)
     }
+
+    public static func normalMapNoise(width: Int = 256,
+                                      height: Int = 256,
+                                      amplitude: Float = 1.0,
+                                      frequency: Float = 6.0,
+                                      octaves: Int = 4) -> ProceduralTexture {
+        func hash2(_ x: Int, _ y: Int) -> Float {
+            let ux = UInt32(bitPattern: Int32(truncatingIfNeeded: x))
+            let uy = UInt32(bitPattern: Int32(truncatingIfNeeded: y))
+            var n = (ux &* 374761393) &+ (uy &* 668265263) &+ 0x9E3779B9
+            n ^= n >> 13
+            n &*= 1274126177
+            return Float(n & 0x00FFFFFF) / Float(0x01000000)
+        }
+
+        func smooth(_ t: Float) -> Float { t * t * (3.0 - 2.0 * t) }
+
+        func noise(_ u: Float, _ v: Float) -> Float {
+            let x0 = Int(floor(u))
+            let y0 = Int(floor(v))
+            let x1 = x0 + 1
+            let y1 = y0 + 1
+            let tx = smooth(u - Float(x0))
+            let ty = smooth(v - Float(y0))
+            let a = hash2(x0, y0)
+            let b = hash2(x1, y0)
+            let c = hash2(x0, y1)
+            let d = hash2(x1, y1)
+            let ab = a + (b - a) * tx
+            let cd = c + (d - c) * tx
+            return ab + (cd - ab) * ty
+        }
+
+        func fbm(_ u: Float, _ v: Float) -> Float {
+            var sum: Float = 0
+            var amp: Float = 0.5
+            var freq: Float = 1.0
+            for _ in 0..<max(octaves, 1) {
+                sum += noise(u * freq, v * freq) * amp
+                freq *= 2.0
+                amp *= 0.5
+            }
+            return sum
+        }
+
+        var bytes = [UInt8](repeating: 0, count: width * height * 4)
+        let du = 1.0 / Float(width)
+        let dv = 1.0 / Float(height)
+        for y in 0..<height {
+            for x in 0..<width {
+                let u = Float(x) * du * frequency
+                let v = Float(y) * dv * frequency
+                let hL = fbm(u - du, v)
+                let hR = fbm(u + du, v)
+                let hD = fbm(u, v - dv)
+                let hU = fbm(u, v + dv)
+                let dx = (hR - hL) * amplitude
+                let dy = (hU - hD) * amplitude
+                var n = SIMD3<Float>(-dx, -dy, 1.0)
+                n = simd_normalize(n)
+                let idx = (y * width + x) * 4
+                bytes[idx + 0] = UInt8(max(0, min(255, Int((n.x * 0.5 + 0.5) * 255))))
+                bytes[idx + 1] = UInt8(max(0, min(255, Int((n.y * 0.5 + 0.5) * 255))))
+                bytes[idx + 2] = UInt8(max(0, min(255, Int((n.z * 0.5 + 0.5) * 255))))
+                bytes[idx + 3] = 255
+            }
+        }
+
+        return ProceduralTexture(width: width,
+                                 height: height,
+                                 format: .rgba8Unorm,
+                                 bytes: bytes)
+    }
 }
