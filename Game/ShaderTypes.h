@@ -65,11 +65,14 @@ typedef struct
     matrix_float4x4 modelMatrix;
     vector_float3 baseColorFactor;
     float baseAlpha;
+    vector_float3 emissiveFactor;
     float unlit;
     float normalScale;
     float pad1;
-    vector_float3 cameraPosition;
     float pad2;
+    float pad3;
+    vector_float3 cameraPosition;
+    float pad4;
 } Uniforms;
 
 typedef struct

@@ -22,6 +22,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let depthState: MTLDepthStencilState
     private let fallbackWhite: TextureResource
     private let fallbackNormal: TextureResource
+    private let fallbackEmissive: TextureResource
 
     private let rayTracing: RayTracingRenderer
 
@@ -89,6 +90,13 @@ final class Renderer: NSObject, MTKViewDelegate {
             source: ProceduralTextureGenerator.flatNormal(width: 1, height: 1),
             label: "FallbackNormal"
         )
+        self.fallbackEmissive = TextureResource(
+            device: device,
+            source: ProceduralTextureGenerator.solid(width: 1,
+                                                     height: 1,
+                                                     color: SIMD4<UInt8>(0, 0, 0, 255)),
+            label: "FallbackEmissive"
+        )
         guard let rt = RayTracingRenderer(device: device) else { return nil }
         self.rayTracing = rt
         self.renderGraph.addPass(compositePass)
@@ -128,7 +136,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         // include: base textures + fallback + uniform buffer
         context.prepareResidency(
             meshes: meshes,
-            textures: textures + [fallbackWhite.texture, fallbackNormal.texture],
+            textures: textures + [fallbackWhite.texture, fallbackNormal.texture, fallbackEmissive.texture],
             uniforms: uniformRing.buffer
         )
     }
@@ -185,6 +193,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                                  depthState: uiDepthState,
                                  fallbackWhite: fallbackWhite,
                                  fallbackNormal: fallbackNormal,
+                                 fallbackEmissive: fallbackEmissive,
                                  projection: overlayProjection,
                                  viewMatrix: overlayView,
                                  cameraPosition: scene.camera.position)

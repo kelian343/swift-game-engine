@@ -41,14 +41,17 @@ vertex Varyings vertexShader(VertexIn in [[stage_in]],
 fragment float4 fragmentShader(Varyings in [[stage_in]],
                                constant Uniforms& u [[buffer(BufferIndexUniforms)]],
                                texture2d<half> baseColor [[texture(TextureIndexBaseColor)]],
-                               texture2d<half> normalTex [[texture(TextureIndexNormal)]])
+                               texture2d<half> normalTex [[texture(TextureIndexNormal)]],
+                               texture2d<half> emissiveTex [[texture(TextureIndexEmissive)]])
 {
     constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
     half4 tex = baseColor.sample(colorSamp, in.uv);
     float3 albedo = float3(tex.xyz) * u.baseColorFactor;
     float alpha = float(tex.w) * u.baseAlpha;
+    constexpr sampler eSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+    float3 emissive = float3(emissiveTex.sample(eSamp, in.uv).xyz) * u.emissiveFactor;
     if (u.unlit > 0.5) {
-        return float4(albedo, alpha);
+        return float4(albedo + emissive, alpha);
     }
     constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
     float3 nTex = float3(normalTex.sample(nSamp, in.uv).xyz) * 2.0 - 1.0;
@@ -65,5 +68,5 @@ fragment float4 fragmentShader(Varyings in [[stage_in]],
     float3 N = normalize(in.tangentW * nTex.x + B * nTex.y + in.normalW * nTex.z);
     float3 L = normalize(float3(-0.2, 1.0, -0.4));
     float nl = clamp(dot(N, L), 0.0, 1.0) * 0.85 + 0.15;
-    return float4(albedo * nl, alpha);
+    return float4(albedo * nl + emissive, alpha);
 }

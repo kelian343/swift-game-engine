@@ -404,10 +404,24 @@ public final class DemoScene: RenderScene {
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 2.0))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestStep")
-            let mat = makeSolidMaterial(label: "StepMat",
-                                        color: SIMD4<UInt8>(255, 220, 120, 255),
-                                        metallic: 0.0,
-                                        roughness: 0.8)
+            let base = ProceduralTextureGenerator.solid(width: 4,
+                                                        height: 4,
+                                                        color: SIMD4<UInt8>(255, 220, 120, 255))
+            let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                  height: 4,
+                                                                  metallic: 0.0,
+                                                                  roughness: 0.8)
+            let emissive = ProceduralTextureGenerator.emissive(width: 4,
+                                                               height: 4,
+                                                               color: SIMD3<Float>(1.0, 0.7, 0.2))
+            let desc = MaterialDescriptor(baseColor: base,
+                                          metallicRoughness: mr,
+                                          emissive: emissive,
+                                          metallicFactor: 1.0,
+                                          roughnessFactor: 1.0,
+                                          emissiveFactor: SIMD3<Float>(2.5, 2.0, 1.2),
+                                          alpha: 1.0)
+            let mat = MaterialFactory.make(device: device, descriptor: desc, label: "StepMat")
 
             let e = world.createEntity()
             var t = TransformComponent()

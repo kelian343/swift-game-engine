@@ -13,6 +13,7 @@ func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
                    model: matrix_float4x4,
                    baseColorFactor: SIMD3<Float>,
                    baseAlpha: Float,
+                   emissiveFactor: SIMD3<Float>,
                    unlit: Bool,
                    normalScale: Float,
                    cameraPosition: SIMD3<Float>) {
@@ -22,6 +23,7 @@ func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
     ptr[0].modelMatrix = model
     ptr[0].baseColorFactor = baseColorFactor
     ptr[0].baseAlpha = baseAlpha
+    ptr[0].emissiveFactor = emissiveFactor
     ptr[0].unlit = unlit ? 1.0 : 0.0
     ptr[0].normalScale = normalScale
     ptr[0].cameraPosition = cameraPosition
