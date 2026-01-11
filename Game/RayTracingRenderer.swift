@@ -97,7 +97,7 @@ final class RayTracingRenderer {
 
     private func encodeRaytracePass(commandBuffer: MTLCommandBuffer,
                                     tlas: MTLAccelerationStructure?,
-                                    geometry: RayTracingScene.GeometryBuffers?,
+                                    geometry: RTGeometryBuffers?,
                                     rtFrame: RTFrameUniformsSwift,
                                     outputTexture: MTLTexture,
                                     width: Int,

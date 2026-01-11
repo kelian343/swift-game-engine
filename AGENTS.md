@@ -22,6 +22,7 @@
 - Debug UI overlay added: FPS digits atlas + quad-based UI rendering in top-right; viewport size hook for UI layout.
 - RT BLAS optimization: static meshes now reuse cached BLAS; dynamic meshes rebuild BLAS per frame while TLAS updates instance transforms.
 - RT BLAS refit: dynamic BLAS are now refit in place when topology is unchanged (build only on topology change).
+- RT scene refactor: RayTracingScene split into RTGeometryCache (buffers/slices) and RTAccelerationBuilder (BLAS/TLAS build/refit).
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.
