@@ -38,7 +38,7 @@ struct RTInstanceInfoSwift {
     var baseIndex: UInt32
     var baseVertex: UInt32
     var indexCount: UInt32
-    var padding: UInt32
+    var bufferIndex: UInt32
     var modelMatrix: matrix_float4x4
     var baseColor: SIMD3<Float>
     var metallic: Float

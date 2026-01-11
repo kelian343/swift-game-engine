@@ -17,10 +17,16 @@ final class RayTracingScene {
     private var instanceBuffer: MTLBuffer?
     private var lastInstanceCount: Int = 0
 
-    private var geometryVertexBuffer: MTLBuffer?
-    private var geometryIndexBuffer: MTLBuffer?
+    private var staticVertexBuffer: MTLBuffer?
+    private var staticIndexBuffer: MTLBuffer?
+    private var staticUVBuffer: MTLBuffer?
+    private var dynamicVertexBuffer: MTLBuffer?
+    private var dynamicIndexBuffer: MTLBuffer?
+    private var dynamicUVBuffer: MTLBuffer?
     private var geometryInstanceInfoBuffer: MTLBuffer?
-    private var lastGeometrySlices: [GeometrySlice] = []
+    private var lastInstanceSlices: [GeometrySlice] = []
+    private var cachedStaticSlices: [GeometrySlice] = []
+    private var cachedStaticKey: [StaticKey] = []
     private var transientBLAS: [MTLAccelerationStructure] = []
     private var transientScratch: [MTLBuffer] = []
 
@@ -29,10 +35,13 @@ final class RayTracingScene {
     }
 
     struct GeometryBuffers {
-        let vertexBuffer: MTLBuffer
-        let indexBuffer: MTLBuffer
+        let staticVertexBuffer: MTLBuffer
+        let staticIndexBuffer: MTLBuffer
         let instanceInfoBuffer: MTLBuffer
-        let uvBuffer: MTLBuffer
+        let staticUVBuffer: MTLBuffer
+        let dynamicVertexBuffer: MTLBuffer
+        let dynamicIndexBuffer: MTLBuffer
+        let dynamicUVBuffer: MTLBuffer
         let textures: [MTLTexture]
     }
 
@@ -40,14 +49,24 @@ final class RayTracingScene {
         let baseVertex: Int
         let baseIndex: Int
         let indexCount: Int
+        let bufferIndex: UInt32
+    }
+
+    private struct StaticKey: Equatable {
+        let meshID: ObjectIdentifier
+        let vertexBytes: Int
+        let indexCount: Int
+        let indexType: MTLIndexType
     }
 
     func buildAccelerationStructures(items: [RenderItem],
                                      commandBuffer: MTLCommandBuffer) -> MTLAccelerationStructure? {
         guard !items.isEmpty else { return nil }
-        guard let vb = geometryVertexBuffer,
-              let ib = geometryIndexBuffer,
-              lastGeometrySlices.count == items.count else {
+        guard let staticVB = staticVertexBuffer,
+              let staticIB = staticIndexBuffer,
+              let dynamicVB = dynamicVertexBuffer,
+              let dynamicIB = dynamicIndexBuffer,
+              lastInstanceSlices.count == items.count else {
             return nil
         }
 
@@ -58,13 +77,13 @@ final class RayTracingScene {
 
         let encoder = commandBuffer.makeAccelerationStructureCommandEncoder()!
         for (i, _) in items.enumerated() {
-            let slice = lastGeometrySlices[i]
+            let slice = lastInstanceSlices[i]
             let geometry = MTLAccelerationStructureTriangleGeometryDescriptor()
-            geometry.vertexBuffer = vb
+            geometry.vertexBuffer = slice.bufferIndex == 0 ? staticVB : dynamicVB
             geometry.vertexBufferOffset = slice.baseVertex * MemoryLayout<SIMD3<Float>>.stride
             geometry.vertexStride = MemoryLayout<SIMD3<Float>>.stride
             geometry.vertexFormat = .float3
-            geometry.indexBuffer = ib
+            geometry.indexBuffer = slice.bufferIndex == 0 ? staticIB : dynamicIB
             geometry.indexBufferOffset = slice.baseIndex * MemoryLayout<UInt32>.stride
             geometry.indexType = .uint32
             geometry.triangleCount = slice.indexCount / 3
@@ -152,67 +171,128 @@ final class RayTracingScene {
     func buildGeometryBuffers(items: [RenderItem]) -> GeometryBuffers? {
         guard !items.isEmpty else { return nil }
 
-        var vertices: [SIMD3<Float>] = []
-        var uvs: [SIMD2<Float>] = []
-        var indices: [UInt32] = []
+        var dynamicVertices: [SIMD3<Float>] = []
+        var dynamicUVs: [SIMD2<Float>] = []
+        var dynamicIndices: [UInt32] = []
         var instances: [RTInstanceInfoSwift] = []
         var textureIndexForTexture: [ObjectIdentifier: Int] = [:]
         var texturesByIndex: [MTLTexture] = []
 
-        vertices.reserveCapacity(items.count * 256)
-        indices.reserveCapacity(items.count * 256)
+        dynamicVertices.reserveCapacity(items.count * 128)
+        dynamicIndices.reserveCapacity(items.count * 128)
         instances.reserveCapacity(items.count)
-        lastGeometrySlices.removeAll(keepingCapacity: true)
-        lastGeometrySlices.reserveCapacity(items.count)
+        lastInstanceSlices.removeAll(keepingCapacity: true)
+        lastInstanceSlices.reserveCapacity(items.count)
 
-        for item in items {
-            let baseVertex = UInt32(vertices.count)
-            let baseIndex = UInt32(indices.count)
-            var indexCount = 0
+        let staticKey = items.compactMap { item -> StaticKey? in
+            guard let mesh = item.mesh, item.skinnedMesh == nil else { return nil }
+            return StaticKey(meshID: ObjectIdentifier(mesh),
+                             vertexBytes: mesh.vertexBuffer.length,
+                             indexCount: mesh.indexCount,
+                             indexType: mesh.indexType)
+        }
 
-            if let skinned = item.skinnedMesh, let palette = item.skinningPalette {
-                let vCount = skinned.vertices.count
-                vertices.reserveCapacity(vertices.count + vCount)
-                uvs.reserveCapacity(uvs.count + vCount)
-                for v in skinned.vertices {
-                    vertices.append(skinPosition(vertex: v, palette: palette))
-                    uvs.append(v.uv)
-                }
+        if staticKey != cachedStaticKey || staticVertexBuffer == nil || staticIndexBuffer == nil || staticUVBuffer == nil {
+            cachedStaticKey = staticKey
+            cachedStaticSlices.removeAll(keepingCapacity: true)
 
-                indexCount = skinned.indexCount
-                if let i16 = skinned.indices16 {
-                    for i in i16 {
-                        indices.append(UInt32(i))
-                    }
-                } else if let i32 = skinned.indices32 {
-                    indices.append(contentsOf: i32)
-                }
-            } else if let mesh = item.mesh {
+            var staticVertices: [SIMD3<Float>] = []
+            var staticUVs: [SIMD2<Float>] = []
+            var staticIndices: [UInt32] = []
+
+            staticVertices.reserveCapacity(staticKey.count * 256)
+            staticIndices.reserveCapacity(staticKey.count * 256)
+
+            for item in items {
+                guard let mesh = item.mesh, item.skinnedMesh == nil else { continue }
+                let baseVertex = UInt32(staticVertices.count)
+                let baseIndex = UInt32(staticIndices.count)
+
                 let vCount = mesh.vertexBuffer.length / MemoryLayout<VertexPNUT>.stride
                 let vPtr = mesh.vertexBuffer.contents().bindMemory(to: VertexPNUT.self,
                                                                    capacity: vCount)
                 for i in 0..<vCount {
-                    vertices.append(vPtr[i].position)
-                    uvs.append(vPtr[i].uv)
+                    staticVertices.append(vPtr[i].position)
+                    staticUVs.append(vPtr[i].uv)
                 }
 
-                indexCount = mesh.indexCount
+                let indexCount = mesh.indexCount
                 switch mesh.indexType {
                 case .uint16:
                     let iPtr = mesh.indexBuffer.contents().bindMemory(to: UInt16.self,
                                                                       capacity: indexCount)
                     for i in 0..<indexCount {
-                        indices.append(UInt32(iPtr[i]))
+                        staticIndices.append(UInt32(iPtr[i]))
                     }
                 case .uint32:
                     let iPtr = mesh.indexBuffer.contents().bindMemory(to: UInt32.self,
                                                                       capacity: indexCount)
                     for i in 0..<indexCount {
-                        indices.append(iPtr[i])
+                        staticIndices.append(iPtr[i])
                     }
                 @unknown default:
                     break
                 }
+
+                cachedStaticSlices.append(GeometrySlice(baseVertex: Int(baseVertex),
+                                                        baseIndex: Int(baseIndex),
+                                                        indexCount: indexCount,
+                                                        bufferIndex: 0))
+            }
+
+            let vBytes = staticVertices.count * MemoryLayout<SIMD3<Float>>.stride
+            let uvBytes = staticUVs.count * MemoryLayout<SIMD2<Float>>.stride
+            let iBytes = staticIndices.count * MemoryLayout<UInt32>.stride
+            staticVertexBuffer = device.makeBuffer(bytes: staticVertices,
+                                                   length: max(vBytes, 1),
+                                                   options: [.storageModeShared])
+            staticUVBuffer = device.makeBuffer(bytes: staticUVs,
+                                               length: max(uvBytes, 1),
+                                               options: [.storageModeShared])
+            staticIndexBuffer = device.makeBuffer(bytes: staticIndices,
+                                                  length: max(iBytes, 1),
+                                                  options: [.storageModeShared])
+            staticVertexBuffer?.label = "RTStaticVertices"
+            staticUVBuffer?.label = "RTStaticUVs"
+            staticIndexBuffer?.label = "RTStaticIndices"
+        }
+
+        var staticSliceIndex = 0
+
+        for item in items {
+            var baseVertex: UInt32 = 0
+            var baseIndex: UInt32 = 0
+            var indexCount = 0
+            var bufferIndex: UInt32 = 0
+
+            if let skinned = item.skinnedMesh, let palette = item.skinningPalette {
+                let vCount = skinned.vertices.count
+                dynamicVertices.reserveCapacity(dynamicVertices.count + vCount)
+                dynamicUVs.reserveCapacity(dynamicUVs.count + vCount)
+                baseVertex = UInt32(dynamicVertices.count)
+                baseIndex = UInt32(dynamicIndices.count)
+                for v in skinned.vertices {
+                    dynamicVertices.append(skinPosition(vertex: v, palette: palette))
+                    dynamicUVs.append(v.uv)
+                }
+
+                indexCount = skinned.indexCount
+                if let i16 = skinned.indices16 {
+                    for i in i16 {
+                        dynamicIndices.append(UInt32(i))
+                    }
+                } else if let i32 = skinned.indices32 {
+                    dynamicIndices.append(contentsOf: i32)
+                }
+                bufferIndex = 1
+            } else if let mesh = item.mesh {
+                if staticSliceIndex >= cachedStaticSlices.count { return nil }
+                let slice = cachedStaticSlices[staticSliceIndex]
+                staticSliceIndex += 1
+                baseVertex = UInt32(slice.baseVertex)
+                baseIndex = UInt32(slice.baseIndex)
+                indexCount = slice.indexCount
+                bufferIndex = 0
             } else {
                 continue
             }
@@ -235,7 +315,7 @@ final class RayTracingScene {
             instances.append(RTInstanceInfoSwift(baseIndex: baseIndex,
                                                  baseVertex: baseVertex,
                                                  indexCount: UInt32(indexCount),
-                                                 padding: 0,
+                                                 bufferIndex: bufferIndex,
                                                  modelMatrix: item.modelMatrix,
                                                  baseColor: item.material.baseColor,
                                                  metallic: item.material.metallic,
@@ -245,41 +325,48 @@ final class RayTracingScene {
                                                  baseColorTexIndex: baseTexIndex,
                                                  padding3: .zero))
 
-            lastGeometrySlices.append(GeometrySlice(baseVertex: Int(baseVertex),
+            lastInstanceSlices.append(GeometrySlice(baseVertex: Int(baseVertex),
                                                     baseIndex: Int(baseIndex),
-                                                    indexCount: indexCount))
+                                                    indexCount: indexCount,
+                                                    bufferIndex: bufferIndex))
         }
 
-        let vBytes = vertices.count * MemoryLayout<SIMD3<Float>>.stride
-        let uvBytes = uvs.count * MemoryLayout<SIMD2<Float>>.stride
-        let iBytes = indices.count * MemoryLayout<UInt32>.stride
+        let vBytes = dynamicVertices.count * MemoryLayout<SIMD3<Float>>.stride
+        let uvBytes = dynamicUVs.count * MemoryLayout<SIMD2<Float>>.stride
+        let iBytes = dynamicIndices.count * MemoryLayout<UInt32>.stride
         let instBytes = instances.count * MemoryLayout<RTInstanceInfoSwift>.stride
 
-        geometryVertexBuffer = device.makeBuffer(bytes: vertices,
-                                                  length: max(vBytes, 1),
-                                                  options: [.storageModeShared])
-        let uvBuffer = device.makeBuffer(bytes: uvs,
-                                         length: max(uvBytes, 1),
-                                         options: [.storageModeShared])
-        geometryIndexBuffer = device.makeBuffer(bytes: indices,
-                                                 length: max(iBytes, 1),
-                                                 options: [.storageModeShared])
+        dynamicVertexBuffer = device.makeBuffer(bytes: dynamicVertices,
+                                                length: max(vBytes, 1),
+                                                options: [.storageModeShared])
+        dynamicUVBuffer = device.makeBuffer(bytes: dynamicUVs,
+                                            length: max(uvBytes, 1),
+                                            options: [.storageModeShared])
+        dynamicIndexBuffer = device.makeBuffer(bytes: dynamicIndices,
+                                               length: max(iBytes, 1),
+                                               options: [.storageModeShared])
         geometryInstanceInfoBuffer = device.makeBuffer(bytes: instances,
                                                         length: max(instBytes, 1),
                                                         options: [.storageModeShared])
 
-        if let vb = geometryVertexBuffer,
-           let uvb = uvBuffer,
-           let ib = geometryIndexBuffer,
+        if let staticVB = staticVertexBuffer,
+           let staticUVB = staticUVBuffer,
+           let staticIB = staticIndexBuffer,
+           let dynamicVB = dynamicVertexBuffer,
+           let dynamicUVB = dynamicUVBuffer,
+           let dynamicIB = dynamicIndexBuffer,
            let instb = geometryInstanceInfoBuffer {
-            vb.label = "RTGeometryVertices"
-            uvb.label = "RTGeometryUVs"
-            ib.label = "RTGeometryIndices"
+            dynamicVB.label = "RTDynamicVertices"
+            dynamicUVB.label = "RTDynamicUVs"
+            dynamicIB.label = "RTDynamicIndices"
             instb.label = "RTInstanceInfo"
-            return GeometryBuffers(vertexBuffer: vb,
-                                   indexBuffer: ib,
+            return GeometryBuffers(staticVertexBuffer: staticVB,
+                                   staticIndexBuffer: staticIB,
                                    instanceInfoBuffer: instb,
-                                   uvBuffer: uvb,
+                                   staticUVBuffer: staticUVB,
+                                   dynamicVertexBuffer: dynamicVB,
+                                   dynamicIndexBuffer: dynamicIB,
+                                   dynamicUVBuffer: dynamicUVB,
                                    textures: texturesByIndex)
         }
 

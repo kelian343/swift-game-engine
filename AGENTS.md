@@ -17,11 +17,15 @@
 - Player overlay capsule added: semi-transparent capsule mesh follows player collision volume for visual debugging.
 - Input updated: right stick controls camera view; left stick controls movement and turning (turn speed limited).
 - Facing fix: procedural skinned character yaw corrected so forward aligns with camera-forward convention.
+- Rendering pipeline refactor: migrated raster path from MTL4 to standard MTL, unified RT + raster on a single MTLCommandBuffer.
+- Added system-level UI pass via RenderGraph: RT renders to offscreen texture, composite pass draws to drawable, UI pass overlays (alpha blending enabled).
+- Debug UI overlay added: FPS digits atlas + quad-based UI rendering in top-right; viewport size hook for UI layout.
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.
 - Physics architecture is being rebuilt around kinematic capsule movement + sweep CCD against static TriMesh.
 - Static geometry is derived from ProceduralMeshes and fed to CollisionQuery/StaticTriMesh.
+- RenderGraph now drives composite + UI passes; RT output is composited before UI.
 
 ## Full Plan (Reference)
 ### Phase 1: Static TriMesh + Uniform Grid Query Layer
@@ -72,6 +76,7 @@ Goal: remove old penetration/solver paths.
 - Continue tuning agent collision weights/margins as needed for push feel.
 - Phase 7 later: cleanup (remove old penetration/solver paths; keep triggers).
 - Next optional: improve skinned character (foot bones/IK) or reduce RT cost (GPU skinning, BLAS refit).
+- Optional next: expand RT cache invalidation (mesh mutation/material changes) and consider BLAS refit for static buffers.
 
 ## Phase 6 (Planned): Kinematic Platforms + Carry
 Goal: platform carry without tunneling or jitter.

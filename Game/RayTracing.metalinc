@@ -85,11 +85,13 @@ inline float sample_alpha(RTInstanceInfo inst,
                           uint i2,
                           float2 bary,
                           constant RTFrameUniforms& frame,
-                          device const float2 *rtUVs,
+                          device const float2 *rtUVsStatic,
+                          device const float2 *rtUVsDynamic,
                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures) {
     float alpha = clamp(inst.baseAlpha, 0.0, 1.0);
     if (inst.baseColorTexIndex < frame.textureCount && inst.baseColorTexIndex < MAX_RT_TEXTURES) {
         constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+        device const float2 *rtUVs = inst.bufferIndex == 0 ? rtUVsStatic : rtUVsDynamic;
         float w = 1.0 - bary.x - bary.y;
         float2 uv0 = rtUVs[inst.baseVertex + i0];
         float2 uv1 = rtUVs[inst.baseVertex + i1];
@@ -110,6 +112,9 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                            device const RTInstanceInfo *rtInstances [[buffer(BufferIndexRTInstances)]],
                            device const float2 *rtUVs [[buffer(BufferIndexRTUVs)]],
                            device const RTDirectionalLight *dirLights [[buffer(BufferIndexRTDirLights)]],
+                           device const float3 *rtVerticesDynamic [[buffer(BufferIndexRTVerticesDynamic)]],
+                           device const uint *rtIndicesDynamic [[buffer(BufferIndexRTIndicesDynamic)]],
+                           device const float2 *rtUVsDynamic [[buffer(BufferIndexRTUVsDynamic)]],
                            uint2 gid [[thread_position_in_grid]])
 {
     if (gid.x >= frame.imageSize.x || gid.y >= frame.imageSize.y) {
@@ -148,13 +153,17 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
             break;
         }
 
-        uint i0 = rtIndices[triBase + 0];
-        uint i1 = rtIndices[triBase + 1];
-        uint i2 = rtIndices[triBase + 2];
+        device const float3 *verts = inst.bufferIndex == 0 ? rtVertices : rtVerticesDynamic;
+        device const uint *inds = inst.bufferIndex == 0 ? rtIndices : rtIndicesDynamic;
+        device const float2 *uvs = inst.bufferIndex == 0 ? rtUVs : rtUVsDynamic;
 
-        float3 v0 = rtVertices[inst.baseVertex + i0];
-        float3 v1 = rtVertices[inst.baseVertex + i1];
-        float3 v2 = rtVertices[inst.baseVertex + i2];
+        uint i0 = inds[triBase + 0];
+        uint i1 = inds[triBase + 1];
+        uint i2 = inds[triBase + 2];
+
+        float3 v0 = verts[inst.baseVertex + i0];
+        float3 v1 = verts[inst.baseVertex + i1];
+        float3 v2 = verts[inst.baseVertex + i2];
 
         float3 w0 = (inst.modelMatrix * float4(v0, 1.0)).xyz;
         float3 w1 = (inst.modelMatrix * float4(v1, 1.0)).xyz;
@@ -172,9 +181,9 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
             constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
             float2 bary = hit.triangle_barycentric_coord;
             float w = 1.0 - bary.x - bary.y;
-            float2 uv0 = rtUVs[inst.baseVertex + i0];
-            float2 uv1 = rtUVs[inst.baseVertex + i1];
-            float2 uv2 = rtUVs[inst.baseVertex + i2];
+            float2 uv0 = uvs[inst.baseVertex + i0];
+            float2 uv1 = uvs[inst.baseVertex + i1];
+            float2 uv2 = uvs[inst.baseVertex + i2];
             float2 uv = uv0 * w + uv1 * bary.x + uv2 * bary.y;
             float4 tex = baseColorTextures[inst.baseColorTexIndex].sample(colorSamp, uv);
             base *= tex.xyz;
@@ -212,9 +221,10 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                     break;
                 }
 
-                uint shI0 = rtIndices[shTriBase + 0];
-                uint shI1 = rtIndices[shTriBase + 1];
-                uint shI2 = rtIndices[shTriBase + 2];
+                device const uint *shInds = shInst.bufferIndex == 0 ? rtIndices : rtIndicesDynamic;
+                uint shI0 = shInds[shTriBase + 0];
+                uint shI1 = shInds[shTriBase + 1];
+                uint shI2 = shInds[shTriBase + 2];
                 float shAlpha = sample_alpha(shInst,
                                              shI0,
                                              shI1,
@@ -222,6 +232,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                                              shadowHit.triangle_barycentric_coord,
                                              frame,
                                              rtUVs,
+                                             rtUVsDynamic,
                                              baseColorTextures);
                 shadow *= (1.0 - shAlpha);
 
