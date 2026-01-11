@@ -291,7 +291,9 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
             constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
             float2 uv = interp_uv(inst, i0, i1, i2, bary, rtUVs, rtUVsDynamic);
             float3 nTex = baseColorTextures[inst.normalTexIndex].sample(nSamp, uv).xyz * 2.0 - 1.0;
-            nTex.xy *= inst.normalScale;
+            float2 xy = nTex.xy * inst.normalScale;
+            float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
+            nTex = float3(xy.x, xy.y, z);
             N = normalize(tW * nTex.x + bW * nTex.y + nW * nTex.z);
             if (dot(N, current.direction) > 0.0) { N = -N; }
         }
@@ -420,7 +422,9 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                     constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
                     float2 uv = interp_uv(rInst, rI0, rI1, rI2, rbary, rtUVs, rtUVsDynamic);
                     float3 nTex = baseColorTextures[rInst.normalTexIndex].sample(nSamp, uv).xyz * 2.0 - 1.0;
-                    nTex.xy *= rInst.normalScale;
+                    float2 xy = nTex.xy * rInst.normalScale;
+                    float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
+                    nTex = float3(xy.x, xy.y, z);
                     rN = normalize(tW * nTex.x + bW * nTex.y + nW * nTex.z);
                     if (dot(rN, rCurrent.direction) > 0.0) { rN = -rN; }
                 }

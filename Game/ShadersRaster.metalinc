@@ -50,7 +50,9 @@ fragment float4 fragmentShader(Varyings in [[stage_in]],
     }
     constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
     float3 nTex = float3(normalTex.sample(nSamp, in.uv).xyz) * 2.0 - 1.0;
-    nTex.xy *= u.normalScale;
+    float2 xy = nTex.xy * u.normalScale;
+    float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
+    nTex = float3(xy.x, xy.y, z);
     float3 B = normalize(cross(in.normalW, in.tangentW) * in.tangentSign);
     float3 N = normalize(in.tangentW * nTex.x + B * nTex.y + in.normalW * nTex.z);
     float3 L = normalize(float3(-0.2, 1.0, -0.4));

@@ -230,21 +230,11 @@ public final class DemoScene: RenderScene {
                                                                                     radialSegments: 12,
                                                                                     heightSegments: 4))
             let baseColor = ProceduralTextureGenerator.checkerboard(width: 256, height: 256, cell: 48)
-            let normal = ProceduralTextureGenerator.normalMapNoise(width: 256,
-                                                                   height: 256,
-                                                                   amplitude: 9.0,
-                                                                   frequency: 3.0,
-                                                                   octaves: 5)
             let mat = makeBaseColorMaterial(label: "PlayerMat",
                                             baseColor: baseColor,
                                             metallic: 0.0,
                                             roughness: 0.4,
                                             alpha: 1.0)
-            var skinnedMat = mat
-            skinnedMat.normalTexture = TextureResource(device: device,
-                                                       source: normal,
-                                                       label: "PlayerMat.normal")
-            skinnedMat.normalScale = 10.0
             let capsuleMeshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: playerRadius,
                                                                          halfHeight: playerHalfHeight))
             let capsuleMesh = GPUMesh(device: device, descriptor: capsuleMeshDesc, label: "PlayerCapsuleOverlay")
@@ -276,7 +266,7 @@ public final class DemoScene: RenderScene {
             let skeleton = Skeleton.humanoid8()
             world.add(e, SkeletonComponent(skeleton: skeleton))
             world.add(e, PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal))
-            world.add(e, SkinnedMeshComponent(mesh: skinnedDesc, material: skinnedMat))
+            world.add(e, SkinnedMeshComponent(mesh: skinnedDesc, material: mat))
 
             let overlay = world.createEntity()
             var to = TransformComponent()
@@ -370,7 +360,7 @@ public final class DemoScene: RenderScene {
                                           metallicFactor: 1.0,
                                           roughnessFactor: 1.0,
                                           alpha: 1.0,
-                                          normalScale: 6.5)
+                                          normalScale: 10.0)
             let mat = MaterialFactory.make(device: device, descriptor: desc, label: "RampMat")
 
             let e = world.createEntity()
