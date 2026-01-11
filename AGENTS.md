@@ -23,6 +23,7 @@
 - RT BLAS optimization: static meshes now reuse cached BLAS; dynamic meshes rebuild BLAS per frame while TLAS updates instance transforms.
 - RT BLAS refit: dynamic BLAS are now refit in place when topology is unchanged (build only on topology change).
 - RT scene refactor: RayTracingScene split into RTGeometryCache (buffers/slices) and RTAccelerationBuilder (BLAS/TLAS build/refit).
+- RT TLAS refit: TLAS now refits when instance/BLAS counts are stable, falling back to rebuild on topology changes.
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.

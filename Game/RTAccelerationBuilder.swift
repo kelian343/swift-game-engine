@@ -13,8 +13,10 @@ final class RTAccelerationBuilder {
     private var tlas: MTLAccelerationStructure?
     private var tlasSize: Int = 0
     private var tlasScratch: MTLBuffer?
+    private var tlasRefitScratch: MTLBuffer?
     private var instanceBuffer: MTLBuffer?
     private var lastInstanceCount: Int = 0
+    private var lastTLASKey: (instanceCount: Int, blasCount: Int)?
 
     private var cachedStaticBLAS: [MTLAccelerationStructure] = []
     private var cachedDynamicBLAS: [MTLAccelerationStructure] = []
@@ -198,8 +200,12 @@ final class RTAccelerationBuilder {
         tlasDesc.instancedAccelerationStructures = blasList
         tlasDesc.instanceDescriptorBuffer = instanceBuffer
         tlasDesc.instanceDescriptorStride = MemoryLayout<MTLAccelerationStructureInstanceDescriptor>.stride
+        tlasDesc.usage = [.refit]
 
         let tlasSizes = device.accelerationStructureSizes(descriptor: tlasDesc)
+        let canRefit = tlas != nil
+            && lastTLASKey?.instanceCount == instances.count
+            && lastTLASKey?.blasCount == blasList.count
         if tlas == nil || tlasSize < tlasSizes.accelerationStructureSize {
             tlas = device.makeAccelerationStructure(size: tlasSizes.accelerationStructureSize)
             tlasSize = tlasSizes.accelerationStructureSize
@@ -207,6 +213,22 @@ final class RTAccelerationBuilder {
         if tlasScratch == nil || tlasScratch!.length < tlasSizes.buildScratchBufferSize {
             tlasScratch = device.makeBuffer(length: tlasSizes.buildScratchBufferSize,
                                             options: .storageModePrivate)
+        }
+        if tlasRefitScratch == nil || tlasRefitScratch!.length < tlasSizes.refitScratchBufferSize {
+            tlasRefitScratch = device.makeBuffer(length: max(tlasSizes.refitScratchBufferSize, 1),
+                                                 options: .storageModePrivate)
+        }
+
+        if let tlas = tlas, canRefit, let scratch = tlasRefitScratch {
+            let encoder = commandBuffer.makeAccelerationStructureCommandEncoder()!
+            encoder.refit(sourceAccelerationStructure: tlas,
+                          descriptor: tlasDesc,
+                          destinationAccelerationStructure: tlas,
+                          scratchBuffer: scratch,
+                          scratchBufferOffset: 0,
+                          options: .perPrimitiveData)
+            encoder.endEncoding()
+            return tlas
         }
 
         if let tlas = tlas, let scratch = tlasScratch {
@@ -216,6 +238,7 @@ final class RTAccelerationBuilder {
                           scratchBuffer: scratch,
                           scratchBufferOffset: 0)
             encoder.endEncoding()
+            lastTLASKey = (instances.count, blasList.count)
             return tlas
         }
 
