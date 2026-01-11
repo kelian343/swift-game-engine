@@ -230,7 +230,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
 
     float3 accumColor = float3(0.0);
     float accumAlpha = 0.0;
-    const uint maxLayers = 4;
+    const uint maxLayers = 3;
 
     for (uint layer = 0; layer < maxLayers && accumAlpha < 0.99; ++layer) {
         intersection_result<triangle_data, instancing> hit = isect.intersect(current, accel);
@@ -385,7 +385,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
 
             float3 reflAccum = float3(0.0);
             float reflAlpha = 0.0;
-            const uint maxReflLayers = 4;
+            const uint maxReflLayers = 1;
             ray rCurrent = refl;
             for (uint rLayer = 0; rLayer < maxReflLayers && reflAlpha < 0.99; ++rLayer) {
                 intersection_result<triangle_data, instancing> reflHit = isect.intersect(rCurrent, accel);
@@ -556,7 +556,7 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
 
                 float3 refrAccum = float3(0.0);
                 float refrAlpha = 0.0;
-                const uint maxRefrLayers = 4;
+                const uint maxRefrLayers = 1;
                 ray rCurrent = refr;
                 for (uint rLayer = 0; rLayer < maxRefrLayers && refrAlpha < 0.99; ++rLayer) {
                     intersection_result<triangle_data, instancing> refrHit = isect.intersect(rCurrent, accel);
