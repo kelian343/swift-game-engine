@@ -71,6 +71,8 @@ typedef struct
     uint32_t pad0;
     uint32_t textureCount;
     uint32_t dirLightCount;
+    uint32_t envMipCount;
+    uint32_t pad1;
     vector_float3 envSH0;
     vector_float3 envSH1;
     vector_float3 envSH2;

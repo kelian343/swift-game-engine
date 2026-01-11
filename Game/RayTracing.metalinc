@@ -79,6 +79,24 @@ inline float3 eval_env_sh(float3 n, constant RTFrameUniforms& frame) {
     return result;
 }
 
+inline float3 eval_spec_ibl(float3 N,
+                            float3 V,
+                            float roughness,
+                            float metallic,
+                            float3 base,
+                            constant RTFrameUniforms& frame,
+                            texturecube<float, access::sample> envMap,
+                            texture2d<float, access::sample> brdfLUT) {
+    float NoV = sat(dot(N, V));
+    float3 R = reflect(-V, N);
+    constexpr sampler samp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+    float mip = roughness * max(float(frame.envMipCount - 1), 0.0);
+    float3 prefiltered = envMap.sample(samp, R, level(mip)).xyz;
+    float2 brdf = brdfLUT.sample(samp, float2(NoV, roughness)).xy;
+    float3 F0 = mix(float3(0.04), base, metallic);
+    return prefiltered * (F0 * brdf.x + brdf.y);
+}
+
 inline float2 interp_uv(RTInstanceInfo inst,
                         uint i0,
                         uint i1,
@@ -168,6 +186,8 @@ inline float sample_alpha(RTInstanceInfo inst,
 
 kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(0)]],
                            array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures [[texture(1)]],
+                           texturecube<float, access::sample> envMap [[texture(1 + MAX_RT_TEXTURES)]],
+                           texture2d<float, access::sample> brdfLUT [[texture(2 + MAX_RT_TEXTURES)]],
                            constant RTFrameUniforms& frame [[buffer(BufferIndexRTFrame)]],
                            acceleration_structure<instancing> accel [[buffer(BufferIndexRTAccel)]],
                            device const float3 *rtVertices [[buffer(BufferIndexRTVertices)]],
@@ -300,7 +320,8 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         }
 
         float3 ambient = m.base * eval_env_sh(N, frame) * frame.ambientIntensity * m.occlusion;
-        float3 color = direct + ambient + m.emissive;
+        float3 specIbl = eval_spec_ibl(N, V, m.roughness, m.metallic, m.base, frame, envMap, brdfLUT);
+        float3 color = direct + ambient + (specIbl * m.occlusion) + m.emissive;
 
         // Single-bounce deterministic mirror reflection for smooth metallic surfaces.
         float mirrorMask = step(m.roughness, 0.08) * step(0.8, m.metallic);

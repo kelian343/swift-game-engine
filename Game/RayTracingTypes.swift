@@ -15,6 +15,8 @@ struct RTFrameUniformsSwift {
     var pad0: UInt32
     var textureCount: UInt32
     var dirLightCount: UInt32
+    var envMipCount: UInt32
+    var pad1: UInt32
     var envSH0: SIMD3<Float>
     var envSH1: SIMD3<Float>
     var envSH2: SIMD3<Float>

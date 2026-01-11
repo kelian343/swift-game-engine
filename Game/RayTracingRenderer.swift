@@ -17,6 +17,7 @@ final class RayTracingRenderer {
     private let rtFrameBuffer: MTLBuffer
 
     private let dirLightBuffer: MTLBuffer
+    private let ibl: IBLResources
 
     init?(device: MTLDevice) {
         self.device = device
@@ -46,6 +47,7 @@ final class RayTracingRenderer {
             print("Unable to compile ray tracing pipeline state. Error info: \(error)")
             return nil
         }
+        self.ibl = IBLResources(device: device)
     }
 
     func encode(commandBuffer: MTLCommandBuffer,
@@ -72,6 +74,8 @@ final class RayTracingRenderer {
             pad0: 0,
             textureCount: UInt32(geometry?.textures.count ?? 0),
             dirLightCount: 1,
+            envMipCount: ibl.envMipCount,
+            pad1: 0,
             envSH0: envSH0,
             envSH1: envSH1,
             envSH2: .zero,
@@ -120,6 +124,8 @@ final class RayTracingRenderer {
         enc.setBuffer(geometry.dynamicVertexBuffer, offset: 0, index: BufferIndex(rawValue: 9)!.rawValue)
         enc.setBuffer(geometry.dynamicIndexBuffer, offset: 0, index: BufferIndex(rawValue: 10)!.rawValue)
         enc.setBuffer(geometry.dynamicUVBuffer, offset: 0, index: BufferIndex(rawValue: 11)!.rawValue)
+        enc.setTexture(ibl.envCube, index: 1 + maxRTTextures)
+        enc.setTexture(ibl.brdfLUT, index: 2 + maxRTTextures)
 
         if !geometry.textures.isEmpty {
             let count = min(geometry.textures.count, maxRTTextures)
