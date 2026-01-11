@@ -126,6 +126,8 @@ final class RayTracingRenderer {
         enc.setBuffer(geometry.dynamicVertexBuffer, offset: 0, index: BufferIndex(rawValue: 9)!.rawValue)
         enc.setBuffer(geometry.dynamicIndexBuffer, offset: 0, index: BufferIndex(rawValue: 10)!.rawValue)
         enc.setBuffer(geometry.dynamicUVBuffer, offset: 0, index: BufferIndex(rawValue: 11)!.rawValue)
+        enc.setBuffer(geometry.dynamicNormalBuffer, offset: 0, index: BufferIndex(rawValue: 14)!.rawValue)
+        enc.setBuffer(geometry.dynamicTangentBuffer, offset: 0, index: BufferIndex(rawValue: 15)!.rawValue)
         enc.setTexture(ibl.envCube, index: 1 + maxRTTextures)
         enc.setTexture(ibl.brdfLUT, index: 2 + maxRTTextures)
 

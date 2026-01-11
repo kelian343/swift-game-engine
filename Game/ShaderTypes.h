@@ -36,7 +36,9 @@ typedef NS_ENUM(EnumBackingType, BufferIndex)
     BufferIndexRTIndicesDynamic  = 10,
     BufferIndexRTUVsDynamic      = 11,
     BufferIndexRTNormals         = 12,
-    BufferIndexRTTangents        = 13
+    BufferIndexRTTangents        = 13,
+    BufferIndexRTNormalsDynamic  = 14,
+    BufferIndexRTTangentsDynamic = 15
 };
 
 typedef NS_ENUM(EnumBackingType, VertexAttribute)
@@ -64,7 +66,8 @@ typedef struct
     vector_float3 baseColorFactor;
     float baseAlpha;
     float unlit;
-    vector_float3 pad1;
+    float normalScale;
+    float pad1;
 } Uniforms;
 
 typedef struct
@@ -102,6 +105,8 @@ typedef struct
     float occlusionStrength;
     vector_float2 mrFactors;
     vector_float2 padding0;
+    float normalScale;
+    vector_float3 pad2;
     uint32_t baseColorTexIndex;
     uint32_t normalTexIndex;
     uint32_t metallicRoughnessTexIndex;

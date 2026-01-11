@@ -18,6 +18,8 @@ struct RTGeometryBuffers {
     let dynamicVertexBuffer: MTLBuffer
     let dynamicIndexBuffer: MTLBuffer
     let dynamicUVBuffer: MTLBuffer
+    let dynamicNormalBuffer: MTLBuffer
+    let dynamicTangentBuffer: MTLBuffer
     let textures: [MTLTexture]
 }
 
@@ -40,6 +42,8 @@ struct RTGeometryState {
 
 struct RTSkinningJob {
     let sourcePositions: MTLBuffer
+    let sourceNormals: MTLBuffer
+    let sourceTangents: MTLBuffer
     let sourceBoneIndices: MTLBuffer
     let sourceBoneWeights: MTLBuffer
     let paletteBuffer: MTLBuffer
@@ -58,10 +62,14 @@ final class RTGeometryCache {
     private var dynamicVertexBuffer: MTLBuffer?
     private var dynamicIndexBuffer: MTLBuffer?
     private var dynamicUVBuffer: MTLBuffer?
+    private var dynamicNormalBuffer: MTLBuffer?
+    private var dynamicTangentBuffer: MTLBuffer?
     private var geometryInstanceInfoBuffer: MTLBuffer?
     private var dynamicVertexCapacity: Int = 0
     private var dynamicIndexCapacity: Int = 0
     private var dynamicUVCapacity: Int = 0
+    private var dynamicNormalCapacity: Int = 0
+    private var dynamicTangentCapacity: Int = 0
     private var instanceInfoCapacity: Int = 0
     private var dynamicVertexIsPrivate: Bool = false
     private var skinnedSources: [SkinnedSourceKey: SkinnedSource] = [:]
@@ -95,6 +103,8 @@ final class RTGeometryCache {
 
     private struct SkinnedSource {
         let positions: MTLBuffer
+        let normals: MTLBuffer
+        let tangents: MTLBuffer
         let boneIndices: MTLBuffer
         let boneWeights: MTLBuffer
         let vertexCount: Int
@@ -105,6 +115,8 @@ final class RTGeometryCache {
 
         var dynamicVertices: [SIMD3<Float>] = []
         var dynamicUVs: [SIMD2<Float>] = []
+        var dynamicNormals: [SIMD3<Float>] = []
+        var dynamicTangents: [SIMD4<Float>] = []
         var dynamicIndices: [UInt32] = []
         var skinningJobs: [RTSkinningJob] = []
         var instances: [RTInstanceInfoSwift] = []
@@ -239,13 +251,23 @@ final class RTGeometryCache {
 
             if let skinned = item.skinnedMesh, let palette = item.skinningPalette {
                 let vCount = skinned.streams.vertexCount
+                let tangents = MeshTangents.compute(positions: skinned.streams.positions,
+                                                    normals: skinned.streams.normals,
+                                                    uvs: skinned.streams.uvs,
+                                                    indices16: skinned.indices16,
+                                                    indices32: skinned.indices32)
                 dynamicVertices.reserveCapacity(dynamicVertices.count + vCount)
                 dynamicUVs.reserveCapacity(dynamicUVs.count + vCount)
+                dynamicNormals.reserveCapacity(dynamicNormals.count + vCount)
+                dynamicTangents.reserveCapacity(dynamicTangents.count + vCount)
                 baseVertex = UInt32(dynamicVertices.count)
                 baseIndex = UInt32(dynamicIndices.count)
                 for i in 0..<vCount {
                     dynamicVertices.append(.zero)
                     dynamicUVs.append(skinned.streams.uvs[i])
+                    dynamicNormals.append(skinned.streams.normals[i])
+                    let t = i < tangents.count ? tangents[i] : SIMD4<Float>(1, 0, 0, 1)
+                    dynamicTangents.append(t)
                 }
 
                 indexCount = skinned.indexCount
@@ -298,6 +320,8 @@ final class RTGeometryCache {
                                                  mrFactors: SIMD2<Float>(item.material.roughnessFactor,
                                                                         item.material.alpha),
                                                  padding0: .zero,
+                                                 normalScale: item.material.normalScale,
+                                                 pad2: .zero,
                                                  baseColorTexIndex: baseTexIndex,
                                                  normalTexIndex: normalTexIndex,
                                                  metallicRoughnessTexIndex: mrTexIndex,
@@ -317,6 +341,8 @@ final class RTGeometryCache {
 
         let vBytes = dynamicVertices.count * MemoryLayout<SIMD3<Float>>.stride
         let uvBytes = dynamicUVs.count * MemoryLayout<SIMD2<Float>>.stride
+        let nBytes = dynamicNormals.count * MemoryLayout<SIMD3<Float>>.stride
+        let tBytes = dynamicTangents.count * MemoryLayout<SIMD4<Float>>.stride
         let iBytes = dynamicIndices.count * MemoryLayout<UInt32>.stride
         let instBytes = instances.count * MemoryLayout<RTInstanceInfoSwift>.stride
 
@@ -337,6 +363,26 @@ final class RTGeometryCache {
             dynamicUVBuffer = device.makeBuffer(length: dynamicUVCapacity,
                                                 options: [.storageModeShared])
             dynamicUVBuffer?.label = "RTDynamicUVs"
+        }
+        if dynamicNormalBuffer == nil
+            || nBytes > dynamicNormalCapacity
+            || (dynamicVertexIsPrivate && !useGPUSkinning)
+            || (!dynamicVertexIsPrivate && useGPUSkinning) {
+            dynamicNormalCapacity = max(nBytes, 1)
+            let options: MTLResourceOptions = useGPUSkinning ? .storageModePrivate : .storageModeShared
+            dynamicNormalBuffer = device.makeBuffer(length: dynamicNormalCapacity,
+                                                    options: options)
+            dynamicNormalBuffer?.label = "RTDynamicNormals"
+        }
+        if dynamicTangentBuffer == nil
+            || tBytes > dynamicTangentCapacity
+            || (dynamicVertexIsPrivate && !useGPUSkinning)
+            || (!dynamicVertexIsPrivate && useGPUSkinning) {
+            dynamicTangentCapacity = max(tBytes, 1)
+            let options: MTLResourceOptions = useGPUSkinning ? .storageModePrivate : .storageModeShared
+            dynamicTangentBuffer = device.makeBuffer(length: dynamicTangentCapacity,
+                                                     options: options)
+            dynamicTangentBuffer?.label = "RTDynamicTangents"
         }
         if dynamicIndexBuffer == nil || iBytes > dynamicIndexCapacity {
             dynamicIndexCapacity = max(iBytes, 1)
@@ -361,6 +407,16 @@ final class RTGeometryCache {
                 memcpy(buf.contents(), raw.baseAddress!, raw.count)
             }
         }
+        if let buf = dynamicNormalBuffer, !dynamicNormals.isEmpty, !useGPUSkinning {
+            _ = dynamicNormals.withUnsafeBytes { raw in
+                memcpy(buf.contents(), raw.baseAddress!, raw.count)
+            }
+        }
+        if let buf = dynamicTangentBuffer, !dynamicTangents.isEmpty, !useGPUSkinning {
+            _ = dynamicTangents.withUnsafeBytes { raw in
+                memcpy(buf.contents(), raw.baseAddress!, raw.count)
+            }
+        }
         if let buf = dynamicIndexBuffer, !dynamicIndices.isEmpty {
             _ = dynamicIndices.withUnsafeBytes { raw in
                 memcpy(buf.contents(), raw.baseAddress!, raw.count)
@@ -379,6 +435,8 @@ final class RTGeometryCache {
               let staticIB = staticIndexBuffer,
               let dynamicVB = dynamicVertexBuffer,
               let dynamicUVB = dynamicUVBuffer,
+              let dynamicNB = dynamicNormalBuffer,
+              let dynamicTB = dynamicTangentBuffer,
               let dynamicIB = dynamicIndexBuffer,
               let instb = geometryInstanceInfoBuffer else {
             return nil
@@ -393,6 +451,8 @@ final class RTGeometryCache {
                                         dynamicVertexBuffer: dynamicVB,
                                         dynamicIndexBuffer: dynamicIB,
                                         dynamicUVBuffer: dynamicUVB,
+                                        dynamicNormalBuffer: dynamicNB,
+                                        dynamicTangentBuffer: dynamicTB,
                                         textures: texturesByIndex)
 
         return RTGeometryState(buffers: buffers,
@@ -423,16 +483,30 @@ final class RTGeometryCache {
             }
 
             let positions = skinned.streams.positions
+            let normals = skinned.streams.normals
             let boneIndices = skinned.streams.boneIndices
             let boneWeights = skinned.streams.boneWeights
+            let tangents = MeshTangents.compute(positions: positions,
+                                                normals: normals,
+                                                uvs: skinned.streams.uvs,
+                                                indices16: skinned.indices16,
+                                                indices32: skinned.indices32)
 
             let posBytes = positions.count * MemoryLayout<SIMD3<Float>>.stride
+            let nBytes = normals.count * MemoryLayout<SIMD3<Float>>.stride
+            let tBytes = tangents.count * MemoryLayout<SIMD4<Float>>.stride
             let idxBytes = boneIndices.count * MemoryLayout<SIMD4<UInt16>>.stride
             let wBytes = boneWeights.count * MemoryLayout<SIMD4<Float>>.stride
 
             let posBuf = device.makeBuffer(bytes: positions,
                                            length: max(posBytes, 1),
                                            options: [.storageModeShared])!
+            let nBuf = device.makeBuffer(bytes: normals,
+                                         length: max(nBytes, 1),
+                                         options: [.storageModeShared])!
+            let tBuf = device.makeBuffer(bytes: tangents,
+                                         length: max(tBytes, 1),
+                                         options: [.storageModeShared])!
             let idxBuf = device.makeBuffer(bytes: boneIndices,
                                            length: max(idxBytes, 1),
                                            options: [.storageModeShared])!
@@ -440,9 +514,13 @@ final class RTGeometryCache {
                                          length: max(wBytes, 1),
                                          options: [.storageModeShared])!
             posBuf.label = "RTSkinnedPositions"
+            nBuf.label = "RTSkinnedNormals"
+            tBuf.label = "RTSkinnedTangents"
             idxBuf.label = "RTSkinnedBoneIndices"
             wBuf.label = "RTSkinnedBoneWeights"
             let created = SkinnedSource(positions: posBuf,
+                                        normals: nBuf,
+                                        tangents: tBuf,
                                         boneIndices: idxBuf,
                                         boneWeights: wBuf,
                                         vertexCount: vertexCount)
@@ -463,6 +541,8 @@ final class RTGeometryCache {
         }
 
         return RTSkinningJob(sourcePositions: source.positions,
+                             sourceNormals: source.normals,
+                             sourceTangents: source.tangents,
                              sourceBoneIndices: source.boneIndices,
                              sourceBoneWeights: source.boneWeights,
                              paletteBuffer: paletteBuffer,

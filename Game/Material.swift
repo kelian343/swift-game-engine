@@ -21,6 +21,7 @@ public struct Material {
     public var occlusionStrength: Float
     public var alpha: Float
     public var unlit: Bool
+    public var normalScale: Float
     public var cullMode: MTLCullMode
     public var frontFacing: MTLWinding
 
@@ -36,6 +37,7 @@ public struct Material {
                 occlusionStrength: Float = 1.0,
                 alpha: Float = 1.0,
                 unlit: Bool = false,
+                normalScale: Float = 1.0,
                 cullMode: MTLCullMode = .back,
                 frontFacing: MTLWinding = .counterClockwise) {
         self.baseColorTexture = baseColorTexture
@@ -50,6 +52,7 @@ public struct Material {
         self.occlusionStrength = occlusionStrength
         self.alpha = alpha
         self.unlit = unlit
+        self.normalScale = normalScale
         self.cullMode = cullMode
         self.frontFacing = frontFacing
     }
@@ -68,6 +71,7 @@ public struct MaterialDescriptor {
     public var occlusionStrength: Float
     public var alpha: Float
     public var unlit: Bool
+    public var normalScale: Float
     public var cullMode: MTLCullMode
     public var frontFacing: MTLWinding
 
@@ -83,6 +87,7 @@ public struct MaterialDescriptor {
                 occlusionStrength: Float = 1.0,
                 alpha: Float = 1.0,
                 unlit: Bool = false,
+                normalScale: Float = 1.0,
                 cullMode: MTLCullMode = .back,
                 frontFacing: MTLWinding = .counterClockwise) {
         self.baseColor = baseColor
@@ -97,6 +102,7 @@ public struct MaterialDescriptor {
         self.occlusionStrength = occlusionStrength
         self.alpha = alpha
         self.unlit = unlit
+        self.normalScale = normalScale
         self.cullMode = cullMode
         self.frontFacing = frontFacing
     }
@@ -122,6 +128,7 @@ public enum MaterialFactory {
                         occlusionStrength: descriptor.occlusionStrength,
                         alpha: descriptor.alpha,
                         unlit: descriptor.unlit,
+                        normalScale: descriptor.normalScale,
                         cullMode: descriptor.cullMode,
                         frontFacing: descriptor.frontFacing)
     }

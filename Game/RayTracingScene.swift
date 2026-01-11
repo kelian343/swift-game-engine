@@ -35,6 +35,8 @@ final class RayTracingScene {
         if let encoder = skinningEncoder, !state.skinningJobs.isEmpty {
             encoder.encode(commandBuffer: commandBuffer,
                            outputBuffer: state.buffers.dynamicVertexBuffer,
+                           outputNormalBuffer: state.buffers.dynamicNormalBuffer,
+                           outputTangentBuffer: state.buffers.dynamicTangentBuffer,
                            jobs: state.skinningJobs)
         }
         return state.buffers

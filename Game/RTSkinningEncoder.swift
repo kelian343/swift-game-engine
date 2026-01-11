@@ -26,6 +26,8 @@ final class RTSkinningEncoder {
 
     func encode(commandBuffer: MTLCommandBuffer,
                 outputBuffer: MTLBuffer,
+                outputNormalBuffer: MTLBuffer,
+                outputTangentBuffer: MTLBuffer,
                 jobs: [RTSkinningJob]) {
         guard !jobs.isEmpty,
               let enc = commandBuffer.makeComputeCommandEncoder() else {
@@ -36,11 +38,15 @@ final class RTSkinningEncoder {
             var params = SkinningParamsSwift(baseVertex: UInt32(job.dstBaseVertex),
                                              vertexCount: UInt32(job.vertexCount))
             enc.setBuffer(job.sourcePositions, offset: 0, index: 0)
-            enc.setBuffer(job.sourceBoneIndices, offset: 0, index: 1)
-            enc.setBuffer(job.sourceBoneWeights, offset: 0, index: 2)
-            enc.setBuffer(job.paletteBuffer, offset: 0, index: 3)
-            enc.setBuffer(outputBuffer, offset: 0, index: 4)
-            enc.setBytes(&params, length: MemoryLayout<SkinningParamsSwift>.stride, index: 5)
+            enc.setBuffer(job.sourceNormals, offset: 0, index: 1)
+            enc.setBuffer(job.sourceTangents, offset: 0, index: 2)
+            enc.setBuffer(job.sourceBoneIndices, offset: 0, index: 3)
+            enc.setBuffer(job.sourceBoneWeights, offset: 0, index: 4)
+            enc.setBuffer(job.paletteBuffer, offset: 0, index: 5)
+            enc.setBuffer(outputBuffer, offset: 0, index: 6)
+            enc.setBuffer(outputNormalBuffer, offset: 0, index: 7)
+            enc.setBuffer(outputTangentBuffer, offset: 0, index: 8)
+            enc.setBytes(&params, length: MemoryLayout<SkinningParamsSwift>.stride, index: 9)
 
             let threadsPerThreadgroup = MTLSize(width: 64, height: 1, depth: 1)
             let threadsPerGrid = MTLSize(width: job.vertexCount, height: 1, depth: 1)
