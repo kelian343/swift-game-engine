@@ -170,11 +170,12 @@ final class Renderer: NSObject, MTKViewDelegate {
         let projection = scene.camera.projection
         let viewM = scene.camera.view
 
-        updateRTTargetIfNeeded(view: view)
+        let rtScale = max(0.25, min(scene.rtResolutionScale, 1.0))
+        updateRTTargetIfNeeded(view: view, scale: rtScale)
         if let rtTarget = rtColorTexture {
             rayTracing.encode(commandBuffer: commandBuffer,
                               outputTexture: rtTarget,
-                              outputSize: view.drawableSize,
+                              outputSize: CGSize(width: rtTarget.width, height: rtTarget.height),
                               items: items,
                               lights: scene.directionalLights,
                               camera: scene.camera,
@@ -220,21 +221,21 @@ final class Renderer: NSObject, MTKViewDelegate {
         scene?.viewportDidChange(size: SIMD2<Float>(Float(size.width), Float(size.height)))
     }
 
-    private func updateRTTargetIfNeeded(view: MTKView) {
-        let width = max(Int(view.drawableSize.width), 1)
-        let height = max(Int(view.drawableSize.height), 1)
+    private func updateRTTargetIfNeeded(view: MTKView, scale: Float) {
+        let scaledWidth = max(Int((Float(view.drawableSize.width) * scale).rounded(.toNearestOrAwayFromZero)), 1)
+        let scaledHeight = max(Int((Float(view.drawableSize.height) * scale).rounded(.toNearestOrAwayFromZero)), 1)
         let format = view.colorPixelFormat
 
         if let existing = rtColorTexture,
-           existing.width == width,
-           existing.height == height,
+           existing.width == scaledWidth,
+           existing.height == scaledHeight,
            existing.pixelFormat == format {
             return
         }
 
         let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format,
-                                                            width: width,
-                                                            height: height,
+                                                            width: scaledWidth,
+                                                            height: scaledHeight,
                                                             mipmapped: false)
         desc.usage = [.shaderRead, .shaderWrite]
         desc.storageMode = .private

@@ -18,6 +18,7 @@ public final class DemoScene: RenderScene {
     public var toneMappingExposure: Float = 0.6
     public var toneMappingEnabled: Bool = true
     public var directionalLights: [DirectionalLight] = []
+    public var rtResolutionScale: Float = 1.0
     private var fpsOverlaySystem: FPSOverlaySystem?
 
     // ECS

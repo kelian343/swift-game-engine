@@ -35,6 +35,9 @@ public protocol RenderScene: AnyObject {
     /// Directional lights for rendering (RT uses all; raster may ignore extras).
     var directionalLights: [DirectionalLight] { get }
 
+    /// RT resolution scale (1.0 = full res, 0.5 = quarter pixels).
+    var rtResolutionScale: Float { get }
+
     func viewportDidChange(size: SIMD2<Float>)
 }
 
@@ -46,4 +49,5 @@ extension RenderScene {
     var toneMappingExposure: Float { 1.0 }
     var toneMappingEnabled: Bool { true }
     var directionalLights: [DirectionalLight] { [] }
+    var rtResolutionScale: Float { 1.0 }
 }
