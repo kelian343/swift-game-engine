@@ -79,6 +79,21 @@ inline float3 eval_env_sh(float3 n, constant RTFrameUniforms& frame) {
     return result;
 }
 
+inline float2 interp_uv(RTInstanceInfo inst,
+                        uint i0,
+                        uint i1,
+                        uint i2,
+                        float2 bary,
+                        device const float2 *rtUVsStatic,
+                        device const float2 *rtUVsDynamic) {
+    device const float2 *rtUVs = inst.bufferIndex == 0 ? rtUVsStatic : rtUVsDynamic;
+    float w = 1.0 - bary.x - bary.y;
+    float2 uv0 = rtUVs[inst.baseVertex + i0];
+    float2 uv1 = rtUVs[inst.baseVertex + i1];
+    float2 uv2 = rtUVs[inst.baseVertex + i2];
+    return uv0 * w + uv1 * bary.x + uv2 * bary.y;
+}
+
 inline float sample_alpha(RTInstanceInfo inst,
                           uint i0,
                           uint i1,
@@ -88,15 +103,10 @@ inline float sample_alpha(RTInstanceInfo inst,
                           device const float2 *rtUVsStatic,
                           device const float2 *rtUVsDynamic,
                           array<texture2d<float, access::sample>, MAX_RT_TEXTURES> baseColorTextures) {
-    float alpha = clamp(inst.baseAlpha, 0.0, 1.0);
+    float alpha = clamp(inst.mrFactors.y, 0.0, 1.0);
     if (inst.baseColorTexIndex < frame.textureCount && inst.baseColorTexIndex < MAX_RT_TEXTURES) {
         constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
-        device const float2 *rtUVs = inst.bufferIndex == 0 ? rtUVsStatic : rtUVsDynamic;
-        float w = 1.0 - bary.x - bary.y;
-        float2 uv0 = rtUVs[inst.baseVertex + i0];
-        float2 uv1 = rtUVs[inst.baseVertex + i1];
-        float2 uv2 = rtUVs[inst.baseVertex + i2];
-        float2 uv = uv0 * w + uv1 * bary.x + uv2 * bary.y;
+        float2 uv = interp_uv(inst, i0, i1, i2, bary, rtUVsStatic, rtUVsDynamic);
         float4 tex = baseColorTextures[inst.baseColorTexIndex].sample(colorSamp, uv);
         alpha *= tex.w;
     }
@@ -155,8 +165,6 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
 
         device const float3 *verts = inst.bufferIndex == 0 ? rtVertices : rtVerticesDynamic;
         device const uint *inds = inst.bufferIndex == 0 ? rtIndices : rtIndicesDynamic;
-        device const float2 *uvs = inst.bufferIndex == 0 ? rtUVs : rtUVsDynamic;
-
         uint i0 = inds[triBase + 0];
         uint i1 = inds[triBase + 1];
         uint i2 = inds[triBase + 2];
@@ -172,22 +180,38 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
         float3 N = normalize(cross(w1 - w0, w2 - w0));
         if (dot(N, current.direction) > 0.0) { N = -N; }
 
-        float3 base = inst.baseColor;
-        float alpha = clamp(inst.baseAlpha, 0.0, 1.0);
-        float metallic = clamp(inst.metallic, 0.0, 1.0);
-        float roughness = clamp(inst.roughness, 0.05, 1.0);
+        float2 bary = hit.triangle_barycentric_coord;
+        float2 uv = interp_uv(inst, i0, i1, i2, bary, rtUVs, rtUVsDynamic);
+
+        float3 base = inst.baseColorFactor;
+        float alpha = clamp(inst.mrFactors.y, 0.0, 1.0);
+        float metallic = clamp(inst.metallicFactor, 0.0, 1.0);
+        float roughness = clamp(inst.mrFactors.x, 0.05, 1.0);
+        float3 emissive = inst.emissiveFactor;
+        float occlusion = clamp(inst.occlusionStrength, 0.0, 1.0);
 
         if (inst.baseColorTexIndex < frame.textureCount && inst.baseColorTexIndex < MAX_RT_TEXTURES) {
             constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
-            float2 bary = hit.triangle_barycentric_coord;
-            float w = 1.0 - bary.x - bary.y;
-            float2 uv0 = uvs[inst.baseVertex + i0];
-            float2 uv1 = uvs[inst.baseVertex + i1];
-            float2 uv2 = uvs[inst.baseVertex + i2];
-            float2 uv = uv0 * w + uv1 * bary.x + uv2 * bary.y;
             float4 tex = baseColorTextures[inst.baseColorTexIndex].sample(colorSamp, uv);
             base *= tex.xyz;
             alpha *= tex.w;
+        }
+        if (inst.metallicRoughnessTexIndex < frame.textureCount
+            && inst.metallicRoughnessTexIndex < MAX_RT_TEXTURES) {
+            constexpr sampler mrSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+            float4 mr = baseColorTextures[inst.metallicRoughnessTexIndex].sample(mrSamp, uv);
+            roughness *= mr.y;
+            metallic *= mr.z;
+        }
+        if (inst.emissiveTexIndex < frame.textureCount && inst.emissiveTexIndex < MAX_RT_TEXTURES) {
+            constexpr sampler eSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+            float4 em = baseColorTextures[inst.emissiveTexIndex].sample(eSamp, uv);
+            emissive *= em.xyz;
+        }
+        if (inst.occlusionTexIndex < frame.textureCount && inst.occlusionTexIndex < MAX_RT_TEXTURES) {
+            constexpr sampler oSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+            float4 occ = baseColorTextures[inst.occlusionTexIndex].sample(oSamp, uv);
+            occlusion *= occ.x;
         }
 
         float3 V = normalize(-current.direction);
@@ -245,8 +269,8 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
             direct += brdf * Li * (NdotL * shadow);
         }
 
-        float3 ambient = base * eval_env_sh(N, frame) * frame.ambientIntensity;
-        float3 color = direct + ambient;
+        float3 ambient = base * eval_env_sh(N, frame) * frame.ambientIntensity * occlusion;
+        float3 color = direct + ambient + emissive;
 
         float oneMinus = 1.0 - accumAlpha;
         accumColor += color * alpha * oneMinus;

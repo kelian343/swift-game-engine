@@ -25,6 +25,8 @@
 - RT scene refactor: RayTracingScene split into RTGeometryCache (buffers/slices) and RTAccelerationBuilder (BLAS/TLAS build/refit).
 - RT TLAS refit: TLAS now refits when instance/BLAS counts are stable, falling back to rebuild on topology changes.
 - GPU skinning (RT path): CPU skinning replaced by compute kernel writing dynamic vertex buffer; skinned source buffers cached, palettes uploaded per frame.
+- Procedural mesh API fully migrated: MeshData/SkinnedMeshData and ProceduralMeshBridge removed; ECS components and render items now carry ProceduralMeshDescriptor/SkinnedMeshDescriptor.
+- Procedural mesh usage updated across demo/UI/renderer: GPUMesh now builds directly from descriptor streams; collision static mesh reads descriptor positions/indices.
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.
@@ -105,24 +107,23 @@ Goal: procedural skinned character visible in RayTracing without Raster.
 - ECS data: Skeleton (8-bone rig), PoseComponent, SkinnedMeshComponent.
   - Skeleton: parent[], bindLocal[], invBindModel[].
   - PoseComponent: local[], model[], palette[], phase.
-  - SkinnedMeshComponent: SkinnedMeshData (CPU vertices + weights), material, skeletonRef.
+  - SkinnedMeshComponent: SkinnedMeshDescriptor (streams + indices), material.
 - ProceduralPoseSystem (fixed-step):
   - Inputs: PhysicsBodyComponent, CharacterControllerComponent, MoveIntentComponent.
   - Outputs: PoseComponent.local/model/palette.
   - Behavior: speed-driven phase, groundNormal pelvis tilt, leg swing + subtle breathing.
 - Skinned mesh data + generation:
-  - SkinnedMeshData (position/normal/uv + boneIndices + boneWeights; UInt16/UInt32 indices).
+  - SkinnedMeshDescriptor (streams: positions/normals/uvs/boneIndices/boneWeights; UInt16/UInt32 indices).
   - ProceduralMeshes.humanoidSkinned (torso + legL + legR).
     - Torso weights: pelvis/spine/chest/head.
     - Legs weights: thigh/calf per side.
-- CPU skinning (per frame):
-  - Use palette to compute skinned positions (and normals if needed).
-  - Output packed arrays for RT (positions + uvs).
+- GPU skinning (per frame):
+  - Palette buffer uploaded, compute kernel writes skinned positions into dynamic RT vertex buffer.
 - RT geometry update:
   - RayTracingScene.buildGeometryBuffers: append skinned vertex/uv data (skip mesh vertex buffer).
   - RayTracingScene.buildAccelerationStructures: rebuild BLAS per frame from packed buffers.
 - Render extraction:
-  - RenderItem carries SkinningPayload (SkinnedMeshData + PoseComponent.palette).
+  - RenderItem carries SkinningPayload (SkinnedMeshDescriptor + PoseComponent.palette).
   - RenderExtractSystem emits skinned items; normal items unchanged.
 - Demo scene:
   - Player keeps PhysicsBody + CharacterController.

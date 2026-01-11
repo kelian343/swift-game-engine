@@ -195,6 +195,21 @@ final class RTGeometryCache {
         var dynamicKey: [DynamicKey] = []
         var dynamicSlices: [RTGeometrySlice] = []
 
+        func registerTexture(_ tex: MTLTexture?) -> UInt32 {
+            guard let tex else { return UInt32.max }
+            let key = ObjectIdentifier(tex)
+            if let existing = textureIndexForTexture[key] {
+                return UInt32(existing)
+            }
+            if texturesByIndex.count >= maxRTTextures {
+                return UInt32.max
+            }
+            let index = texturesByIndex.count
+            texturesByIndex.append(tex)
+            textureIndexForTexture[key] = index
+            return UInt32(index)
+        }
+
         for item in items {
             var baseVertex: UInt32 = 0
             var baseIndex: UInt32 = 0
@@ -244,33 +259,30 @@ final class RTGeometryCache {
                 continue
             }
 
-            let baseTexIndex: UInt32 = {
-                guard let tex = item.material.baseColorTexture?.texture else { return UInt32.max }
-                let key = ObjectIdentifier(tex)
-                if let existing = textureIndexForTexture[key] {
-                    return UInt32(existing)
-                }
-                if texturesByIndex.count >= maxRTTextures {
-                    return UInt32.max
-                }
-                let index = texturesByIndex.count
-                texturesByIndex.append(tex)
-                textureIndexForTexture[key] = index
-                return UInt32(index)
-            }()
+            let baseTexIndex = registerTexture(item.material.baseColorTexture?.texture)
+            let normalTexIndex = registerTexture(item.material.normalTexture?.texture)
+            let mrTexIndex = registerTexture(item.material.metallicRoughnessTexture?.texture)
+            let emissiveTexIndex = registerTexture(item.material.emissiveTexture?.texture)
+            let occlusionTexIndex = registerTexture(item.material.occlusionTexture?.texture)
 
             instances.append(RTInstanceInfoSwift(baseIndex: baseIndex,
                                                  baseVertex: baseVertex,
                                                  indexCount: UInt32(indexCount),
                                                  bufferIndex: bufferIndex,
                                                  modelMatrix: item.modelMatrix,
-                                                 baseColor: item.material.baseColor,
-                                                 metallic: item.material.metallic,
-                                                 roughness: item.material.roughness,
-                                                 baseAlpha: item.material.alpha,
-                                                 padding2: .zero,
+                                                 baseColorFactor: item.material.baseColorFactor,
+                                                 metallicFactor: item.material.metallicFactor,
+                                                 emissiveFactor: item.material.emissiveFactor,
+                                                 occlusionStrength: item.material.occlusionStrength,
+                                                 mrFactors: SIMD2<Float>(item.material.roughnessFactor,
+                                                                        item.material.alpha),
+                                                 padding0: .zero,
                                                  baseColorTexIndex: baseTexIndex,
-                                                 padding3: .zero))
+                                                 normalTexIndex: normalTexIndex,
+                                                 metallicRoughnessTexIndex: mrTexIndex,
+                                                 emissiveTexIndex: emissiveTexIndex,
+                                                 occlusionTexIndex: occlusionTexIndex,
+                                                 padding1: .zero))
 
             instanceSlices.append(RTGeometrySlice(baseVertex: Int(baseVertex),
                                                   baseIndex: Int(baseIndex),

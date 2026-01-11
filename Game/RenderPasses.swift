@@ -19,7 +19,9 @@ private func encodeItems(_ items: [RenderItem],
         writeUniforms(u.pointer,
                       projection: frame.projection,
                       view: frame.viewMatrix,
-                      model: item.modelMatrix)
+                      model: item.modelMatrix,
+                      baseColorFactor: item.material.baseColorFactor,
+                      baseAlpha: item.material.alpha)
 
         let tex = item.material.baseColorTexture?.texture ?? frame.fallbackWhite.texture
         encoder.setVertexBuffer(mesh.vertexBuffer, offset: 0, index: BufferIndex.meshVertices.rawValue)

@@ -10,9 +10,13 @@ import simd
 func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
                    projection: matrix_float4x4,
                    view: matrix_float4x4,
-                   model: matrix_float4x4) {
+                   model: matrix_float4x4,
+                   baseColorFactor: SIMD3<Float>,
+                   baseAlpha: Float) {
 
     ptr[0].projectionMatrix = projection
     ptr[0].viewMatrix = view
     ptr[0].modelMatrix = model
+    ptr[0].baseColorFactor = baseColorFactor
+    ptr[0].baseAlpha = baseAlpha
 }

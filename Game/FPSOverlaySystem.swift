@@ -21,14 +21,22 @@ final class FPSOverlaySystem {
     init(device: MTLDevice) {
         self.device = device
 
-        let atlas = ProceduralTextures.digitsAtlas()
-        let tex = TextureResource(device: device, source: atlas, label: "FPSDigitsAtlas")
-        var mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 1.0, alpha: 1.0)
+        let atlas = ProceduralTextureGenerator.digitsAtlas()
+        let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                              height: 4,
+                                                              metallic: 0.0,
+                                                              roughness: 1.0)
+        let desc = MaterialDescriptor(baseColor: atlas,
+                                      metallicRoughness: mr,
+                                      metallicFactor: 1.0,
+                                      roughnessFactor: 1.0,
+                                      alpha: 1.0)
+        var mat = MaterialFactory.make(device: device, descriptor: desc, label: "FPSDigits")
         mat.cullMode = .none
         self.material = mat
 
-        let cellW = ProceduralTextures.digitsAtlasCellWidth
-        let cellH = ProceduralTextures.digitsAtlasCellHeight
+        let cellW = ProceduralTextureGenerator.digitsAtlasCellWidth
+        let cellH = ProceduralTextureGenerator.digitsAtlasCellHeight
         let atlasW = cellW * 10
         let atlasH = cellH
         let scale: Float = 2.0

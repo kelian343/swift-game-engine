@@ -78,7 +78,9 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         self.fallbackWhite = TextureResource(
             device: device,
-            source: .solid(width: 1, height: 1, r: 255, g: 255, b: 255, a: 255),
+            source: ProceduralTextureGenerator.solid(width: 1,
+                                                     height: 1,
+                                                     color: SIMD4<UInt8>(255, 255, 255, 255)),
             label: "FallbackWhite"
         )
         guard let rt = RayTracingRenderer(device: device) else { return nil }
@@ -107,7 +109,15 @@ final class Renderer: NSObject, MTKViewDelegate {
         lastSceneRevision = scene.revision
 
         let meshes = items.compactMap { $0.mesh }
-        let textures = items.compactMap { $0.material.baseColorTexture?.texture }
+        let textures = items.flatMap { item in
+            [
+                item.material.baseColorTexture?.texture,
+                item.material.normalTexture?.texture,
+                item.material.metallicRoughnessTexture?.texture,
+                item.material.emissiveTexture?.texture,
+                item.material.occlusionTexture?.texture
+            ].compactMap { $0 }
+        }
 
         // include: base textures + fallback + uniform buffer
         context.prepareResidency(
@@ -212,7 +222,9 @@ final class Renderer: NSObject, MTKViewDelegate {
     private func makeCompositeItems(size: CGSize) -> [RenderItem] {
         guard let rtResource = rtColorResource else { return [] }
         if compositeMaterial == nil {
-            var mat = Material(baseColorTexture: rtResource, metallic: 0.0, roughness: 1.0, alpha: 1.0)
+            var mat = Material(baseColorTexture: rtResource,
+                               roughnessFactor: 1.0,
+                               alpha: 1.0)
             mat.cullMode = .none
             compositeMaterial = mat
         }

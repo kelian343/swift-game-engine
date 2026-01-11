@@ -40,11 +40,16 @@ struct RTInstanceInfoSwift {
     var indexCount: UInt32
     var bufferIndex: UInt32
     var modelMatrix: matrix_float4x4
-    var baseColor: SIMD3<Float>
-    var metallic: Float
-    var roughness: Float
-    var baseAlpha: Float
-    var padding2: SIMD2<Float>
+    var baseColorFactor: SIMD3<Float>
+    var metallicFactor: Float
+    var emissiveFactor: SIMD3<Float>
+    var occlusionStrength: Float
+    var mrFactors: SIMD2<Float>
+    var padding0: SIMD2<Float>
     var baseColorTexIndex: UInt32
-    var padding3: SIMD3<UInt32>
+    var normalTexIndex: UInt32
+    var metallicRoughnessTexIndex: UInt32
+    var emissiveTexIndex: UInt32
+    var occlusionTexIndex: UInt32
+    var padding1: SIMD3<UInt32>
 }

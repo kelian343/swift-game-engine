@@ -59,6 +59,41 @@ public final class DemoScene: RenderScene {
     public func build(context: SceneContext) {
         let device = context.device
 
+        func makeSolidMaterial(label: String,
+                               color: SIMD4<UInt8>,
+                               metallic: Float,
+                               roughness: Float,
+                               alpha: Float = 1.0) -> Material {
+            let base = ProceduralTextureGenerator.solid(width: 4, height: 4, color: color)
+            let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                  height: 4,
+                                                                  metallic: metallic,
+                                                                  roughness: roughness)
+            let desc = MaterialDescriptor(baseColor: base,
+                                          metallicRoughness: mr,
+                                          metallicFactor: 1.0,
+                                          roughnessFactor: 1.0,
+                                          alpha: alpha)
+            return MaterialFactory.make(device: device, descriptor: desc, label: label)
+        }
+
+        func makeBaseColorMaterial(label: String,
+                                   baseColor: ProceduralTexture,
+                                   metallic: Float,
+                                   roughness: Float,
+                                   alpha: Float = 1.0) -> Material {
+            let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                  height: 4,
+                                                                  metallic: metallic,
+                                                                  roughness: roughness)
+            let desc = MaterialDescriptor(baseColor: baseColor,
+                                          metallicRoughness: mr,
+                                          metallicFactor: 1.0,
+                                          roughnessFactor: 1.0,
+                                          alpha: alpha)
+            return MaterialFactory.make(device: device, descriptor: desc, label: label)
+        }
+
         // Camera initial state
         camera.position = SIMD3<Float>(0, 0, 8)
         camera.target = SIMD3<Float>(0, 0, 0)
@@ -70,10 +105,10 @@ public final class DemoScene: RenderScene {
         do {
             let meshDesc = ProceduralMeshes.plane(PlaneParams(size: 80.0))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "Ground")
-            let tex = TextureResource(device: device,
-                                      source: .solid(width: 4, height: 4, r: 80, g: 80, b: 80, a: 255),
-                                      label: "GroundTex")
-            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.8)
+            let mat = makeSolidMaterial(label: "GroundMat",
+                                        color: SIMD4<UInt8>(80, 80, 80, 255),
+                                        metallic: 0.0,
+                                        roughness: 0.8)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -92,14 +127,14 @@ public final class DemoScene: RenderScene {
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 4.0))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "Platform")
-            let texUp = TextureResource(device: device,
-                                        source: .solid(width: 4, height: 4, r: 120, g: 200, b: 255, a: 255),
-                                        label: "PlatformUpTex")
-            let texFlat = TextureResource(device: device,
-                                          source: .solid(width: 4, height: 4, r: 160, g: 255, b: 140, a: 255),
-                                          label: "PlatformFlatTex")
-            let matUp = Material(baseColorTexture: texUp, metallic: 0.0, roughness: 0.6)
-            let matFlat = Material(baseColorTexture: texFlat, metallic: 0.0, roughness: 0.6)
+            let matUp = makeSolidMaterial(label: "PlatformUpMat",
+                                          color: SIMD4<UInt8>(120, 200, 255, 255),
+                                          metallic: 0.0,
+                                          roughness: 0.6)
+            let matFlat = makeSolidMaterial(label: "PlatformFlatMat",
+                                            color: SIMD4<UInt8>(160, 255, 140, 255),
+                                            metallic: 0.0,
+                                            roughness: 0.6)
             let platformScale = SIMD3<Float>(1.5, 0.2, 1.5)
             let platformHalfExtents = SIMD3<Float>(3.0, 0.4, 3.0)
 
@@ -153,10 +188,11 @@ public final class DemoScene: RenderScene {
             let meshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: capsuleRadius,
                                                                   halfHeight: capsuleHalfHeight))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "KinematicCapsule")
-            let tex = TextureResource(device: device,
-                                      source: .solid(width: 4, height: 4, r: 220, g: 120, b: 255, a: 255),
-                                      label: "KinematicCapsuleTex")
-            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.5, alpha: 0.2)
+            let mat = makeSolidMaterial(label: "KinematicCapsuleMat",
+                                        color: SIMD4<UInt8>(220, 120, 255, 255),
+                                        metallic: 0.0,
+                                        roughness: 0.5,
+                                        alpha: 0.2)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -193,17 +229,20 @@ public final class DemoScene: RenderScene {
                                                                                     hipSeparation: 0.45,
                                                                                     radialSegments: 12,
                                                                                     heightSegments: 4))
-            let tex = TextureResource(device: device,
-                                      source: ProceduralTextures.checkerboard(width: 256, height: 256, cell: 48),
-                                      label: "TexB")
-            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.4, alpha: 1.0)
+            let baseColor = ProceduralTextureGenerator.checkerboard(width: 256, height: 256, cell: 48)
+            let mat = makeBaseColorMaterial(label: "PlayerMat",
+                                            baseColor: baseColor,
+                                            metallic: 0.0,
+                                            roughness: 0.4,
+                                            alpha: 1.0)
             let capsuleMeshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: playerRadius,
                                                                          halfHeight: playerHalfHeight))
             let capsuleMesh = GPUMesh(device: device, descriptor: capsuleMeshDesc, label: "PlayerCapsuleOverlay")
-            let capsuleTex = TextureResource(device: device,
-                                             source: .solid(width: 4, height: 4, r: 120, g: 160, b: 255, a: 255),
-                                             label: "PlayerCapsuleOverlayTex")
-            let capsuleMat = Material(baseColorTexture: capsuleTex, metallic: 0.0, roughness: 0.4, alpha: 0.2)
+            let capsuleMat = makeSolidMaterial(label: "PlayerCapsuleOverlayMat",
+                                               color: SIMD4<UInt8>(120, 160, 255, 255),
+                                               metallic: 0.0,
+                                               roughness: 0.4,
+                                               alpha: 0.2)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -244,10 +283,11 @@ public final class DemoScene: RenderScene {
             let meshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: npcRadius,
                                                                   halfHeight: npcHalfHeight))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "NPCCapsule")
-            let tex = TextureResource(device: device,
-                                      source: .solid(width: 4, height: 4, r: 255, g: 180, b: 80, a: 255),
-                                      label: "NPCTex")
-            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.5, alpha: 0.2)
+            let mat = makeSolidMaterial(label: "NPCMat",
+                                        color: SIMD4<UInt8>(255, 180, 80, 255),
+                                        metallic: 0.0,
+                                        roughness: 0.5,
+                                        alpha: 0.2)
 
             let positions: [SIMD3<Float>] = [
                 SIMD3<Float>(-16.0, 0.9, 12.0),
@@ -278,10 +318,10 @@ public final class DemoScene: RenderScene {
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 6.0))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestWall")
-            let tex = TextureResource(device: device,
-                                      source: .solid(width: 4, height: 4, r: 255, g: 80, b: 80, a: 255),
-                                      label: "WallTex")
-            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.7)
+            let mat = makeSolidMaterial(label: "WallMat",
+                                        color: SIMD4<UInt8>(255, 80, 80, 255),
+                                        metallic: 0.0,
+                                        roughness: 0.7)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -302,10 +342,10 @@ public final class DemoScene: RenderScene {
                                                             depth: 10.0,
                                                             height: rampHeight))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestRamp")
-            let tex = TextureResource(device: device,
-                                      source: .solid(width: 4, height: 4, r: 80, g: 160, b: 255, a: 255),
-                                      label: "RampTex")
-            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.6)
+            let mat = makeSolidMaterial(label: "RampMat",
+                                        color: SIMD4<UInt8>(80, 160, 255, 255),
+                                        metallic: 0.0,
+                                        roughness: 0.6)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -326,10 +366,10 @@ public final class DemoScene: RenderScene {
                                                            radialSegments: 32,
                                                            ringSegments: 12))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestDome")
-            let tex = TextureResource(device: device,
-                                      source: .solid(width: 4, height: 4, r: 120, g: 200, b: 140, a: 255),
-                                      label: "DomeTex")
-            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.5)
+            let mat = makeSolidMaterial(label: "DomeMat",
+                                        color: SIMD4<UInt8>(120, 200, 140, 255),
+                                        metallic: 0.0,
+                                        roughness: 0.5)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -348,10 +388,10 @@ public final class DemoScene: RenderScene {
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 2.0))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestStep")
-            let tex = TextureResource(device: device,
-                                      source: .solid(width: 4, height: 4, r: 255, g: 220, b: 120, a: 255),
-                                      label: "StepTex")
-            let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.8)
+            let mat = makeSolidMaterial(label: "StepMat",
+                                        color: SIMD4<UInt8>(255, 220, 120, 255),
+                                        metallic: 0.0,
+                                        roughness: 0.8)
 
             let e = world.createEntity()
             var t = TransformComponent()

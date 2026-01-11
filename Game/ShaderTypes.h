@@ -46,7 +46,11 @@ typedef NS_ENUM(EnumBackingType, VertexAttribute)
 
 typedef NS_ENUM(EnumBackingType, TextureIndex)
 {
-    TextureIndexBaseColor   = 0
+    TextureIndexBaseColor       = 0,
+    TextureIndexNormal          = 1,
+    TextureIndexMetallicRoughness = 2,
+    TextureIndexEmissive        = 3,
+    TextureIndexOcclusion       = 4
 };
 
 typedef struct
@@ -54,6 +58,8 @@ typedef struct
     matrix_float4x4 projectionMatrix;
     matrix_float4x4 viewMatrix;
     matrix_float4x4 modelMatrix;
+    vector_float3 baseColorFactor;
+    float baseAlpha;
 } Uniforms;
 
 typedef struct
@@ -83,13 +89,18 @@ typedef struct
     uint32_t indexCount;
     uint32_t bufferIndex;
     matrix_float4x4 modelMatrix;
-    vector_float3 baseColor;
-    float metallic;
-    float roughness;
-    float baseAlpha;
-    vector_float2 padding2;
+    vector_float3 baseColorFactor;
+    float metallicFactor;
+    vector_float3 emissiveFactor;
+    float occlusionStrength;
+    vector_float2 mrFactors;
+    vector_float2 padding0;
     uint32_t baseColorTexIndex;
-    vector_uint3 padding3;
+    uint32_t normalTexIndex;
+    uint32_t metallicRoughnessTexIndex;
+    uint32_t emissiveTexIndex;
+    uint32_t occlusionTexIndex;
+    vector_uint3 padding1;
 } RTInstanceInfo;
 
 typedef struct
