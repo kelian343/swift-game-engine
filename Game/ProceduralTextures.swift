@@ -183,60 +183,6 @@ public enum ProceduralTextureGenerator {
                                  bytes: bytes)
     }
 
-    public static func occlusionPores(width: Int = 256,
-                                      height: Int = 256,
-                                      count: Int = 80,
-                                      radius: Float = 0.06) -> ProceduralTexture {
-        var bytes = [UInt8](repeating: 255, count: width * height * 4)
-        let w = Float(width)
-        let h = Float(height)
-        let r = max(0.002, min(radius, 0.25))
-
-        func hash2(_ x: Int, _ y: Int) -> Float {
-            let ux = UInt32(bitPattern: Int32(truncatingIfNeeded: x))
-            let uy = UInt32(bitPattern: Int32(truncatingIfNeeded: y))
-            var n = (ux &* 374761393) &+ (uy &* 668265263) &+ 0x9E3779B9
-            n ^= n >> 13
-            n &*= 1274126177
-            return Float(n & 0x00FFFFFF) / Float(0x01000000)
-        }
-
-        var centers: [SIMD3<Float>] = []
-        centers.reserveCapacity(count)
-        for i in 0..<count {
-            let cx = hash2(i, 11) * w
-            let cy = hash2(i, 17) * h
-            let rr = r * (0.5 + hash2(i, 23))
-            centers.append(SIMD3<Float>(cx, cy, rr))
-        }
-
-        for y in 0..<height {
-            for x in 0..<width {
-                let p = SIMD2<Float>(Float(x), Float(y))
-                var occ: Float = 1.0
-                for c in centers {
-                    let d = simd_length(p - SIMD2<Float>(c.x, c.y)) / max(w, h)
-                    if d < c.z {
-                        let t = d / max(c.z, 1e-4)
-                        let v = 1.0 - t * t
-                        occ = min(occ, 1.0 - v * 0.85)
-                    }
-                }
-                let o = UInt8(max(0, min(255, Int(occ * 255))))
-                let idx = (y * width + x) * 4
-                bytes[idx + 0] = o
-                bytes[idx + 1] = o
-                bytes[idx + 2] = o
-                bytes[idx + 3] = 255
-            }
-        }
-
-        return ProceduralTexture(width: width,
-                                 height: height,
-                                 format: .rgba8Unorm,
-                                 bytes: bytes)
-    }
-
     
 
     public static func emissive(width: Int = 4,
