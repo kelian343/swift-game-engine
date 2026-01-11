@@ -101,6 +101,7 @@ struct FrameContext {
     let depthState: MTLDepthStencilState
 
     let fallbackWhite: TextureResource
+    let fallbackNormal: TextureResource
 
     let projection: matrix_float4x4
     let viewMatrix: matrix_float4x4

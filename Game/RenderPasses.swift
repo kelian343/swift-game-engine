@@ -21,13 +21,16 @@ private func encodeItems(_ items: [RenderItem],
                       view: frame.viewMatrix,
                       model: item.modelMatrix,
                       baseColorFactor: item.material.baseColorFactor,
-                      baseAlpha: item.material.alpha)
+                      baseAlpha: item.material.alpha,
+                      unlit: item.material.unlit)
 
         let tex = item.material.baseColorTexture?.texture ?? frame.fallbackWhite.texture
+        let normalTex = item.material.normalTexture?.texture ?? frame.fallbackNormal.texture
         encoder.setVertexBuffer(mesh.vertexBuffer, offset: 0, index: BufferIndex.meshVertices.rawValue)
         encoder.setVertexBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
         encoder.setFragmentBuffer(u.buffer, offset: u.offset, index: BufferIndex.uniforms.rawValue)
         encoder.setFragmentTexture(tex, index: TextureIndex.baseColor.rawValue)
+        encoder.setFragmentTexture(normalTex, index: TextureIndex.normal.rawValue)
 
         encoder.drawIndexedPrimitives(
             type: .triangle,

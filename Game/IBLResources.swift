@@ -107,15 +107,17 @@ private func sampleEnvColor(dir: SIMD3<Float>, roughness: Float) -> SIMD3<Float>
     let sky = SIMD3<Float>(0.65, 0.72, 0.9)
     let ground = SIMD3<Float>(0.12, 0.12, 0.14)
     let t = max(min(dir.y * 0.5 + 0.5, 1.0), 0.0)
-    var color = simd_mix(ground, sky, SIMD3<Float>(repeating: t))
+    var color = ground + (sky - ground) * t
 
     let sunDir = simd_normalize(SIMD3<Float>(0.2, 0.9, 0.1))
     let ndotl = max(simd_dot(dir, sunDir), 0.0)
-    let exponent = simd_mix(800.0, 30.0, roughness)
+    let exponent = 800.0 + (30.0 - 800.0) * roughness
     let sun = pow(ndotl, exponent) * 4.0
     color += SIMD3<Float>(repeating: sun)
 
-    return simd_clamp(color, SIMD3<Float>(repeating: 0.0), SIMD3<Float>(repeating: 1.0))
+    let minV = SIMD3<Float>(repeating: 0.0)
+    let maxV = SIMD3<Float>(repeating: 1.0)
+    return simd_min(simd_max(color, minV), maxV)
 }
 
 private func integrateBRDF(nDotV: Float, roughness: Float, sampleCount: Int) -> SIMD2<Float> {

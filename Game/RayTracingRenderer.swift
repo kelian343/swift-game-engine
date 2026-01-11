@@ -120,6 +120,8 @@ final class RayTracingRenderer {
         enc.setBuffer(geometry.staticIndexBuffer, offset: 0, index: BufferIndex.rtIndices.rawValue)
         enc.setBuffer(geometry.instanceInfoBuffer, offset: 0, index: BufferIndex.rtInstances.rawValue)
         enc.setBuffer(geometry.staticUVBuffer, offset: 0, index: BufferIndex(rawValue: 7)!.rawValue)
+        enc.setBuffer(geometry.staticNormalBuffer, offset: 0, index: BufferIndex(rawValue: 12)!.rawValue)
+        enc.setBuffer(geometry.staticTangentBuffer, offset: 0, index: BufferIndex(rawValue: 13)!.rawValue)
         enc.setBuffer(dirLightBuffer, offset: 0, index: BufferIndex.rtDirLights.rawValue)
         enc.setBuffer(geometry.dynamicVertexBuffer, offset: 0, index: BufferIndex(rawValue: 9)!.rawValue)
         enc.setBuffer(geometry.dynamicIndexBuffer, offset: 0, index: BufferIndex(rawValue: 10)!.rawValue)

@@ -198,6 +198,8 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                            device const float3 *rtVerticesDynamic [[buffer(BufferIndexRTVerticesDynamic)]],
                            device const uint *rtIndicesDynamic [[buffer(BufferIndexRTIndicesDynamic)]],
                            device const float2 *rtUVsDynamic [[buffer(BufferIndexRTUVsDynamic)]],
+                           device const float3 *rtNormals [[buffer(BufferIndexRTNormals)]],
+                           device const float4 *rtTangents [[buffer(BufferIndexRTTangents)]],
                            uint2 gid [[thread_position_in_grid]])
 {
     if (gid.x >= frame.imageSize.x || gid.y >= frame.imageSize.y) {
@@ -263,6 +265,32 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                                       rtUVs,
                                       rtUVsDynamic,
                                       baseColorTextures);
+
+        if (inst.bufferIndex == 0
+            && inst.normalTexIndex < frame.textureCount
+            && inst.normalTexIndex < MAX_RT_TEXTURES) {
+            float w = 1.0 - bary.x - bary.y;
+            float3 n0 = rtNormals[inst.baseVertex + i0];
+            float3 n1 = rtNormals[inst.baseVertex + i1];
+            float3 n2 = rtNormals[inst.baseVertex + i2];
+            float4 t0 = rtTangents[inst.baseVertex + i0];
+            float4 t1 = rtTangents[inst.baseVertex + i1];
+            float4 t2 = rtTangents[inst.baseVertex + i2];
+            float3 nObj = normalize(n0 * w + n1 * bary.x + n2 * bary.y);
+            float4 tObj4 = normalize(t0 * w + t1 * bary.x + t2 * bary.y);
+            float3 tObj = normalize(tObj4.xyz);
+            float3x3 mtx = float3x3(inst.modelMatrix[0].xyz,
+                                    inst.modelMatrix[1].xyz,
+                                    inst.modelMatrix[2].xyz);
+            float3 nW = normalize(mtx * nObj);
+            float3 tW = normalize(mtx * tObj);
+            float3 bW = normalize(cross(nW, tW) * tObj4.w);
+            constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+            float2 uv = interp_uv(inst, i0, i1, i2, bary, rtUVs, rtUVsDynamic);
+            float3 nTex = baseColorTextures[inst.normalTexIndex].sample(nSamp, uv).xyz * 2.0 - 1.0;
+            N = normalize(tW * nTex.x + bW * nTex.y + nW * nTex.z);
+            if (dot(N, current.direction) > 0.0) { N = -N; }
+        }
 
         float3 V = normalize(-current.direction);
         float3 hitPos = current.origin + current.direction * hit.distance;
@@ -363,6 +391,33 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                 float3 rw2 = (rInst.modelMatrix * float4(rv2, 1.0)).xyz;
                 float3 rN = normalize(cross(rw1 - rw0, rw2 - rw0));
                 if (dot(rN, rCurrent.direction) > 0.0) { rN = -rN; }
+
+                if (rInst.bufferIndex == 0
+                    && rInst.normalTexIndex < frame.textureCount
+                    && rInst.normalTexIndex < MAX_RT_TEXTURES) {
+                    float2 rbary = reflHit.triangle_barycentric_coord;
+                    float w = 1.0 - rbary.x - rbary.y;
+                    float3 rn0 = rtNormals[rInst.baseVertex + rI0];
+                    float3 rn1 = rtNormals[rInst.baseVertex + rI1];
+                    float3 rn2 = rtNormals[rInst.baseVertex + rI2];
+                    float4 rt0 = rtTangents[rInst.baseVertex + rI0];
+                    float4 rt1 = rtTangents[rInst.baseVertex + rI1];
+                    float4 rt2 = rtTangents[rInst.baseVertex + rI2];
+                    float3 nObj = normalize(rn0 * w + rn1 * rbary.x + rn2 * rbary.y);
+                    float4 tObj4 = normalize(rt0 * w + rt1 * rbary.x + rt2 * rbary.y);
+                    float3 tObj = normalize(tObj4.xyz);
+                    float3x3 mtx = float3x3(rInst.modelMatrix[0].xyz,
+                                            rInst.modelMatrix[1].xyz,
+                                            rInst.modelMatrix[2].xyz);
+                    float3 nW = normalize(mtx * nObj);
+                    float3 tW = normalize(mtx * tObj);
+                    float3 bW = normalize(cross(nW, tW) * tObj4.w);
+                    constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+                    float2 uv = interp_uv(rInst, rI0, rI1, rI2, rbary, rtUVs, rtUVsDynamic);
+                    float3 nTex = baseColorTextures[rInst.normalTexIndex].sample(nSamp, uv).xyz * 2.0 - 1.0;
+                    rN = normalize(tW * nTex.x + bW * nTex.y + nW * nTex.z);
+                    if (dot(rN, rCurrent.direction) > 0.0) { rN = -rN; }
+                }
 
                 PBRSample rm = sample_material(rInst,
                                                rI0,

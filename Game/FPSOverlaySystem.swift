@@ -30,7 +30,8 @@ final class FPSOverlaySystem {
                                       metallicRoughness: mr,
                                       metallicFactor: 1.0,
                                       roughnessFactor: 1.0,
-                                      alpha: 1.0)
+                                      alpha: 1.0,
+                                      unlit: true)
         var mat = MaterialFactory.make(device: device, descriptor: desc, label: "FPSDigits")
         mat.cullMode = .none
         self.material = mat

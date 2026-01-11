@@ -20,6 +20,7 @@ public struct Material {
     public var emissiveFactor: SIMD3<Float>
     public var occlusionStrength: Float
     public var alpha: Float
+    public var unlit: Bool
     public var cullMode: MTLCullMode
     public var frontFacing: MTLWinding
 
@@ -34,6 +35,7 @@ public struct Material {
                 emissiveFactor: SIMD3<Float> = SIMD3<Float>(0, 0, 0),
                 occlusionStrength: Float = 1.0,
                 alpha: Float = 1.0,
+                unlit: Bool = false,
                 cullMode: MTLCullMode = .back,
                 frontFacing: MTLWinding = .counterClockwise) {
         self.baseColorTexture = baseColorTexture
@@ -47,6 +49,7 @@ public struct Material {
         self.emissiveFactor = emissiveFactor
         self.occlusionStrength = occlusionStrength
         self.alpha = alpha
+        self.unlit = unlit
         self.cullMode = cullMode
         self.frontFacing = frontFacing
     }
@@ -64,6 +67,7 @@ public struct MaterialDescriptor {
     public var emissiveFactor: SIMD3<Float>
     public var occlusionStrength: Float
     public var alpha: Float
+    public var unlit: Bool
     public var cullMode: MTLCullMode
     public var frontFacing: MTLWinding
 
@@ -78,6 +82,7 @@ public struct MaterialDescriptor {
                 emissiveFactor: SIMD3<Float> = SIMD3<Float>(0, 0, 0),
                 occlusionStrength: Float = 1.0,
                 alpha: Float = 1.0,
+                unlit: Bool = false,
                 cullMode: MTLCullMode = .back,
                 frontFacing: MTLWinding = .counterClockwise) {
         self.baseColor = baseColor
@@ -91,6 +96,7 @@ public struct MaterialDescriptor {
         self.emissiveFactor = emissiveFactor
         self.occlusionStrength = occlusionStrength
         self.alpha = alpha
+        self.unlit = unlit
         self.cullMode = cullMode
         self.frontFacing = frontFacing
     }
@@ -115,6 +121,7 @@ public enum MaterialFactory {
                         emissiveFactor: descriptor.emissiveFactor,
                         occlusionStrength: descriptor.occlusionStrength,
                         alpha: descriptor.alpha,
+                        unlit: descriptor.unlit,
                         cullMode: descriptor.cullMode,
                         frontFacing: descriptor.frontFacing)
     }

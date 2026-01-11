@@ -13,6 +13,8 @@ struct RTGeometryBuffers {
     let staticIndexBuffer: MTLBuffer
     let instanceInfoBuffer: MTLBuffer
     let staticUVBuffer: MTLBuffer
+    let staticNormalBuffer: MTLBuffer
+    let staticTangentBuffer: MTLBuffer
     let dynamicVertexBuffer: MTLBuffer
     let dynamicIndexBuffer: MTLBuffer
     let dynamicUVBuffer: MTLBuffer
@@ -51,6 +53,8 @@ final class RTGeometryCache {
     private var staticVertexBuffer: MTLBuffer?
     private var staticIndexBuffer: MTLBuffer?
     private var staticUVBuffer: MTLBuffer?
+    private var staticNormalBuffer: MTLBuffer?
+    private var staticTangentBuffer: MTLBuffer?
     private var dynamicVertexBuffer: MTLBuffer?
     private var dynamicIndexBuffer: MTLBuffer?
     private var dynamicUVBuffer: MTLBuffer?
@@ -123,6 +127,8 @@ final class RTGeometryCache {
             || staticVertexBuffer == nil
             || staticIndexBuffer == nil
             || staticUVBuffer == nil
+            || staticNormalBuffer == nil
+            || staticTangentBuffer == nil
 
         if staticChanged {
             cachedStaticKey = staticKey
@@ -130,6 +136,8 @@ final class RTGeometryCache {
 
             var staticVertices: [SIMD3<Float>] = []
             var staticUVs: [SIMD2<Float>] = []
+            var staticNormals: [SIMD3<Float>] = []
+            var staticTangents: [SIMD4<Float>] = []
             var staticIndices: [UInt32] = []
 
             staticVertices.reserveCapacity(staticKey.count * 256)
@@ -144,8 +152,11 @@ final class RTGeometryCache {
                 let vPtr = mesh.vertexBuffer.contents().bindMemory(to: VertexPNUT.self,
                                                                    capacity: vCount)
                 for i in 0..<vCount {
-                    staticVertices.append(vPtr[i].position)
-                    staticUVs.append(vPtr[i].uv)
+                    let v = vPtr[i]
+                    staticVertices.append(v.position)
+                    staticUVs.append(v.uv)
+                    staticNormals.append(v.normal)
+                    staticTangents.append(v.tangent)
                 }
 
                 let indexCount = mesh.indexCount
@@ -174,6 +185,8 @@ final class RTGeometryCache {
 
             let vBytes = staticVertices.count * MemoryLayout<SIMD3<Float>>.stride
             let uvBytes = staticUVs.count * MemoryLayout<SIMD2<Float>>.stride
+            let nBytes = staticNormals.count * MemoryLayout<SIMD3<Float>>.stride
+            let tBytes = staticTangents.count * MemoryLayout<SIMD4<Float>>.stride
             let iBytes = staticIndices.count * MemoryLayout<UInt32>.stride
             staticVertexBuffer = device.makeBuffer(bytes: staticVertices,
                                                    length: max(vBytes, 1),
@@ -181,11 +194,19 @@ final class RTGeometryCache {
             staticUVBuffer = device.makeBuffer(bytes: staticUVs,
                                                length: max(uvBytes, 1),
                                                options: [.storageModeShared])
+            staticNormalBuffer = device.makeBuffer(bytes: staticNormals,
+                                                   length: max(nBytes, 1),
+                                                   options: [.storageModeShared])
+            staticTangentBuffer = device.makeBuffer(bytes: staticTangents,
+                                                    length: max(tBytes, 1),
+                                                    options: [.storageModeShared])
             staticIndexBuffer = device.makeBuffer(bytes: staticIndices,
                                                   length: max(iBytes, 1),
                                                   options: [.storageModeShared])
             staticVertexBuffer?.label = "RTStaticVertices"
             staticUVBuffer?.label = "RTStaticUVs"
+            staticNormalBuffer?.label = "RTStaticNormals"
+            staticTangentBuffer?.label = "RTStaticTangents"
             staticIndexBuffer?.label = "RTStaticIndices"
         }
 
@@ -353,6 +374,8 @@ final class RTGeometryCache {
 
         guard let staticVB = staticVertexBuffer,
               let staticUVB = staticUVBuffer,
+              let staticNB = staticNormalBuffer,
+              let staticTB = staticTangentBuffer,
               let staticIB = staticIndexBuffer,
               let dynamicVB = dynamicVertexBuffer,
               let dynamicUVB = dynamicUVBuffer,
@@ -365,6 +388,8 @@ final class RTGeometryCache {
                                         staticIndexBuffer: staticIB,
                                         instanceInfoBuffer: instb,
                                         staticUVBuffer: staticUVB,
+                                        staticNormalBuffer: staticNB,
+                                        staticTangentBuffer: staticTB,
                                         dynamicVertexBuffer: dynamicVB,
                                         dynamicIndexBuffer: dynamicIB,
                                         dynamicUVBuffer: dynamicUVB,

@@ -12,11 +12,13 @@ func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
                    view: matrix_float4x4,
                    model: matrix_float4x4,
                    baseColorFactor: SIMD3<Float>,
-                   baseAlpha: Float) {
+                   baseAlpha: Float,
+                   unlit: Bool) {
 
     ptr[0].projectionMatrix = projection
     ptr[0].viewMatrix = view
     ptr[0].modelMatrix = model
     ptr[0].baseColorFactor = baseColorFactor
     ptr[0].baseAlpha = baseAlpha
+    ptr[0].unlit = unlit ? 1.0 : 0.0
 }

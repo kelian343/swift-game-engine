@@ -13,11 +13,16 @@ public struct VertexPNUT {
     public var position: SIMD3<Float>
     public var normal: SIMD3<Float>
     public var uv: SIMD2<Float>
+    public var tangent: SIMD4<Float>
 
-    public init(position: SIMD3<Float>, normal: SIMD3<Float>, uv: SIMD2<Float>) {
+    public init(position: SIMD3<Float>,
+                normal: SIMD3<Float>,
+                uv: SIMD2<Float>,
+                tangent: SIMD4<Float> = SIMD4<Float>(1, 0, 0, 1)) {
         self.position = position
         self.normal = normal
         self.uv = uv
+        self.tangent = tangent
     }
 }
 
@@ -72,6 +77,11 @@ public enum VertexDescriptorLibrary {
         d.attributes[VertexAttribute.texcoord.rawValue].format = .float2
         d.attributes[VertexAttribute.texcoord.rawValue].offset = MemoryLayout<SIMD3<Float>>.stride * 2
         d.attributes[VertexAttribute.texcoord.rawValue].bufferIndex = BufferIndex.meshVertices.rawValue
+
+        // tangent
+        d.attributes[VertexAttribute.tangent.rawValue].format = .float4
+        d.attributes[VertexAttribute.tangent.rawValue].offset = MemoryLayout<SIMD3<Float>>.stride * 2 + MemoryLayout<SIMD2<Float>>.stride
+        d.attributes[VertexAttribute.tangent.rawValue].bufferIndex = BufferIndex.meshVertices.rawValue
 
         d.layouts[BufferIndex.meshVertices.rawValue].stride = MemoryLayout<VertexPNUT>.stride
         d.layouts[BufferIndex.meshVertices.rawValue].stepFunction = .perVertex

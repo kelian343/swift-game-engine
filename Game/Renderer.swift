@@ -21,6 +21,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private let pipelineState: MTLRenderPipelineState
     private let depthState: MTLDepthStencilState
     private let fallbackWhite: TextureResource
+    private let fallbackNormal: TextureResource
 
     private let rayTracing: RayTracingRenderer
 
@@ -83,6 +84,11 @@ final class Renderer: NSObject, MTKViewDelegate {
                                                      color: SIMD4<UInt8>(255, 255, 255, 255)),
             label: "FallbackWhite"
         )
+        self.fallbackNormal = TextureResource(
+            device: device,
+            source: ProceduralTextureGenerator.flatNormal(width: 1, height: 1),
+            label: "FallbackNormal"
+        )
         guard let rt = RayTracingRenderer(device: device) else { return nil }
         self.rayTracing = rt
         self.renderGraph.addPass(compositePass)
@@ -122,7 +128,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         // include: base textures + fallback + uniform buffer
         context.prepareResidency(
             meshes: meshes,
-            textures: textures + [fallbackWhite.texture],
+            textures: textures + [fallbackWhite.texture, fallbackNormal.texture],
             uniforms: uniformRing.buffer
         )
     }
@@ -178,6 +184,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                                  pipelineState: pipelineState,
                                  depthState: uiDepthState,
                                  fallbackWhite: fallbackWhite,
+                                 fallbackNormal: fallbackNormal,
                                  projection: overlayProjection,
                                  viewMatrix: overlayView)
         renderGraph.execute(frame: frame, view: view, commandBuffer: commandBuffer)
@@ -226,6 +233,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                                roughnessFactor: 1.0,
                                alpha: 1.0)
             mat.cullMode = .none
+            mat.unlit = true
             compositeMaterial = mat
         }
         guard let mat = compositeMaterial else { return [] }

@@ -8,11 +8,15 @@ struct VertexIn {
     float3 position [[attribute(VertexAttributePosition)]];
     float3 normal   [[attribute(VertexAttributeNormal)]];
     float2 uv       [[attribute(VertexAttributeTexcoord)]];
+    float4 tangent  [[attribute(VertexAttributeTangent)]];
 };
 
 struct Varyings {
     float4 position [[position]];
     float2 uv;
+    float3 normalW;
+    float3 tangentW;
+    float tangentSign;
 };
 
 vertex Varyings vertexShader(VertexIn in [[stage_in]],
@@ -23,16 +27,32 @@ vertex Varyings vertexShader(VertexIn in [[stage_in]],
     float4 world = u.modelMatrix * float4(in.position, 1.0);
     out.uv = in.uv;
     out.position = u.projectionMatrix * u.viewMatrix * world;
+    float3x3 mtx = float3x3(u.modelMatrix[0].xyz,
+                            u.modelMatrix[1].xyz,
+                            u.modelMatrix[2].xyz);
+    out.normalW = normalize(mtx * in.normal);
+    out.tangentW = normalize(mtx * in.tangent.xyz);
+    out.tangentSign = in.tangent.w;
     return out;
 }
 
 fragment float4 fragmentShader(Varyings in [[stage_in]],
                                constant Uniforms& u [[buffer(BufferIndexUniforms)]],
-                               texture2d<half> baseColor [[texture(TextureIndexBaseColor)]])
+                               texture2d<half> baseColor [[texture(TextureIndexBaseColor)]],
+                               texture2d<half> normalTex [[texture(TextureIndexNormal)]])
 {
     constexpr sampler colorSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
     half4 tex = baseColor.sample(colorSamp, in.uv);
     float3 albedo = float3(tex.xyz) * u.baseColorFactor;
     float alpha = float(tex.w) * u.baseAlpha;
-    return float4(albedo, alpha);
+    if (u.unlit > 0.5) {
+        return float4(albedo, alpha);
+    }
+    constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+    float3 nTex = float3(normalTex.sample(nSamp, in.uv).xyz) * 2.0 - 1.0;
+    float3 B = normalize(cross(in.normalW, in.tangentW) * in.tangentSign);
+    float3 N = normalize(in.tangentW * nTex.x + B * nTex.y + in.normalW * nTex.z);
+    float3 L = normalize(float3(-0.2, 1.0, -0.4));
+    float nl = clamp(dot(N, L), 0.0, 1.0) * 0.85 + 0.15;
+    return float4(albedo * nl, alpha);
 }
