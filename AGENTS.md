@@ -28,6 +28,12 @@
 - Procedural mesh API fully migrated: MeshData/SkinnedMeshData and ProceduralMeshBridge removed; ECS components and render items now carry ProceduralMeshDescriptor/SkinnedMeshDescriptor.
 - Procedural mesh usage updated across demo/UI/renderer: GPUMesh now builds directly from descriptor streams; collision static mesh reads descriptor positions/indices.
 - Procedural PBR materials migrated: new ProceduralTextureGenerator + MaterialDescriptor/MaterialFactory; materials now use PBR textures (baseColor/normal/metallicRoughness/emissive/occlusion) and factors; old ProceduralTextures/TextureSourceRGBA8 removed; shaders + RT instance info updated accordingly.
+- RT lighting upgrades: directional lights now support enabled + maxDistance; only the main light casts shadows (others direct only).
+- RT refraction: added transmissionFactor + ior in materials/RT instances; deterministic single-bounce refraction (no noise).
+- RT ray caps: transparency layers capped to 3; reflection/refraction layers capped to 1 for stability.
+- Tone mapping reverted to ACES; exposure defaults lowered; RT ambient intensity reduced.
+- 4K banding fixes: RT output uses rgba16Float; IBL env cube upgraded to rgba16Float; composite dithering added to reduce color banding.
+- Demo lighting/material tweaks: sun set to “morning” profile; wall/ramp switched to flat-color materials for perf.
 
 ## Project Overview
 - macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.

@@ -106,14 +106,14 @@ public final class DemoScene: RenderScene {
 
         let groundY: Float = -3.0
         directionalLights = [
-            DirectionalLight(direction: SIMD3<Float>(0.35, -0.45, -0.25),
-                             intensity: 2.2,
-                             color: SIMD3<Float>(1.0, 0.78, 0.55),
+            DirectionalLight(direction: SIMD3<Float>(0.6, -0.7, -0.1),
+                             intensity: 2.6,
+                             color: SIMD3<Float>(1.0, 0.86, 0.68),
                              enabled: true,
-                             maxDistance: 400.0),
-            DirectionalLight(direction: SIMD3<Float>(0.6, -0.8, 0.2),
-                             intensity: 0.8,
-                             color: SIMD3<Float>(0.55, 0.65, 0.95),
+                             maxDistance: 450.0),
+            DirectionalLight(direction: SIMD3<Float>(-0.3, -0.6, 0.6),
+                             intensity: 0.4,
+                             color: SIMD3<Float>(0.95, 0.85, 0.75),
                              enabled: true,
                              maxDistance: 300.0)
         ]
@@ -335,10 +335,10 @@ public final class DemoScene: RenderScene {
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 6.0))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestWall")
-            let mat = Material(baseColorFactor: SIMD3<Float>(0.85, 0.85, 0.9),
-                               metallicFactor: 0.0,
-                               roughnessFactor: 0.8,
-                               alpha: 1.0)
+            let mat = makeSolidMaterial(label: "WallMat",
+                                        color: SIMD4<UInt8>(255, 80, 80, 255),
+                                        metallic: 0.0,
+                                        roughness: 0.02)
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -359,9 +359,11 @@ public final class DemoScene: RenderScene {
                                                             depth: 10.0,
                                                             height: rampHeight))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestRamp")
-            let mat = Material(baseColorFactor: SIMD3<Float>(0.45, 0.55, 0.75),
+            let mat = Material(baseColorFactor: SIMD3<Float>(80.0 / 255.0,
+                                                             160.0 / 255.0,
+                                                             255.0 / 255.0),
                                metallicFactor: 0.0,
-                               roughnessFactor: 0.9,
+                               roughnessFactor: 0.6,
                                alpha: 1.0)
 
             let e = world.createEntity()
