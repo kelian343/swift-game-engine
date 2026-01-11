@@ -29,6 +29,11 @@ final class RayTracingScene {
     private var cachedStaticKey: [StaticKey] = []
     private var cachedStaticBLAS: [MTLAccelerationStructure] = []
     private var staticCacheDirty: Bool = true
+    private var cachedDynamicBLAS: [MTLAccelerationStructure] = []
+    private var cachedDynamicKey: [DynamicKey] = []
+    private var cachedDynamicSlices: [GeometrySlice] = []
+    private var dynamicRefitScratch: [MTLBuffer] = []
+    private var dynamicCacheDirty: Bool = true
     private var transientBLAS: [MTLAccelerationStructure] = []
     private var transientScratch: [MTLBuffer] = []
 
@@ -59,6 +64,11 @@ final class RayTracingScene {
         let vertexBytes: Int
         let indexCount: Int
         let indexType: MTLIndexType
+    }
+
+    private struct DynamicKey: Equatable {
+        let vertexCount: Int
+        let indexCount: Int
     }
 
     func buildAccelerationStructures(items: [RenderItem],
@@ -93,6 +103,7 @@ final class RayTracingScene {
 
                 let desc = MTLPrimitiveAccelerationStructureDescriptor()
                 desc.geometryDescriptors = [geometry]
+                desc.usage = [.refit]
 
                 let sizes = device.accelerationStructureSizes(descriptor: desc)
                 let blas = device.makeAccelerationStructure(size: sizes.accelerationStructureSize)!
@@ -120,45 +131,92 @@ final class RayTracingScene {
         var staticIndex = 0
         var dynamicIndex = 0
 
-        let encoder = commandBuffer.makeAccelerationStructureCommandEncoder()!
+        if dynamicCacheDirty || cachedDynamicBLAS.count != cachedDynamicSlices.count {
+            cachedDynamicBLAS.removeAll(keepingCapacity: true)
+            cachedDynamicBLAS.reserveCapacity(cachedDynamicSlices.count)
+            dynamicRefitScratch.removeAll(keepingCapacity: true)
+            dynamicRefitScratch.reserveCapacity(cachedDynamicSlices.count)
+
+            let encoder = commandBuffer.makeAccelerationStructureCommandEncoder()!
+            for slice in cachedDynamicSlices {
+                let geometry = MTLAccelerationStructureTriangleGeometryDescriptor()
+                geometry.vertexBuffer = dynamicVB
+                geometry.vertexBufferOffset = slice.baseVertex * MemoryLayout<SIMD3<Float>>.stride
+                geometry.vertexStride = MemoryLayout<SIMD3<Float>>.stride
+                geometry.vertexFormat = .float3
+                geometry.indexBuffer = dynamicIB
+                geometry.indexBufferOffset = slice.baseIndex * MemoryLayout<UInt32>.stride
+                geometry.indexType = .uint32
+                geometry.triangleCount = slice.indexCount / 3
+                geometry.opaque = true
+
+                let desc = MTLPrimitiveAccelerationStructureDescriptor()
+                desc.geometryDescriptors = [geometry]
+                desc.usage = [.refit]
+
+                let sizes = device.accelerationStructureSizes(descriptor: desc)
+                let blas = device.makeAccelerationStructure(size: sizes.accelerationStructureSize)!
+                let scratch = device.makeBuffer(length: sizes.buildScratchBufferSize,
+                                                options: .storageModePrivate)!
+
+                encoder.build(accelerationStructure: blas,
+                              descriptor: desc,
+                              scratchBuffer: scratch,
+                              scratchBufferOffset: 0)
+
+                let refitScratch = device.makeBuffer(length: max(sizes.refitScratchBufferSize, 1),
+                                                     options: .storageModePrivate)!
+                cachedDynamicBLAS.append(blas)
+                dynamicRefitScratch.append(refitScratch)
+                transientScratch.append(scratch)
+            }
+            encoder.endEncoding()
+            dynamicCacheDirty = false
+        } else if !cachedDynamicBLAS.isEmpty {
+            let encoder = commandBuffer.makeAccelerationStructureCommandEncoder()!
+            for (i, slice) in cachedDynamicSlices.enumerated() {
+                let geometry = MTLAccelerationStructureTriangleGeometryDescriptor()
+                geometry.vertexBuffer = dynamicVB
+                geometry.vertexBufferOffset = slice.baseVertex * MemoryLayout<SIMD3<Float>>.stride
+                geometry.vertexStride = MemoryLayout<SIMD3<Float>>.stride
+                geometry.vertexFormat = .float3
+                geometry.indexBuffer = dynamicIB
+                geometry.indexBufferOffset = slice.baseIndex * MemoryLayout<UInt32>.stride
+                geometry.indexType = .uint32
+                geometry.triangleCount = slice.indexCount / 3
+                geometry.opaque = true
+
+                let desc = MTLPrimitiveAccelerationStructureDescriptor()
+                desc.geometryDescriptors = [geometry]
+                desc.usage = [.refit]
+
+                let sizes = device.accelerationStructureSizes(descriptor: desc)
+                if dynamicRefitScratch[i].length < sizes.refitScratchBufferSize {
+                    dynamicRefitScratch[i] = device.makeBuffer(length: sizes.refitScratchBufferSize,
+                                                               options: .storageModePrivate)!
+                }
+
+                encoder.refit(sourceAccelerationStructure: cachedDynamicBLAS[i],
+                              descriptor: desc,
+                              destinationAccelerationStructure: cachedDynamicBLAS[i],
+                              scratchBuffer: dynamicRefitScratch[i],
+                              scratchBufferOffset: 0,
+                              options: .vertexData)
+            }
+            encoder.endEncoding()
+        }
+
+        blasList.append(contentsOf: cachedDynamicBLAS)
+
         for slice in lastInstanceSlices {
             if slice.bufferIndex == 0 {
                 accelIndexForItem.append(UInt32(staticIndex))
                 staticIndex += 1
                 continue
             }
-
-            let geometry = MTLAccelerationStructureTriangleGeometryDescriptor()
-            geometry.vertexBuffer = dynamicVB
-            geometry.vertexBufferOffset = slice.baseVertex * MemoryLayout<SIMD3<Float>>.stride
-            geometry.vertexStride = MemoryLayout<SIMD3<Float>>.stride
-            geometry.vertexFormat = .float3
-            geometry.indexBuffer = dynamicIB
-            geometry.indexBufferOffset = slice.baseIndex * MemoryLayout<UInt32>.stride
-            geometry.indexType = .uint32
-            geometry.triangleCount = slice.indexCount / 3
-            geometry.opaque = true
-
-            let desc = MTLPrimitiveAccelerationStructureDescriptor()
-            desc.geometryDescriptors = [geometry]
-
-            let sizes = device.accelerationStructureSizes(descriptor: desc)
-            let blas = device.makeAccelerationStructure(size: sizes.accelerationStructureSize)!
-            let scratch = device.makeBuffer(length: sizes.buildScratchBufferSize,
-                                            options: .storageModePrivate)!
-
-            encoder.build(accelerationStructure: blas,
-                          descriptor: desc,
-                          scratchBuffer: scratch,
-                          scratchBufferOffset: 0)
-
-            transientBLAS.append(blas)
-            transientScratch.append(scratch)
-            blasList.append(blas)
             accelIndexForItem.append(UInt32(cachedStaticBLAS.count + dynamicIndex))
             dynamicIndex += 1
         }
-        encoder.endEncoding()
 
         var instances: [MTLAccelerationStructureInstanceDescriptor] = []
         instances.reserveCapacity(items.count)
@@ -311,6 +369,8 @@ final class RayTracingScene {
         }
 
         var staticSliceIndex = 0
+        var dynamicKey: [DynamicKey] = []
+        var dynamicSlices: [GeometrySlice] = []
 
         for item in items {
             var baseVertex: UInt32 = 0
@@ -338,6 +398,11 @@ final class RayTracingScene {
                     dynamicIndices.append(contentsOf: i32)
                 }
                 bufferIndex = 1
+                dynamicKey.append(DynamicKey(vertexCount: vCount, indexCount: indexCount))
+                dynamicSlices.append(GeometrySlice(baseVertex: Int(baseVertex),
+                                                   baseIndex: Int(baseIndex),
+                                                   indexCount: indexCount,
+                                                   bufferIndex: bufferIndex))
             } else if item.mesh != nil {
                 if staticSliceIndex >= cachedStaticSlices.count { return nil }
                 let slice = cachedStaticSlices[staticSliceIndex]
@@ -382,6 +447,14 @@ final class RayTracingScene {
                                                     baseIndex: Int(baseIndex),
                                                     indexCount: indexCount,
                                                     bufferIndex: bufferIndex))
+        }
+
+        if dynamicKey != cachedDynamicKey {
+            cachedDynamicKey = dynamicKey
+            cachedDynamicSlices = dynamicSlices
+            dynamicCacheDirty = true
+        } else {
+            cachedDynamicSlices = dynamicSlices
         }
 
         let vBytes = dynamicVertices.count * MemoryLayout<SIMD3<Float>>.stride
