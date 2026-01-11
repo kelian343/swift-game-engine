@@ -15,7 +15,7 @@ final class IBLResources {
 
     init(device: MTLDevice) {
         let envSize = 128
-        let envDesc = MTLTextureDescriptor.textureCubeDescriptor(pixelFormat: .rgba8Unorm,
+        let envDesc = MTLTextureDescriptor.textureCubeDescriptor(pixelFormat: .rgba16Float,
                                                                   size: envSize,
                                                                   mipmapped: true)
         envDesc.usage = [.shaderRead]
@@ -28,7 +28,7 @@ final class IBLResources {
             let size = max(envSize >> mip, 1)
             let roughness = mipCount > 1 ? Float(mip) / Float(mipCount - 1) : 0.0
             for face in 0..<6 {
-                var bytes = [UInt8](repeating: 0, count: size * size * 4)
+                var bytes = [Float16](repeating: 0, count: size * size * 4)
                 for y in 0..<size {
                     for x in 0..<size {
                         let u = (2.0 * (Float(x) + 0.5) / Float(size)) - 1.0
@@ -36,10 +36,10 @@ final class IBLResources {
                         let dir = cubeDirection(face: face, u: u, v: v)
                         let color = sampleEnvColor(dir: dir, roughness: roughness)
                         let idx = (y * size + x) * 4
-                        bytes[idx + 0] = UInt8(max(0, min(255, Int(color.x * 255.0))))
-                        bytes[idx + 1] = UInt8(max(0, min(255, Int(color.y * 255.0))))
-                        bytes[idx + 2] = UInt8(max(0, min(255, Int(color.z * 255.0))))
-                        bytes[idx + 3] = 255
+                        bytes[idx + 0] = Float16(color.x)
+                        bytes[idx + 1] = Float16(color.y)
+                        bytes[idx + 2] = Float16(color.z)
+                        bytes[idx + 3] = Float16(1.0)
                     }
                 }
                 let region = MTLRegionMake2D(0, 0, size, size)
@@ -48,8 +48,8 @@ final class IBLResources {
                                 mipmapLevel: mip,
                                 slice: face,
                                 withBytes: raw.baseAddress!,
-                                bytesPerRow: size * 4,
-                                bytesPerImage: size * size * 4)
+                                bytesPerRow: size * 4 * MemoryLayout<Float16>.stride,
+                                bytesPerImage: size * size * 4 * MemoryLayout<Float16>.stride)
                 }
             }
         }
