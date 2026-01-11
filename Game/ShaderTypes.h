@@ -68,11 +68,11 @@ typedef struct
     vector_float3 emissiveFactor;
     float unlit;
     float normalScale;
-    float pad1;
+    float exposure;
+    float toneMapEnabled;
     float occlusionStrength;
-    float pad2;
     vector_float3 cameraPosition;
-    float pad4;
+    float pad0;
 } Uniforms;
 
 typedef struct

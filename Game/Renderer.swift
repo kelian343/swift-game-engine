@@ -253,6 +253,8 @@ final class Renderer: NSObject, MTKViewDelegate {
                                alpha: 1.0)
             mat.cullMode = .none
             mat.unlit = true
+            mat.toneMapped = true
+            mat.exposure = 1.0
             compositeMaterial = mat
         }
         guard let mat = compositeMaterial else { return [] }

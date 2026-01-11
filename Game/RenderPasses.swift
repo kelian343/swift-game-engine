@@ -26,6 +26,8 @@ private func encodeItems(_ items: [RenderItem],
                       unlit: item.material.unlit,
                       normalScale: item.material.normalScale,
                       occlusionStrength: item.material.occlusionStrength,
+                      exposure: item.material.exposure,
+                      toneMapEnabled: item.material.toneMapped,
                       cameraPosition: frame.cameraPosition)
 
         let tex = item.material.baseColorTexture?.texture ?? frame.fallbackWhite.texture

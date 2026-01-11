@@ -20,6 +20,15 @@ struct Varyings {
     float3 worldPos;
 };
 
+inline float3 toneMapACES(float3 x) {
+    const float a = 2.51;
+    const float b = 0.03;
+    const float c = 2.43;
+    const float d = 0.59;
+    const float e = 0.14;
+    return clamp((x * (a * x + b)) / (x * (c * x + d) + e), 0.0, 1.0);
+}
+
 vertex Varyings vertexShader(VertexIn in [[stage_in]],
                              constant Uniforms& u [[buffer(BufferIndexUniforms)]])
 {
@@ -54,23 +63,29 @@ fragment float4 fragmentShader(Varyings in [[stage_in]],
     constexpr sampler oSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
     float occTex = float(occlusionTex.sample(oSamp, in.uv).x);
     float occlusion = mix(1.0, occTex, clamp(u.occlusionStrength, 0.0, 1.0));
+    float3 color;
     if (u.unlit > 0.5) {
-        return float4(albedo + emissive, alpha);
+        color = albedo + emissive;
+    } else {
+        constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
+        float3 nTex = float3(normalTex.sample(nSamp, in.uv).xyz) * 2.0 - 1.0;
+        float3 V = normalize(u.cameraPosition - in.worldPos);
+        float NoV = clamp(dot(normalize(in.normalW), V), 0.0, 1.0);
+        float graze = smoothstep(0.05, 0.5, NoV);
+        float ns = u.normalScale;
+        float excess = max(ns - 4.0, 0.0);
+        ns = 4.0 + excess * 0.25;
+        float2 xy = nTex.xy * (ns * graze);
+        float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
+        nTex = float3(xy.x, xy.y, z);
+        float3 B = normalize(cross(in.normalW, in.tangentW) * in.tangentSign);
+        float3 N = normalize(in.tangentW * nTex.x + B * nTex.y + in.normalW * nTex.z);
+        float3 L = normalize(float3(-0.2, 1.0, -0.4));
+        float nl = clamp(dot(N, L), 0.0, 1.0) * 0.85 + 0.15;
+        color = albedo * nl * occlusion + emissive;
     }
-    constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
-    float3 nTex = float3(normalTex.sample(nSamp, in.uv).xyz) * 2.0 - 1.0;
-    float3 V = normalize(u.cameraPosition - in.worldPos);
-    float NoV = clamp(dot(normalize(in.normalW), V), 0.0, 1.0);
-    float graze = smoothstep(0.05, 0.5, NoV);
-    float ns = u.normalScale;
-    float excess = max(ns - 4.0, 0.0);
-    ns = 4.0 + excess * 0.25;
-    float2 xy = nTex.xy * (ns * graze);
-    float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
-    nTex = float3(xy.x, xy.y, z);
-    float3 B = normalize(cross(in.normalW, in.tangentW) * in.tangentSign);
-    float3 N = normalize(in.tangentW * nTex.x + B * nTex.y + in.normalW * nTex.z);
-    float3 L = normalize(float3(-0.2, 1.0, -0.4));
-    float nl = clamp(dot(N, L), 0.0, 1.0) * 0.85 + 0.15;
-    return float4(albedo * nl * occlusion + emissive, alpha);
+    if (u.toneMapEnabled > 0.5) {
+        color = toneMapACES(color * max(u.exposure, 0.0));
+    }
+    return float4(color, alpha);
 }

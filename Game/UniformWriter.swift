@@ -17,6 +17,8 @@ func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
                    unlit: Bool,
                    normalScale: Float,
                    occlusionStrength: Float,
+                   exposure: Float,
+                   toneMapEnabled: Bool,
                    cameraPosition: SIMD3<Float>) {
 
     ptr[0].projectionMatrix = projection
@@ -28,5 +30,7 @@ func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
     ptr[0].unlit = unlit ? 1.0 : 0.0
     ptr[0].normalScale = normalScale
     ptr[0].occlusionStrength = occlusionStrength
+    ptr[0].exposure = exposure
+    ptr[0].toneMapEnabled = toneMapEnabled ? 1.0 : 0.0
     ptr[0].cameraPosition = cameraPosition
 }

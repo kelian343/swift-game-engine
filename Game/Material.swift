@@ -22,6 +22,8 @@ public struct Material {
     public var alpha: Float
     public var unlit: Bool
     public var normalScale: Float
+    public var exposure: Float
+    public var toneMapped: Bool
     public var cullMode: MTLCullMode
     public var frontFacing: MTLWinding
 
@@ -38,6 +40,8 @@ public struct Material {
                 alpha: Float = 1.0,
                 unlit: Bool = false,
                 normalScale: Float = 1.0,
+                exposure: Float = 1.0,
+                toneMapped: Bool = false,
                 cullMode: MTLCullMode = .back,
                 frontFacing: MTLWinding = .counterClockwise) {
         self.baseColorTexture = baseColorTexture
@@ -53,6 +57,8 @@ public struct Material {
         self.alpha = alpha
         self.unlit = unlit
         self.normalScale = normalScale
+        self.exposure = exposure
+        self.toneMapped = toneMapped
         self.cullMode = cullMode
         self.frontFacing = frontFacing
     }
@@ -72,6 +78,8 @@ public struct MaterialDescriptor {
     public var alpha: Float
     public var unlit: Bool
     public var normalScale: Float
+    public var exposure: Float
+    public var toneMapped: Bool
     public var cullMode: MTLCullMode
     public var frontFacing: MTLWinding
 
@@ -88,6 +96,8 @@ public struct MaterialDescriptor {
                 alpha: Float = 1.0,
                 unlit: Bool = false,
                 normalScale: Float = 1.0,
+                exposure: Float = 1.0,
+                toneMapped: Bool = false,
                 cullMode: MTLCullMode = .back,
                 frontFacing: MTLWinding = .counterClockwise) {
         self.baseColor = baseColor
@@ -103,6 +113,8 @@ public struct MaterialDescriptor {
         self.alpha = alpha
         self.unlit = unlit
         self.normalScale = normalScale
+        self.exposure = exposure
+        self.toneMapped = toneMapped
         self.cullMode = cullMode
         self.frontFacing = frontFacing
     }
@@ -129,6 +141,8 @@ public enum MaterialFactory {
                         alpha: descriptor.alpha,
                         unlit: descriptor.unlit,
                         normalScale: descriptor.normalScale,
+                        exposure: descriptor.exposure,
+                        toneMapped: descriptor.toneMapped,
                         cullMode: descriptor.cullMode,
                         frontFacing: descriptor.frontFacing)
     }
