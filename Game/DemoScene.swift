@@ -351,38 +351,6 @@ public final class DemoScene: RenderScene {
             world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(3, 3, 3))))
         }
 
-        // --- Glass Block: transmissive refraction test
-        do {
-            let meshDesc = ProceduralMeshes.box(BoxParams(size: 3.0))
-            let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "GlassBlock")
-            let base = ProceduralTextureGenerator.solid(width: 4,
-                                                        height: 4,
-                                                        color: SIMD4<UInt8>(200, 220, 255, 255))
-            let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
-                                                                  height: 4,
-                                                                  metallic: 0.0,
-                                                                  roughness: 0.08)
-            let desc = MaterialDescriptor(baseColor: base,
-                                          metallicRoughness: mr,
-                                          metallicFactor: 1.0,
-                                          roughnessFactor: 1.0,
-                                          alpha: 0.12,
-                                          transmissionFactor: 1.0,
-                                          ior: 1.45)
-            let mat = MaterialFactory.make(device: device, descriptor: desc, label: "GlassMat")
-
-            let e = world.createEntity()
-            var t = TransformComponent()
-            t.translation = SIMD3<Float>(-4, -0.5, -4)
-            world.add(e, t)
-            world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, StaticMeshComponent(mesh: meshDesc))
-            world.add(e, PhysicsBodyComponent(bodyType: .static,
-                                              position: t.translation,
-                                              rotation: t.rotation))
-            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(1.5, 1.5, 1.5))))
-        }
-
         // --- Test Ramp: sloped obstacle
         do {
             let rampHeight: Float = 4.0
