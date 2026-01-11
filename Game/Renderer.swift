@@ -29,7 +29,8 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var sceneContext: SceneContext
     private var lastSceneRevision: UInt64 = 0
 
-    private let mainPass = MainPass()
+    private let uiPass = UIPass()
+    private let renderGraph = RenderGraph()
 
     // time
     private var lastTime: Double = CACurrentMediaTime()
@@ -73,6 +74,7 @@ final class Renderer: NSObject, MTKViewDelegate {
         )
         guard let rt = RayTracingRenderer(device: device) else { return nil }
         self.rayTracing = rt
+        self.renderGraph.addPass(uiPass)
 
         super.init()
     }
@@ -131,15 +133,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                           projection: projection,
                           viewMatrix: viewM)
 
-        if !overlayItems.isEmpty, let rpd = view.currentRenderPassDescriptor {
-            rpd.colorAttachments[0].loadAction = .load
-            rpd.colorAttachments[0].storeAction = .store
-            if let depth = rpd.depthAttachment {
-                depth.loadAction = .clear
-                depth.storeAction = .dontCare
-                depth.clearDepth = 1.0
-            }
-
+        if !overlayItems.isEmpty {
             _ = uniformRing.beginFrame()
 
             let overlayProjection = orthoRH(left: 0,
@@ -158,11 +152,7 @@ final class Renderer: NSObject, MTKViewDelegate {
                                      fallbackWhite: fallbackWhite,
                                      projection: overlayProjection,
                                      viewMatrix: overlayView)
-            if let enc = commandBuffer.makeRenderCommandEncoder(descriptor: rpd) {
-                enc.label = mainPass.name
-                mainPass.encode(frame: frame, resources: RenderGraphResources(device: device, view: view), encoder: enc)
-                enc.endEncoding()
-            }
+            renderGraph.execute(frame: frame, view: view, commandBuffer: commandBuffer)
         }
 
         commandBuffer.present(drawable)

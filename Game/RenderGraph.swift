@@ -163,6 +163,14 @@ protocol RenderPass {
     func readResources(frame: FrameContext) -> [RenderResourceID]
     func writeResources(frame: FrameContext) -> [RenderResourceID]
     func encode(frame: FrameContext, resources: RenderGraphResources, encoder: MTLRenderCommandEncoder)
+    func configureRenderPassDescriptor(_ descriptor: MTLRenderPassDescriptor, frame: FrameContext)
+}
+
+extension RenderPass {
+    func configureRenderPassDescriptor(_ descriptor: MTLRenderPassDescriptor, frame: FrameContext) {
+        _ = descriptor
+        _ = frame
+    }
 }
 
 final class RenderGraph {
@@ -187,7 +195,8 @@ final class RenderGraph {
 
         for info in orderedPasses {
             guard let target = info.pass.makeTarget(frame: frame) else { continue }
-            guard let rpd = makeRenderPassDescriptor(target: target,
+            guard let rpd = makeRenderPassDescriptor(pass: info.pass,
+                                                     target: target,
                                                      frame: frame,
                                                      view: view,
                                                      resources: resources) else { continue }
@@ -198,13 +207,18 @@ final class RenderGraph {
         }
     }
 
-    private func makeRenderPassDescriptor(target: RenderTargetSource,
+    private func makeRenderPassDescriptor(pass: RenderPass,
+                                          target: RenderTargetSource,
                                           frame: FrameContext,
                                           view: MTKView,
                                           resources: RenderGraphResources) -> MTLRenderPassDescriptor? {
         switch target {
         case .view:
-            return frame.context.currentRenderPassDescriptor(from: view)
+            guard let rpd = frame.context.currentRenderPassDescriptor(from: view) else {
+                return nil
+            }
+            pass.configureRenderPassDescriptor(rpd, frame: frame)
+            return rpd
         case .offscreen(let rt):
             let rpd = MTLRenderPassDescriptor()
             for (index, color) in rt.colorAttachments.enumerated() {
@@ -226,6 +240,7 @@ final class RenderGraph {
                 rpd.stencilAttachment.storeAction = stencil.storeAction
                 rpd.stencilAttachment.clearStencil = stencil.clearStencil
             }
+            pass.configureRenderPassDescriptor(rpd, frame: frame)
             return rpd
         }
     }
