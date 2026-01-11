@@ -109,7 +109,8 @@ typedef struct
     vector_float3 emissiveFactor;
     float occlusionStrength;
     vector_float2 mrFactors;
-    vector_float2 padding0;
+    float transmissionFactor;
+    float ior;
     float normalScale;
     vector_float3 pad2;
     uint32_t baseColorTexIndex;

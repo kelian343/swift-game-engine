@@ -20,6 +20,8 @@ public struct Material {
     public var emissiveFactor: SIMD3<Float>
     public var occlusionStrength: Float
     public var alpha: Float
+    public var transmissionFactor: Float
+    public var ior: Float
     public var unlit: Bool
     public var normalScale: Float
     public var exposure: Float
@@ -38,6 +40,8 @@ public struct Material {
                 emissiveFactor: SIMD3<Float> = SIMD3<Float>(0, 0, 0),
                 occlusionStrength: Float = 1.0,
                 alpha: Float = 1.0,
+                transmissionFactor: Float = 0.0,
+                ior: Float = 1.5,
                 unlit: Bool = false,
                 normalScale: Float = 1.0,
                 exposure: Float = 1.0,
@@ -55,6 +59,8 @@ public struct Material {
         self.emissiveFactor = emissiveFactor
         self.occlusionStrength = occlusionStrength
         self.alpha = alpha
+        self.transmissionFactor = transmissionFactor
+        self.ior = ior
         self.unlit = unlit
         self.normalScale = normalScale
         self.exposure = exposure
@@ -76,6 +82,8 @@ public struct MaterialDescriptor {
     public var emissiveFactor: SIMD3<Float>
     public var occlusionStrength: Float
     public var alpha: Float
+    public var transmissionFactor: Float
+    public var ior: Float
     public var unlit: Bool
     public var normalScale: Float
     public var exposure: Float
@@ -94,6 +102,8 @@ public struct MaterialDescriptor {
                 emissiveFactor: SIMD3<Float> = SIMD3<Float>(0, 0, 0),
                 occlusionStrength: Float = 1.0,
                 alpha: Float = 1.0,
+                transmissionFactor: Float = 0.0,
+                ior: Float = 1.5,
                 unlit: Bool = false,
                 normalScale: Float = 1.0,
                 exposure: Float = 1.0,
@@ -111,6 +121,8 @@ public struct MaterialDescriptor {
         self.emissiveFactor = emissiveFactor
         self.occlusionStrength = occlusionStrength
         self.alpha = alpha
+        self.transmissionFactor = transmissionFactor
+        self.ior = ior
         self.unlit = unlit
         self.normalScale = normalScale
         self.exposure = exposure
@@ -139,6 +151,8 @@ public enum MaterialFactory {
                         emissiveFactor: descriptor.emissiveFactor,
                         occlusionStrength: descriptor.occlusionStrength,
                         alpha: descriptor.alpha,
+                        transmissionFactor: descriptor.transmissionFactor,
+                        ior: descriptor.ior,
                         unlit: descriptor.unlit,
                         normalScale: descriptor.normalScale,
                         exposure: descriptor.exposure,

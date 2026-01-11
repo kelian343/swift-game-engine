@@ -49,7 +49,8 @@ struct RTInstanceInfoSwift {
     var emissiveFactor: SIMD3<Float>
     var occlusionStrength: Float
     var mrFactors: SIMD2<Float>
-    var padding0: SIMD2<Float>
+    var transmissionFactor: Float
+    var ior: Float
     var normalScale: Float
     var pad2: SIMD3<Float>
     var baseColorTexIndex: UInt32
