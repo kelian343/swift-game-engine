@@ -29,8 +29,15 @@ final class Renderer: NSObject, MTKViewDelegate {
     private var sceneContext: SceneContext
     private var lastSceneRevision: UInt64 = 0
 
+    private let compositePass = CompositePass()
     private let uiPass = UIPass()
     private let renderGraph = RenderGraph()
+    private let uiDepthState: MTLDepthStencilState
+    private let compositeMesh: GPUMesh
+    private var compositeItems: [RenderItem] = []
+    private var compositeMaterial: Material?
+    private var rtColorResource: TextureResource?
+    private var rtColorTexture: MTLTexture?
 
     // time
     private var lastTime: Double = CACurrentMediaTime()
@@ -66,6 +73,8 @@ final class Renderer: NSObject, MTKViewDelegate {
 
         guard let ds = PipelineBuilder.makeDepthState(device: device) else { return nil }
         self.depthState = ds
+        guard let uiDs = PipelineBuilder.makeUIDepthState(device: device) else { return nil }
+        self.uiDepthState = uiDs
 
         self.fallbackWhite = TextureResource(
             device: device,
@@ -74,7 +83,11 @@ final class Renderer: NSObject, MTKViewDelegate {
         )
         guard let rt = RayTracingRenderer(device: device) else { return nil }
         self.rayTracing = rt
+        self.renderGraph.addPass(compositePass)
         self.renderGraph.addPass(uiPass)
+
+        let quadMeshData = ProceduralMeshes.quad(width: 1, height: 1)
+        self.compositeMesh = GPUMesh(device: device, data: quadMeshData, label: "CompositeQuad")
 
         super.init()
     }
@@ -125,35 +138,39 @@ final class Renderer: NSObject, MTKViewDelegate {
         let projection = scene.camera.projection
         let viewM = scene.camera.view
 
-        rayTracing.encode(commandBuffer: commandBuffer,
-                          drawable: drawable,
-                          drawableSize: view.drawableSize,
-                          items: items,
-                          camera: scene.camera,
-                          projection: projection,
-                          viewMatrix: viewM)
-
-        if !overlayItems.isEmpty {
-            _ = uniformRing.beginFrame()
-
-            let overlayProjection = orthoRH(left: 0,
-                                            right: Float(view.drawableSize.width),
-                                            bottom: Float(view.drawableSize.height),
-                                            top: 0,
-                                            near: -1,
-                                            far: 1)
-            let overlayView = matrix_identity_float4x4
-            let frame = FrameContext(scene: scene,
-                                     items: overlayItems,
-                                     context: context,
-                                     uniformRing: uniformRing,
-                                     pipelineState: pipelineState,
-                                     depthState: depthState,
-                                     fallbackWhite: fallbackWhite,
-                                     projection: overlayProjection,
-                                     viewMatrix: overlayView)
-            renderGraph.execute(frame: frame, view: view, commandBuffer: commandBuffer)
+        updateRTTargetIfNeeded(view: view)
+        if let rtTarget = rtColorTexture {
+            rayTracing.encode(commandBuffer: commandBuffer,
+                              outputTexture: rtTarget,
+                              outputSize: view.drawableSize,
+                              items: items,
+                              camera: scene.camera,
+                              projection: projection,
+                              viewMatrix: viewM)
         }
+
+        _ = uniformRing.beginFrame()
+
+        let overlayProjection = orthoRH(left: 0,
+                                        right: Float(view.drawableSize.width),
+                                        bottom: Float(view.drawableSize.height),
+                                        top: 0,
+                                        near: -1,
+                                        far: 1)
+        let overlayView = matrix_identity_float4x4
+        let compositeItems = makeCompositeItems(size: view.drawableSize)
+        let frame = FrameContext(scene: scene,
+                                 items: [],
+                                 compositeItems: compositeItems,
+                                 overlayItems: overlayItems,
+                                 context: context,
+                                 uniformRing: uniformRing,
+                                 pipelineState: pipelineState,
+                                 depthState: uiDepthState,
+                                 fallbackWhite: fallbackWhite,
+                                 projection: overlayProjection,
+                                 viewMatrix: overlayView)
+        renderGraph.execute(frame: frame, view: view, commandBuffer: commandBuffer)
 
         commandBuffer.present(drawable)
         commandBuffer.commit()
@@ -162,5 +179,55 @@ final class Renderer: NSObject, MTKViewDelegate {
     func mtkView(_ view: MTKView, drawableSizeWillChange size: CGSize) {
         scene?.camera.updateProjection(width: Float(size.width), height: Float(size.height))
         scene?.viewportDidChange(size: SIMD2<Float>(Float(size.width), Float(size.height)))
+    }
+
+    private func updateRTTargetIfNeeded(view: MTKView) {
+        let width = max(Int(view.drawableSize.width), 1)
+        let height = max(Int(view.drawableSize.height), 1)
+        let format = view.colorPixelFormat
+
+        if let existing = rtColorTexture,
+           existing.width == width,
+           existing.height == height,
+           existing.pixelFormat == format {
+            return
+        }
+
+        let desc = MTLTextureDescriptor.texture2DDescriptor(pixelFormat: format,
+                                                            width: width,
+                                                            height: height,
+                                                            mipmapped: false)
+        desc.usage = [.shaderRead, .shaderWrite]
+        desc.storageMode = .private
+        let tex = device.makeTexture(descriptor: desc)
+        tex?.label = "RTColor"
+        rtColorTexture = tex
+        if let tex = tex {
+            rtColorResource = TextureResource(texture: tex, label: "RTColorResource")
+            compositeMaterial = nil
+            compositeItems.removeAll(keepingCapacity: true)
+        }
+    }
+
+    private func makeCompositeItems(size: CGSize) -> [RenderItem] {
+        guard let rtResource = rtColorResource else { return [] }
+        if compositeMaterial == nil {
+            var mat = Material(baseColorTexture: rtResource, metallic: 0.0, roughness: 1.0, alpha: 1.0)
+            mat.cullMode = .none
+            compositeMaterial = mat
+        }
+        guard let mat = compositeMaterial else { return [] }
+
+        let scale = SIMD3<Float>(Float(size.width), Float(size.height), 1)
+        let t = TransformComponent(translation: SIMD3<Float>(0, 0, 0),
+                                   rotation: simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0)),
+                                   scale: scale)
+        if compositeItems.isEmpty {
+            compositeItems = [RenderItem(mesh: compositeMesh, material: mat, modelMatrix: t.modelMatrix)]
+        } else {
+            compositeItems[0].modelMatrix = t.modelMatrix
+            compositeItems[0].material = mat
+        }
+        return compositeItems
     }
 }

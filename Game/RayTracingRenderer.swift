@@ -49,8 +49,8 @@ final class RayTracingRenderer {
     }
 
     func encode(commandBuffer: MTLCommandBuffer,
-                drawable: CAMetalDrawable,
-                drawableSize: CGSize,
+                outputTexture: MTLTexture,
+                outputSize: CGSize,
                 items: [RenderItem],
                 camera: Camera,
                 projection: matrix_float4x4,
@@ -60,8 +60,8 @@ final class RayTracingRenderer {
 
         let viewProj = simd_mul(projection, viewMatrix)
         let invViewProj = simd_inverse(viewProj)
-        let width = max(Int(drawableSize.width), 1)
-        let height = max(Int(drawableSize.height), 1)
+        let width = max(Int(outputSize.width), 1)
+        let height = max(Int(outputSize.height), 1)
         let (envSH0, envSH1) = RayTracingRenderer.makeHemisphereSH()
 
         var rtFrame = RTFrameUniformsSwift(
@@ -90,7 +90,7 @@ final class RayTracingRenderer {
                            tlas: tlas,
                            geometry: geometry,
                            rtFrame: rtFrame,
-                           drawable: drawable,
+                           outputTexture: outputTexture,
                            width: width,
                            height: height)
     }
@@ -99,7 +99,7 @@ final class RayTracingRenderer {
                                     tlas: MTLAccelerationStructure?,
                                     geometry: RayTracingScene.GeometryBuffers?,
                                     rtFrame: RTFrameUniformsSwift,
-                                    drawable: CAMetalDrawable,
+                                    outputTexture: MTLTexture,
                                     width: Int,
                                     height: Int) {
         guard let tlas = tlas,
@@ -109,7 +109,7 @@ final class RayTracingRenderer {
         }
 
         enc.setComputePipelineState(rtPipelineState)
-        enc.setTexture(drawable.texture, index: 0)
+        enc.setTexture(outputTexture, index: 0)
         enc.setBuffer(rtFrameBuffer, offset: 0, index: BufferIndex.rtFrame.rawValue)
         enc.setAccelerationStructure(tlas, bufferIndex: BufferIndex.rtAccel.rawValue)
         enc.setBuffer(geometry.vertexBuffer, offset: 0, index: BufferIndex.rtVertices.rawValue)

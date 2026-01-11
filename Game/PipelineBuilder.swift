@@ -53,4 +53,11 @@ enum PipelineBuilder {
         d.isDepthWriteEnabled = true
         return device.makeDepthStencilState(descriptor: d)
     }
+
+    static func makeUIDepthState(device: MTLDevice) -> MTLDepthStencilState? {
+        let d = MTLDepthStencilDescriptor()
+        d.depthCompareFunction = .always
+        d.isDepthWriteEnabled = false
+        return device.makeDepthStencilState(descriptor: d)
+    }
 }

@@ -91,6 +91,8 @@ enum RenderTargetSource {
 struct FrameContext {
     let scene: RenderScene
     let items: [RenderItem]
+    let compositeItems: [RenderItem]
+    let overlayItems: [RenderItem]
 
     let context: RenderContext
     let uniformRing: UniformRingBuffer
