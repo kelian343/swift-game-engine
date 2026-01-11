@@ -82,10 +82,10 @@ public struct PoseComponent {
 }
 
 public struct SkinnedMeshComponent {
-    public var mesh: SkinnedMeshData
+    public var mesh: SkinnedMeshDescriptor
     public var material: Material
 
-    public init(mesh: SkinnedMeshData, material: Material) {
+    public init(mesh: SkinnedMeshDescriptor, material: Material) {
         self.mesh = mesh
         self.material = material
     }
@@ -100,11 +100,11 @@ public struct FollowTargetComponent {
 }
 
 public struct StaticMeshComponent {
-    public var mesh: MeshData
+    public var mesh: ProceduralMeshDescriptor
     public var material: SurfaceMaterial
     public var triangleMaterials: [SurfaceMaterial]?
 
-    public init(mesh: MeshData,
+    public init(mesh: ProceduralMeshDescriptor,
                 material: SurfaceMaterial = .default,
                 triangleMaterials: [SurfaceMaterial]? = nil) {
         self.mesh = mesh

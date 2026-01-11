@@ -69,8 +69,7 @@ public final class DemoScene: RenderScene {
         // --- Ground: platform plane (4x area)
         do {
             let meshDesc = ProceduralMeshes.plane(PlaneParams(size: 80.0))
-            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
-            let mesh = GPUMesh(device: device, data: meshData, label: "Ground")
+            let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "Ground")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 80, g: 80, b: 80, a: 255),
                                       label: "GroundTex")
@@ -81,7 +80,7 @@ public final class DemoScene: RenderScene {
             t.translation = SIMD3<Float>(0, groundY, 0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, StaticMeshComponent(mesh: meshData,
+            world.add(e, StaticMeshComponent(mesh: meshDesc,
                                              material: SurfaceMaterial(muS: 0.9, muK: 0.8)))
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
@@ -92,8 +91,7 @@ public final class DemoScene: RenderScene {
         // --- Kinematic Platforms: elevator + ground mover
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 4.0))
-            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
-            let mesh = GPUMesh(device: device, data: meshData, label: "Platform")
+            let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "Platform")
             let texUp = TextureResource(device: device,
                                         source: .solid(width: 4, height: 4, r: 120, g: 200, b: 255, a: 255),
                                         label: "PlatformUpTex")
@@ -113,7 +111,7 @@ public final class DemoScene: RenderScene {
                 t.scale = platformScale
                 world.add(e, t)
                 world.add(e, RenderComponent(mesh: mesh, material: matUp))
-                world.add(e, StaticMeshComponent(mesh: meshData,
+                world.add(e, StaticMeshComponent(mesh: meshDesc,
                                                  material: SurfaceMaterial(muS: 0.9, muK: 0.7)))
                 world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
                                                   position: t.translation,
@@ -134,7 +132,7 @@ public final class DemoScene: RenderScene {
                 t.scale = platformScale
                 world.add(e, t)
                 world.add(e, RenderComponent(mesh: mesh, material: matFlat))
-                world.add(e, StaticMeshComponent(mesh: meshData,
+                world.add(e, StaticMeshComponent(mesh: meshDesc,
                                                  material: SurfaceMaterial(muS: 0.9, muK: 0.7)))
                 world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
                                                   position: t.translation,
@@ -154,8 +152,7 @@ public final class DemoScene: RenderScene {
             let capsuleHalfHeight: Float = 1.0
             let meshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: capsuleRadius,
                                                                   halfHeight: capsuleHalfHeight))
-            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
-            let mesh = GPUMesh(device: device, data: meshData, label: "KinematicCapsule")
+            let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "KinematicCapsule")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 220, g: 120, b: 255, a: 255),
                                       label: "KinematicCapsuleTex")
@@ -196,17 +193,13 @@ public final class DemoScene: RenderScene {
                                                                                     hipSeparation: 0.45,
                                                                                     radialSegments: 12,
                                                                                     heightSegments: 4))
-            let skinnedData = ProceduralMeshBridge.toSkinnedMeshData(skinnedDesc)
-                ?? SkinnedMeshData(vertices: [], indices16: [])
             let tex = TextureResource(device: device,
                                       source: ProceduralTextures.checkerboard(width: 256, height: 256, cell: 48),
                                       label: "TexB")
             let mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 0.4, alpha: 1.0)
             let capsuleMeshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: playerRadius,
                                                                          halfHeight: playerHalfHeight))
-            let capsuleMeshData = ProceduralMeshBridge.toMeshDataPNUT(capsuleMeshDesc)
-                ?? MeshData(vertices: [], indices16: [])
-            let capsuleMesh = GPUMesh(device: device, data: capsuleMeshData, label: "PlayerCapsuleOverlay")
+            let capsuleMesh = GPUMesh(device: device, descriptor: capsuleMeshDesc, label: "PlayerCapsuleOverlay")
             let capsuleTex = TextureResource(device: device,
                                              source: .solid(width: 4, height: 4, r: 120, g: 160, b: 255, a: 255),
                                              label: "PlayerCapsuleOverlayTex")
@@ -234,7 +227,7 @@ public final class DemoScene: RenderScene {
             let skeleton = Skeleton.humanoid8()
             world.add(e, SkeletonComponent(skeleton: skeleton))
             world.add(e, PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal))
-            world.add(e, SkinnedMeshComponent(mesh: skinnedData, material: mat))
+            world.add(e, SkinnedMeshComponent(mesh: skinnedDesc, material: mat))
 
             let overlay = world.createEntity()
             var to = TransformComponent()
@@ -250,8 +243,7 @@ public final class DemoScene: RenderScene {
             let npcHalfHeight: Float = 1.0
             let meshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: npcRadius,
                                                                   halfHeight: npcHalfHeight))
-            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
-            let mesh = GPUMesh(device: device, data: meshData, label: "NPCCapsule")
+            let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "NPCCapsule")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 255, g: 180, b: 80, a: 255),
                                       label: "NPCTex")
@@ -285,8 +277,7 @@ public final class DemoScene: RenderScene {
         // --- Test Wall: large static blocker
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 6.0))
-            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
-            let mesh = GPUMesh(device: device, data: meshData, label: "TestWall")
+            let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestWall")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 255, g: 80, b: 80, a: 255),
                                       label: "WallTex")
@@ -297,7 +288,7 @@ public final class DemoScene: RenderScene {
             t.translation = SIMD3<Float>(0, 0, -10)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, StaticMeshComponent(mesh: meshData))
+            world.add(e, StaticMeshComponent(mesh: meshDesc))
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
@@ -310,8 +301,7 @@ public final class DemoScene: RenderScene {
             let meshDesc = ProceduralMeshes.ramp(RampParams(width: 8.0,
                                                             depth: 10.0,
                                                             height: rampHeight))
-            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
-            let mesh = GPUMesh(device: device, data: meshData, label: "TestRamp")
+            let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestRamp")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 80, g: 160, b: 255, a: 255),
                                       label: "RampTex")
@@ -322,7 +312,7 @@ public final class DemoScene: RenderScene {
             t.translation = SIMD3<Float>(8, groundY + rampHeight * 0.5, 0)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, StaticMeshComponent(mesh: meshData,
+            world.add(e, StaticMeshComponent(mesh: meshDesc,
                                              material: SurfaceMaterial(muS: 0.35, muK: 0.25)))
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
@@ -335,8 +325,7 @@ public final class DemoScene: RenderScene {
             let meshDesc = ProceduralMeshes.dome(DomeParams(radius: 4.0,
                                                            radialSegments: 32,
                                                            ringSegments: 12))
-            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
-            let mesh = GPUMesh(device: device, data: meshData, label: "TestDome")
+            let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestDome")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 120, g: 200, b: 140, a: 255),
                                       label: "DomeTex")
@@ -347,7 +336,7 @@ public final class DemoScene: RenderScene {
             t.translation = SIMD3<Float>(-10, groundY, -6)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, StaticMeshComponent(mesh: meshData,
+            world.add(e, StaticMeshComponent(mesh: meshDesc,
                                              material: SurfaceMaterial(muS: 0.3, muK: 0.2)))
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
@@ -358,8 +347,7 @@ public final class DemoScene: RenderScene {
         // --- Test Step: small ledge
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 2.0))
-            let meshData = ProceduralMeshBridge.toMeshDataPNUT(meshDesc) ?? MeshData(vertices: [], indices16: [])
-            let mesh = GPUMesh(device: device, data: meshData, label: "TestStep")
+            let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestStep")
             let tex = TextureResource(device: device,
                                       source: .solid(width: 4, height: 4, r: 255, g: 220, b: 120, a: 255),
                                       label: "StepTex")
@@ -370,7 +358,7 @@ public final class DemoScene: RenderScene {
             t.translation = SIMD3<Float>(-6, -2, 4)
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
-            world.add(e, StaticMeshComponent(mesh: meshData))
+            world.add(e, StaticMeshComponent(mesh: meshDesc))
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))

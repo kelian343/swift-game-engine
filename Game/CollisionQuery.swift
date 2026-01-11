@@ -102,9 +102,10 @@ public struct StaticTriMesh {
         for e in entities {
             guard let t = tStore[e], let m = mStore[e] else { continue }
             let baseIndex = UInt32(positions.count)
-            positions.reserveCapacity(positions.count + m.mesh.vertices.count)
-            for v in m.mesh.vertices {
-                let p = SIMD4<Float>(v.position.x, v.position.y, v.position.z, 1)
+            let localPositions = m.mesh.streams.positions
+            positions.reserveCapacity(positions.count + localPositions.count)
+            for pLocal in localPositions {
+                let p = SIMD4<Float>(pLocal.x, pLocal.y, pLocal.z, 1)
                 let wp = simd_mul(t.modelMatrix, p)
                 positions.append(SIMD3<Float>(wp.x, wp.y, wp.z))
             }

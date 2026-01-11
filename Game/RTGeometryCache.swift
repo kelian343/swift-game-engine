@@ -202,14 +202,14 @@ final class RTGeometryCache {
             var bufferIndex: UInt32 = 0
 
             if let skinned = item.skinnedMesh, let palette = item.skinningPalette {
-                let vCount = skinned.vertices.count
+                let vCount = skinned.streams.vertexCount
                 dynamicVertices.reserveCapacity(dynamicVertices.count + vCount)
                 dynamicUVs.reserveCapacity(dynamicUVs.count + vCount)
                 baseVertex = UInt32(dynamicVertices.count)
                 baseIndex = UInt32(dynamicIndices.count)
-                for v in skinned.vertices {
+                for i in 0..<vCount {
                     dynamicVertices.append(.zero)
-                    dynamicUVs.append(v.uv)
+                    dynamicUVs.append(skinned.streams.uvs[i])
                 }
 
                 indexCount = skinned.indexCount
@@ -367,14 +367,14 @@ final class RTGeometryCache {
                                skinningJobs: skinningJobs)
     }
 
-    private func makeSkinningJob(skinned: SkinnedMeshData,
+    private func makeSkinningJob(skinned: SkinnedMeshDescriptor,
                                  palette: [matrix_float4x4],
                                  dstBaseVertex: Int) -> RTSkinningJob? {
-        let vertexCount = skinned.vertices.count
+        let vertexCount = skinned.streams.vertexCount
         let indexCount = skinned.indexCount
         guard vertexCount > 0 else { return nil }
 
-        let vertexPtr = skinned.vertices.withUnsafeBytes { raw in
+        let vertexPtr = skinned.streams.positions.withUnsafeBytes { raw in
             UInt(bitPattern: raw.baseAddress ?? UnsafeRawPointer(bitPattern: 0x1))
         }
         let key = SkinnedSourceKey(vertexPtr: vertexPtr,
@@ -385,18 +385,9 @@ final class RTGeometryCache {
                 return existing
             }
 
-            var positions: [SIMD3<Float>] = []
-            var boneIndices: [SIMD4<UInt16>] = []
-            var boneWeights: [SIMD4<Float>] = []
-            positions.reserveCapacity(vertexCount)
-            boneIndices.reserveCapacity(vertexCount)
-            boneWeights.reserveCapacity(vertexCount)
-
-            for v in skinned.vertices {
-                positions.append(v.position)
-                boneIndices.append(v.boneIndices)
-                boneWeights.append(v.boneWeights)
-            }
+            let positions = skinned.streams.positions
+            let boneIndices = skinned.streams.boneIndices
+            let boneWeights = skinned.streams.boneWeights
 
             let posBytes = positions.count * MemoryLayout<SIMD3<Float>>.stride
             let idxBytes = boneIndices.count * MemoryLayout<SIMD4<UInt16>>.stride

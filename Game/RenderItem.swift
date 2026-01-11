@@ -9,13 +9,13 @@ import simd
 
 public struct RenderItem {
     public var mesh: GPUMesh?
-    public var skinnedMesh: SkinnedMeshData?
+    public var skinnedMesh: SkinnedMeshDescriptor?
     public var skinningPalette: [matrix_float4x4]?
     public var material: Material
     public var modelMatrix: matrix_float4x4
 
     public init(mesh: GPUMesh?,
-                skinnedMesh: SkinnedMeshData? = nil,
+                skinnedMesh: SkinnedMeshDescriptor? = nil,
                 skinningPalette: [matrix_float4x4]? = nil,
                 material: Material,
                 modelMatrix: matrix_float4x4) {
