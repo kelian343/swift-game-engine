@@ -73,7 +73,7 @@ final class RayTracingRenderer {
             invViewProj: invViewProj,
             cameraPosition: camera.position,
             imageSize: SIMD2<UInt32>(UInt32(width), UInt32(height)),
-            ambientIntensity: 0.2,
+            ambientIntensity: 0.25,
             pad0: 0,
             textureCount: UInt32(geometry?.textures.count ?? 0),
             dirLightCount: UInt32(lights.count),

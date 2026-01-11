@@ -15,7 +15,7 @@ public final class DemoScene: RenderScene {
     public private(set) var renderItems: [RenderItem] = []
     public private(set) var overlayItems: [RenderItem] = []
     public private(set) var revision: UInt64 = 0
-    public var toneMappingExposure: Float = 3.0
+    public var toneMappingExposure: Float = 0.6
     public var toneMappingEnabled: Bool = true
     public var directionalLights: [DirectionalLight] = []
     private var fpsOverlaySystem: FPSOverlaySystem?
@@ -105,14 +105,14 @@ public final class DemoScene: RenderScene {
 
         let groundY: Float = -3.0
         directionalLights = [
-            DirectionalLight(direction: SIMD3<Float>(0.0, -1.0, 0.0),
-                             intensity: 3.6,
-                             color: SIMD3<Float>(1.0, 0.98, 0.92),
+            DirectionalLight(direction: SIMD3<Float>(0.35, -0.45, -0.25),
+                             intensity: 2.2,
+                             color: SIMD3<Float>(1.0, 0.78, 0.55),
                              enabled: true,
                              maxDistance: 400.0),
             DirectionalLight(direction: SIMD3<Float>(0.6, -0.8, 0.2),
-                             intensity: 0.6,
-                             color: SIMD3<Float>(0.65, 0.75, 1.0),
+                             intensity: 0.8,
+                             color: SIMD3<Float>(0.55, 0.65, 0.95),
                              enabled: true,
                              maxDistance: 300.0)
         ]
@@ -474,7 +474,7 @@ public final class DemoScene: RenderScene {
         timeSystem.update(world: world, dt: dt)
         inputSystem.update(world: world, dt: dt)
         if inputSystem.exposureDelta != 0 {
-            toneMappingExposure = min(max(toneMappingExposure + inputSystem.exposureDelta * dt, 0.2), 3.0)
+            toneMappingExposure = min(max(toneMappingExposure + inputSystem.exposureDelta * dt, 0.1), 2.0)
         }
         fixedRunner.update(world: world)
 
