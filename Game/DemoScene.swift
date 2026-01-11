@@ -15,14 +15,7 @@ public final class DemoScene: RenderScene {
     public private(set) var renderItems: [RenderItem] = []
     public private(set) var overlayItems: [RenderItem] = []
     public private(set) var revision: UInt64 = 0
-
-    private var viewportSize = SIMD2<Float>(1, 1)
-    private var fpsSmoothed: Float = 0
-    private var fpsDigitMeshes: [GPUMesh] = []
-    private var fpsMaterial: Material?
-    private var fpsDigitPixelSize = SIMD2<Float>(16, 24)
-    private let fpsMargin: Float = 12
-    private let fpsSpacing: Float = 2
+    private var fpsOverlaySystem: FPSOverlaySystem?
 
     // ECS
     private let world = World()
@@ -371,7 +364,7 @@ public final class DemoScene: RenderScene {
         }
 
         // --- FPS overlay resources
-        setupFPSOverlay(device: device)
+        fpsOverlaySystem = FPSOverlaySystem(device: device)
 
         // Extract initial draw calls
         renderItems = extractSystem.extract(world: world)
@@ -391,73 +384,10 @@ public final class DemoScene: RenderScene {
 
         // Render extraction (derived every frame)
         renderItems = extractSystem.extract(world: world)
-        updateFPSOverlay(dt: dt)
+        overlayItems = fpsOverlaySystem?.update(dt: dt) ?? []
     }
 
     public func viewportDidChange(size: SIMD2<Float>) {
-        viewportSize = size
-    }
-
-    private func setupFPSOverlay(device: MTLDevice) {
-        let atlas = ProceduralTextures.digitsAtlas()
-        let tex = TextureResource(device: device, source: atlas, label: "FPSDigitsAtlas")
-        var mat = Material(baseColorTexture: tex, metallic: 0.0, roughness: 1.0, alpha: 1.0)
-        mat.cullMode = .none
-        fpsMaterial = mat
-
-        let cellW = ProceduralTextures.digitsAtlasCellWidth
-        let cellH = ProceduralTextures.digitsAtlasCellHeight
-        let atlasW = cellW * 10
-        let atlasH = cellH
-        let scale: Float = 2.0
-        fpsDigitPixelSize = SIMD2<Float>(Float(cellW) * scale, Float(cellH) * scale)
-
-        fpsDigitMeshes = (0..<10).map { digit in
-            let u0 = Float(digit * cellW) / Float(atlasW)
-            let u1 = Float((digit + 1) * cellW) / Float(atlasW)
-            let v0: Float = 0
-            let v1 = Float(cellH) / Float(atlasH)
-            let meshData = ProceduralMeshes.quad(uvMin: SIMD2<Float>(u0, v0),
-                                                 uvMax: SIMD2<Float>(u1, v1))
-            return GPUMesh(device: device, data: meshData, label: "FPSDigit\(digit)")
-        }
-    }
-
-    private func updateFPSOverlay(dt: Float) {
-        guard dt > 0, !fpsDigitMeshes.isEmpty, let mat = fpsMaterial else {
-            overlayItems = []
-            return
-        }
-
-        let fpsInstant = 1.0 / dt
-        if fpsSmoothed == 0 {
-            fpsSmoothed = fpsInstant
-        } else {
-            fpsSmoothed = fpsSmoothed * 0.9 + fpsInstant * 0.1
-        }
-
-        let fpsValue = max(Int(fpsSmoothed.rounded()), 0)
-        let digits = Array(String(fpsValue))
-        let digitCount = digits.count
-        let digitW = fpsDigitPixelSize.x
-        let digitH = fpsDigitPixelSize.y
-        let totalWidth = Float(digitCount) * digitW + Float(max(0, digitCount - 1)) * fpsSpacing
-
-        let startX = max(fpsMargin, viewportSize.x - fpsMargin - totalWidth)
-        let y = fpsMargin
-
-        overlayItems.removeAll(keepingCapacity: true)
-        overlayItems.reserveCapacity(digitCount)
-
-        var x = startX
-        for ch in digits {
-            guard let value = ch.wholeNumberValue else { continue }
-            let mesh = fpsDigitMeshes[value]
-            let t = TransformComponent(translation: SIMD3<Float>(x, y, 0),
-                                       rotation: simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0)),
-                                       scale: SIMD3<Float>(digitW, digitH, 1))
-            overlayItems.append(RenderItem(mesh: mesh, material: mat, modelMatrix: t.modelMatrix))
-            x += digitW + fpsSpacing
-        }
+        fpsOverlaySystem?.viewportDidChange(size: size)
     }
 }
