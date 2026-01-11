@@ -186,7 +186,8 @@ final class Renderer: NSObject, MTKViewDelegate {
                                  fallbackWhite: fallbackWhite,
                                  fallbackNormal: fallbackNormal,
                                  projection: overlayProjection,
-                                 viewMatrix: overlayView)
+                                 viewMatrix: overlayView,
+                                 cameraPosition: scene.camera.position)
         renderGraph.execute(frame: frame, view: view, commandBuffer: commandBuffer)
 
         commandBuffer.present(drawable)

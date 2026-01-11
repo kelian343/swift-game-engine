@@ -17,6 +17,7 @@ struct Varyings {
     float3 normalW;
     float3 tangentW;
     float tangentSign;
+    float3 worldPos;
 };
 
 vertex Varyings vertexShader(VertexIn in [[stage_in]],
@@ -33,6 +34,7 @@ vertex Varyings vertexShader(VertexIn in [[stage_in]],
     out.normalW = normalize(mtx * in.normal);
     out.tangentW = normalize(mtx * in.tangent.xyz);
     out.tangentSign = in.tangent.w;
+    out.worldPos = world.xyz;
     return out;
 }
 
@@ -50,7 +52,10 @@ fragment float4 fragmentShader(Varyings in [[stage_in]],
     }
     constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
     float3 nTex = float3(normalTex.sample(nSamp, in.uv).xyz) * 2.0 - 1.0;
-    float2 xy = nTex.xy * u.normalScale;
+    float3 V = normalize(u.cameraPosition - in.worldPos);
+    float NoV = clamp(dot(normalize(in.normalW), V), 0.0, 1.0);
+    float graze = smoothstep(0.05, 0.5, NoV);
+    float2 xy = nTex.xy * (u.normalScale * graze);
     float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
     nTex = float3(xy.x, xy.y, z);
     float3 B = normalize(cross(in.normalW, in.tangentW) * in.tangentSign);

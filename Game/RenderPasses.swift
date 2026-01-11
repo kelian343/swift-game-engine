@@ -23,7 +23,8 @@ private func encodeItems(_ items: [RenderItem],
                       baseColorFactor: item.material.baseColorFactor,
                       baseAlpha: item.material.alpha,
                       unlit: item.material.unlit,
-                      normalScale: item.material.normalScale)
+                      normalScale: item.material.normalScale,
+                      cameraPosition: frame.cameraPosition)
 
         let tex = item.material.baseColorTexture?.texture ?? frame.fallbackWhite.texture
         let normalTex = item.material.normalTexture?.texture ?? frame.fallbackNormal.texture

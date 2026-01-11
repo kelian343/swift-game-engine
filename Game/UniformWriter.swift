@@ -14,7 +14,8 @@ func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
                    baseColorFactor: SIMD3<Float>,
                    baseAlpha: Float,
                    unlit: Bool,
-                   normalScale: Float) {
+                   normalScale: Float,
+                   cameraPosition: SIMD3<Float>) {
 
     ptr[0].projectionMatrix = projection
     ptr[0].viewMatrix = view
@@ -23,4 +24,5 @@ func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
     ptr[0].baseAlpha = baseAlpha
     ptr[0].unlit = unlit ? 1.0 : 0.0
     ptr[0].normalScale = normalScale
+    ptr[0].cameraPosition = cameraPosition
 }

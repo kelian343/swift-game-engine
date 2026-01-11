@@ -256,7 +256,9 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
 
         float3 N = normalize(cross(w1 - w0, w2 - w0));
         if (dot(N, current.direction) > 0.0) { N = -N; }
+        float3 Ngeom = N;
 
+        float3 V = normalize(-current.direction);
         float2 bary = hit.triangle_barycentric_coord;
         PBRSample m = sample_material(inst,
                                       i0,
@@ -291,14 +293,15 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
             constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
             float2 uv = interp_uv(inst, i0, i1, i2, bary, rtUVs, rtUVsDynamic);
             float3 nTex = baseColorTextures[inst.normalTexIndex].sample(nSamp, uv).xyz * 2.0 - 1.0;
-            float2 xy = nTex.xy * inst.normalScale;
+            float NoV = sat(dot(Ngeom, V));
+            float graze = smoothstep(0.05, 0.5, NoV);
+            float2 xy = nTex.xy * (inst.normalScale * graze);
             float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
             nTex = float3(xy.x, xy.y, z);
             N = normalize(tW * nTex.x + bW * nTex.y + nW * nTex.z);
             if (dot(N, current.direction) > 0.0) { N = -N; }
         }
 
-        float3 V = normalize(-current.direction);
         float3 hitPos = current.origin + current.direction * hit.distance;
         float bias = shadow_bias(hit.distance);
 
@@ -397,7 +400,9 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                 float3 rw2 = (rInst.modelMatrix * float4(rv2, 1.0)).xyz;
                 float3 rN = normalize(cross(rw1 - rw0, rw2 - rw0));
                 if (dot(rN, rCurrent.direction) > 0.0) { rN = -rN; }
+                float3 rNgeom = rN;
 
+                float3 rV = normalize(-rCurrent.direction);
                 if (rInst.normalTexIndex < frame.textureCount
                     && rInst.normalTexIndex < MAX_RT_TEXTURES) {
                     device const float3 *rnBuf = rInst.bufferIndex == 0 ? rtNormals : rtNormalsDynamic;
@@ -422,7 +427,9 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                     constexpr sampler nSamp(mip_filter::linear, mag_filter::linear, min_filter::linear);
                     float2 uv = interp_uv(rInst, rI0, rI1, rI2, rbary, rtUVs, rtUVsDynamic);
                     float3 nTex = baseColorTextures[rInst.normalTexIndex].sample(nSamp, uv).xyz * 2.0 - 1.0;
-                    float2 xy = nTex.xy * rInst.normalScale;
+                    float NoV = sat(dot(rNgeom, rV));
+                    float graze = smoothstep(0.05, 0.5, NoV);
+                    float2 xy = nTex.xy * (rInst.normalScale * graze);
                     float z = sqrt(max(1.0 - dot(xy, xy), 0.0));
                     nTex = float3(xy.x, xy.y, z);
                     rN = normalize(tW * nTex.x + bW * nTex.y + nW * nTex.z);
@@ -438,7 +445,6 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
                                                rtUVs,
                                                rtUVsDynamic,
                                                baseColorTextures);
-                float3 rV = normalize(-rCurrent.direction);
                 float3 rHitPos = rCurrent.origin + rCurrent.direction * reflHit.distance;
                 float rBias = shadow_bias(reflHit.distance);
                 float3 rDirect = float3(0.0);
