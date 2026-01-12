@@ -549,6 +549,36 @@ private struct PlatformCarryResolver {
     }
 }
 
+private struct DepenetrationResolver {
+    static func resolve(position: inout SIMD3<Float>,
+                        body: inout PhysicsBodyComponent,
+                        radius: Float,
+                        halfHeight: Float,
+                        skinWidth: Float,
+                        query: CollisionQuery?,
+                        iterations: Int = 4) -> Bool {
+        guard let query else { return false }
+        let slop = max(skinWidth * 0.5, 0.001)
+        var didResolve = false
+        for _ in 0..<iterations {
+            guard let hit = query.capsuleOverlap(from: position,
+                                                 radius: radius,
+                                                 halfHeight: halfHeight) else {
+                break
+            }
+            let push = max(hit.depth + slop, 0)
+            if push <= 1e-6 { break }
+            position += hit.normal * push
+            let vInto = simd_dot(body.linearVelocity, hit.normal)
+            if vInto < 0 {
+                body.linearVelocity -= hit.normal * vInto
+            }
+            didResolve = true
+        }
+        return didResolve
+    }
+}
+
 private struct GroundContactState {
     var grounded: Bool
     var groundedNear: Bool
@@ -1188,12 +1218,13 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                dt: dt)
             if simd_length_squared(platformDelta) > 1e-8 {
                 position += platformDelta
-                PlatformCarryResolver.applyPenetrationCorrection(position: &position,
-                                                                 controller: controller,
-                                                                 platformEntities: platformEntities,
-                                                                 bodies: platBodies,
-                                                                 colliders: platCols)
             }
+            _ = DepenetrationResolver.resolve(position: &position,
+                                              body: &body,
+                                              radius: controller.radius,
+                                              halfHeight: controller.halfHeight,
+                                              skinWidth: controller.skinWidth,
+                                              query: query)
             var isGrounded = false
             var isGroundedNear = false
             let baseMove = body.linearVelocity * dt
@@ -1240,16 +1271,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                     remaining = .zero
                     break
                 }
-            }
-
-            let blocked = PlatformCarryResolver.applyPostMovePushOut(position: &position,
-                                                                     body: &body,
-                                                                     controller: controller,
-                                                                     platformEntities: platformEntities,
-                                                                     bodies: platBodies,
-                                                                     colliders: platCols)
-            if blocked {
-                remaining = .zero
             }
 
             let groundState = GroundContactResolver.resolveSnap(position: &position,
@@ -1508,6 +1529,12 @@ public final class AgentSeparationSystem: FixedStepSystem {
             var position = agent.position
 
             if let query = query {
+                _ = DepenetrationResolver.resolve(position: &position,
+                                                  body: &body,
+                                                  radius: agent.radius,
+                                                  halfHeight: agent.halfHeight,
+                                                  skinWidth: agent.controller.skinWidth,
+                                                  query: query)
                 let start = originalPositions[idx]
                 let delta = position - start
                 let len = simd_length(delta)
