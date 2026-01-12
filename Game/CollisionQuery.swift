@@ -589,7 +589,9 @@ private extension StaticTriMesh {
                                       v1: SIMD3<Float>,
                                       v2: SIMD3<Float>,
                                       triangleIndex: Int) -> CapsuleCastHit? {
-        let maxIter = 24
+        let minStep = max(radius * 0.02, 1e-4)
+        let maxIter = min(256, Int(ceil(maxDistance / minStep)) + 1)
+        let contactEps: Float = 1e-5
         var t: Float = 0
         let triNormal = simd_normalize(simd_cross(v1 - v0, v2 - v0))
 
@@ -601,7 +603,7 @@ private extension StaticTriMesh {
                                                                      v0: v0,
                                                                      v1: v1,
                                                                      v2: v2)
-            if dist <= radius {
+            if dist <= radius + contactEps {
                 let n: SIMD3<Float>
                 if dist < 1e-6 {
                     n = simd_dot(triNormal, dir) > 0 ? -triNormal : triNormal
@@ -620,7 +622,7 @@ private extension StaticTriMesh {
                                       material: materialForTriangle(triangleIndex))
             }
 
-            let advance = max(dist - radius, 0.001)
+            let advance = max(dist - radius, 0)
             t += advance
         }
 
