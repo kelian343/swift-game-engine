@@ -165,6 +165,7 @@ public final class CollisionQueryRefreshSystem: FixedStepSystem {
         let queryService: CollisionQueryService = services.resolve() ?? services.collisionQuery
         queryService.update(world: world)
         guard let query = queryService.query else { return }
+        query.resetStats()
         kinematicMoveSystem.setQuery(query)
         agentSeparationSystem?.setQuery(query)
     }

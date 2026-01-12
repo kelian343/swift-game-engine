@@ -35,6 +35,10 @@ public final class CollisionQuery {
         staticMesh.stats
     }
 
+    public func resetStats() {
+        staticMesh.resetStats()
+    }
+
     public func raycast(origin: SIMD3<Float>,
                         direction: SIMD3<Float>,
                         maxDistance: Float) -> RaycastHit? {
@@ -214,6 +218,10 @@ public struct StaticTriMesh {
             return hit
         }
         return nil
+    }
+
+    public mutating func resetStats() {
+        stats = CollisionQueryStats()
     }
 
     public mutating func capsuleCastGround(from: SIMD3<Float>,
