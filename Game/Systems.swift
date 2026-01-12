@@ -7,6 +7,7 @@
 
 import simd
 
+
 public protocol System {
     func update(world: World, dt: Float)
 }
@@ -556,26 +557,47 @@ private struct DepenetrationResolver {
                         halfHeight: Float,
                         skinWidth: Float,
                         query: CollisionQuery?,
-                        iterations: Int = 4) -> Bool {
-        guard let query else { return false }
+                        iterations: Int = 4,
+                        debugLabel: String = "") -> SIMD3<Float>? {
+        guard let query else { return nil }
         let slop = max(skinWidth * 0.5, 0.001)
         var didResolve = false
+        var normalSum = SIMD3<Float>(repeating: 0)
+        var normalWeight: Float = 0
         for _ in 0..<iterations {
-            guard let hit = query.capsuleOverlap(from: position,
-                                                 radius: radius,
-                                                 halfHeight: halfHeight) else {
+            let hits = query.capsuleOverlapAll(from: position,
+                                               radius: radius,
+                                               halfHeight: halfHeight,
+                                               maxHits: 8)
+            if hits.isEmpty {
                 break
             }
-            let push = max(hit.depth + slop, 0)
+            var maxDepth: Float = 0
+            var frameNormal = SIMD3<Float>(repeating: 0)
+            for hit in hits {
+                maxDepth = max(maxDepth, hit.depth)
+                frameNormal += hit.normal * hit.depth
+            }
+            let frameNormalLen = simd_length(frameNormal)
+            let depenNormal = frameNormalLen > 1e-6 ? frameNormal / frameNormalLen : frameNormal
+            let push = max(maxDepth + slop, 0)
             if push <= 1e-6 { break }
-            position += hit.normal * push
-            let vInto = simd_dot(body.linearVelocity, hit.normal)
+            position += depenNormal * push
+            let vInto = simd_dot(body.linearVelocity, depenNormal)
             if vInto < 0 {
-                body.linearVelocity -= hit.normal * vInto
+                body.linearVelocity -= depenNormal * vInto
             }
             didResolve = true
+            normalSum += depenNormal * maxDepth
+            normalWeight += maxDepth
         }
-        return didResolve
+        if !didResolve {
+            return nil
+        }
+        if normalWeight > 1e-6 {
+            return simd_normalize(normalSum / normalWeight)
+        }
+        return simd_normalize(normalSum)
     }
 }
 
@@ -854,7 +876,8 @@ private struct SlideResolver {
                            wasGroundedNear: Bool,
                            body: inout PhysicsBodyComponent,
                            position: inout SIMD3<Float>,
-                           options: SlideOptions) -> Bool {
+                           options: SlideOptions,
+                           debugLabel: String = "") -> Bool {
         if options.allowHorizontalGroundPass,
            case .staticHit(let sHit) = hit,
            abs(remaining.y) < 1e-5,
@@ -888,6 +911,19 @@ private struct SlideResolver {
             contactSkin = 0
         }
 
+        if hitIsStatic && slideNormal.y < controller.minGroundDot && controller.sideContactFrames > 0 {
+            let cached = controller.sideContactNormal
+            let cachedLen = simd_length_squared(cached)
+            if cachedLen > 1e-6 {
+                let cachedN = cached / sqrt(cachedLen)
+                let dotC = simd_dot(cachedN, slideNormal)
+                if abs(dotC) > 0.5 {
+                    slideNormal = dotC >= 0 ? cachedN : -cachedN
+                }
+            }
+        }
+
+
         if slideNormal.y < controller.minGroundDot {
             if hitIsStatic && hitIsGroundLike && options.allowTriangleNormalGroundLike {
                 slideNormal = hitTriNormal
@@ -907,6 +943,17 @@ private struct SlideResolver {
 
         let into = simd_dot(remaining, slideNormal)
         let intoEps = 1e-4 * len
+        let effectiveSkin: Float
+        if hitToi <= contactSkin && into < -intoEps {
+            effectiveSkin = min(contactSkin, hitToi * 0.5)
+        } else {
+            effectiveSkin = contactSkin
+        }
+        let stickyThreshold = contactSkin * 0.1
+        if hitToi <= stickyThreshold && into < -intoEps {
+            remaining -= slideNormal * into
+            return false
+        }
         if into >= -intoEps {
             if wasGroundedNear && hitIsStatic && !hitIsGroundLike && remaining.y < 0 {
                 remaining.y = 0
@@ -915,7 +962,7 @@ private struct SlideResolver {
             remaining = .zero
             return true
         }
-        if hitToi <= contactSkin && abs(into) <= intoEps {
+        if hitToi <= effectiveSkin && abs(into) <= intoEps {
             position += remaining
             remaining = .zero
             return true
@@ -926,7 +973,7 @@ private struct SlideResolver {
             return true
         }
 
-        let rawMoveDist = max(hitToi - contactSkin, 0)
+        let rawMoveDist = max(hitToi - effectiveSkin, 0)
         var moveDist = rawMoveDist
         if slideNormal.y >= controller.minGroundDot && remaining.y < 0 &&
             moveDist > controller.groundSweepMaxStep {
@@ -1201,6 +1248,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             if body.bodyType == .static { continue }
 
             var position = body.position
+            if controller.sideContactFrames > 0 {
+                controller.sideContactFrames -= 1
+            }
             let selfAgent = aStore[e]
             let selfRadius = selfAgent?.radiusOverride ?? controller.radius
             let selfFilter = selfAgent?.filter ?? .default
@@ -1219,16 +1269,23 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             if simd_length_squared(platformDelta) > 1e-8 {
                 position += platformDelta
             }
-            _ = DepenetrationResolver.resolve(position: &position,
-                                              body: &body,
-                                              radius: controller.radius,
-                                              halfHeight: controller.halfHeight,
-                                              skinWidth: controller.skinWidth,
-                                              query: query)
+            if let depenNormal = DepenetrationResolver.resolve(position: &position,
+                                                               body: &body,
+                                                               radius: controller.radius,
+                                                               halfHeight: controller.halfHeight,
+                                                               skinWidth: controller.skinWidth,
+                                                               query: query,
+                                                               debugLabel: "pre-sweep \(e.id)") {
+                let into = simd_dot(remaining, depenNormal)
+                if into < 0 {
+                    remaining -= depenNormal * into
+                }
+            }
             var isGrounded = false
             var isGroundedNear = false
             let baseMove = body.linearVelocity * dt
             let baseMoveLen = simd_length(baseMove)
+            var lastSlideNormal: SIMD3<Float>? = nil
             for _ in 0..<controller.maxSlideIterations {
                 let len = simd_length(remaining)
                 if len < 1e-6 { break }
@@ -1253,6 +1310,13 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 if let hit = HitSelector.selectBestHit(staticHit: staticHit,
                                                        agentHit: agentHit,
                                                        controller: controller) {
+                    let hitNormal: SIMD3<Float>
+                    switch hit {
+                    case .staticHit(let sHit):
+                        hitNormal = sHit.normal
+                    case .agentHit(let aHit):
+                        hitNormal = aHit.normal
+                    }
                     let options = SlideResolver.SlideOptions.kinematicMove
                     let shouldBreak = SlideResolver.resolveHit(remaining: &remaining,
                                                                len: len,
@@ -1262,7 +1326,24 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                                wasGroundedNear: wasGroundedNear,
                                                                body: &body,
                                                                position: &position,
-                                                               options: options)
+                                                               options: options,
+                                                               debugLabel: "kinematic \(e.id)")
+                    if case .staticHit(let sHit) = hit, sHit.normal.y < controller.minGroundDot {
+                        controller.sideContactNormal = simd_normalize(sHit.normal)
+                        controller.sideContactFrames = 3
+                    }
+                    if let last = lastSlideNormal {
+                        let dotN = simd_dot(last, hitNormal)
+                        if abs(dotN) < 0.98 {
+                            let axis = simd_cross(last, hitNormal)
+                            let axisLen = simd_length(axis)
+                            if axisLen > 1e-5 {
+                                let axisN = axis / axisLen
+                                remaining = axisN * simd_dot(remaining, axisN)
+                            }
+                        }
+                    }
+                    lastSlideNormal = hitNormal
                     if shouldBreak {
                         break
                     }
@@ -1529,12 +1610,18 @@ public final class AgentSeparationSystem: FixedStepSystem {
             var position = agent.position
 
             if let query = query {
-                _ = DepenetrationResolver.resolve(position: &position,
-                                                  body: &body,
-                                                  radius: agent.radius,
-                                                  halfHeight: agent.halfHeight,
-                                                  skinWidth: agent.controller.skinWidth,
-                                                  query: query)
+                if let depenNormal = DepenetrationResolver.resolve(position: &position,
+                                                                   body: &body,
+                                                                   radius: agent.radius,
+                                                                   halfHeight: agent.halfHeight,
+                                                                   skinWidth: agent.controller.skinWidth,
+                                                                   query: query,
+                                                                   debugLabel: "agent \(agent.entity.id)") {
+                    let into = simd_dot(body.linearVelocity, depenNormal)
+                    if into < 0 {
+                        body.linearVelocity -= depenNormal * into
+                    }
+                }
                 let start = originalPositions[idx]
                 let delta = position - start
                 let len = simd_length(delta)
@@ -1560,7 +1647,8 @@ public final class AgentSeparationSystem: FixedStepSystem {
                                                                 wasGroundedNear: false,
                                                                 body: &body,
                                                                 position: &position,
-                                                                options: options)
+                                                                options: options,
+                                                                debugLabel: "agent \(agent.entity.id)")
                             if done { break }
                         } else {
                             position += remaining

@@ -93,6 +93,16 @@ public final class CollisionQuery {
                                halfHeight: Float) -> CapsuleOverlapHit? {
         staticMesh.capsuleOverlap(from: from, radius: radius, halfHeight: halfHeight)
     }
+
+    public func capsuleOverlapAll(from: SIMD3<Float>,
+                                  radius: Float,
+                                  halfHeight: Float,
+                                  maxHits: Int = 8) -> [CapsuleOverlapHit] {
+        staticMesh.capsuleOverlapAll(from: from,
+                                     radius: radius,
+                                     halfHeight: halfHeight,
+                                     maxHits: max(1, maxHits))
+    }
 }
 
 public struct CollisionQueryStats {
@@ -559,6 +569,35 @@ public struct StaticTriMesh {
         }
         return staticHit ?? dynamicHit
     }
+
+    public func capsuleOverlapAll(from: SIMD3<Float>,
+                                  radius: Float,
+                                  halfHeight: Float,
+                                  maxHits: Int) -> [CapsuleOverlapHit] {
+        var hits: [CapsuleOverlapHit] = []
+        let staticHits = capsuleOverlapBVHAll(from: from,
+                                              radius: radius,
+                                              halfHeight: halfHeight,
+                                              set: staticSet,
+                                              triangleIndexOffset: 0,
+                                              maxHits: maxHits)
+        hits.append(contentsOf: staticHits)
+        let remaining = max(0, maxHits - hits.count)
+        if remaining > 0 {
+            let dynamicHits = capsuleOverlapBVHAll(from: from,
+                                                   radius: radius,
+                                                   halfHeight: halfHeight,
+                                                   set: dynamicSet,
+                                                   triangleIndexOffset: staticSet.triangleAABBs.count,
+                                                   maxHits: remaining)
+            hits.append(contentsOf: dynamicHits)
+        }
+        if hits.count > maxHits {
+            hits.sort { $0.depth > $1.depth }
+            hits = Array(hits.prefix(maxHits))
+        }
+        return hits
+    }
 }
 
 private extension StaticTriMesh {
@@ -860,6 +899,86 @@ private extension StaticTriMesh {
         }
 
         return bestHit
+    }
+
+    private func capsuleOverlapBVHAll(from: SIMD3<Float>,
+                                      radius: Float,
+                                      halfHeight: Float,
+                                      set: TriangleMeshSet,
+                                      triangleIndexOffset: Int,
+                                      maxHits: Int) -> [CapsuleOverlapHit] {
+        guard let bvh = set.bvh, bvh.root >= 0 else { return [] }
+        let up = SIMD3<Float>(0, 1, 0)
+        let a0 = from + up * halfHeight
+        let b0 = from - up * halfHeight
+        var minP = simd_min(a0, b0)
+        var maxP = simd_max(a0, b0)
+        let ext = SIMD3<Float>(repeating: radius)
+        minP -= ext
+        maxP += ext
+
+        var hits: [CapsuleOverlapHit] = []
+        hits.reserveCapacity(maxHits)
+        var stack: [Int] = [bvh.root]
+
+        while let nodeIndex = stack.popLast() {
+            let node = bvh.nodes[nodeIndex]
+            if node.bounds.max.x < minP.x || node.bounds.min.x > maxP.x ||
+                node.bounds.max.y < minP.y || node.bounds.min.y > maxP.y ||
+                node.bounds.max.z < minP.z || node.bounds.min.z > maxP.z {
+                continue
+            }
+            if node.left < 0 {
+                let start = node.start
+                let end = start + node.count
+                for i in start..<end {
+                    let triIndex = bvh.triOrder[i]
+                    let triBounds = set.triangleAABBs[triIndex]
+                    if triBounds.max.x < minP.x || triBounds.min.x > maxP.x ||
+                        triBounds.max.y < minP.y || triBounds.min.y > maxP.y ||
+                        triBounds.max.z < minP.z || triBounds.min.z > maxP.z {
+                        continue
+                    }
+                    let base = triIndex * 3
+                    if base + 2 >= set.indices.count { continue }
+                    let v0 = set.positions[Int(set.indices[base])]
+                    let v1 = set.positions[Int(set.indices[base + 1])]
+                    let v2 = set.positions[Int(set.indices[base + 2])]
+                    let (dist, segPoint, triPoint) = segmentTriangleDistance(center: from,
+                                                                             halfHeight: halfHeight,
+                                                                             v0: v0,
+                                                                             v1: v1,
+                                                                             v2: v2)
+                    if dist >= radius { continue }
+                    let depth = radius - dist
+                    let triNormal = simd_normalize(simd_cross(v1 - v0, v2 - v0))
+                    let n: SIMD3<Float>
+                    if dist < 1e-6 {
+                        n = triNormal
+                    } else {
+                        n = simd_normalize(segPoint - triPoint)
+                    }
+                    var triN = triNormal
+                    if simd_dot(triN, n) < 0 {
+                        triN = -triN
+                    }
+                    hits.append(CapsuleOverlapHit(depth: depth,
+                                                  position: triPoint,
+                                                  normal: n,
+                                                  triangleNormal: triN,
+                                                  triangleIndex: triIndex + triangleIndexOffset,
+                                                  material: set.materialForTriangle(triIndex)))
+                    if hits.count >= maxHits {
+                        return hits
+                    }
+                }
+            } else {
+                stack.append(node.left)
+                stack.append(node.right)
+            }
+        }
+
+        return hits
     }
 
     private func sweepCapsuleTriangle(from: SIMD3<Float>,

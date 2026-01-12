@@ -139,6 +139,8 @@ public struct CharacterControllerComponent {
     public var groundTriangleIndex: Int
     public var groundSliding: Bool
     public var groundTransitionFrames: Int
+    public var sideContactNormal: SIMD3<Float>
+    public var sideContactFrames: Int
     public var uphillBoostScale: Float
     public var grounded: Bool
     public var groundedNear: Bool
@@ -158,6 +160,8 @@ public struct CharacterControllerComponent {
                 groundTriangleIndex: Int = -1,
                 groundSliding: Bool = false,
                 groundTransitionFrames: Int = 0,
+                sideContactNormal: SIMD3<Float> = .zero,
+                sideContactFrames: Int = 0,
                 uphillBoostScale: Float = 1.0,
                 grounded: Bool = false,
                 groundedNear: Bool = false) {
@@ -176,6 +180,8 @@ public struct CharacterControllerComponent {
         self.groundTriangleIndex = groundTriangleIndex
         self.groundSliding = groundSliding
         self.groundTransitionFrames = groundTransitionFrames
+        self.sideContactNormal = sideContactNormal
+        self.sideContactFrames = sideContactFrames
         self.uphillBoostScale = uphillBoostScale
         self.grounded = grounded
         self.groundedNear = groundedNear

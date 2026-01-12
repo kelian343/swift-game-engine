@@ -28,3 +28,6 @@
 - Uniform grid broadphase for triangle candidate queries.
 - Move-and-slide with ground probe/snap for stable terrain traversal.
 - Capsule-capsule CCD for agent interactions with separation and velocity correction.
+
+## Known Issue
+- Residual wall contact jitter: after recent collision refactors (BVH + overlap depenetration + sticky slide), characters can still exhibit small oscillations when continuously pushing into walls/edges. Logs show repeated `slide-stick` hits (low TOI) and `depenetration` on multiple triangle normals within the same area. Requires a stable contact manifold or velocity/intent projection onto the contact plane without reintroducing general wall jitter.
