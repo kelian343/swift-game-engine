@@ -30,4 +30,4 @@
 - Capsule-capsule CCD for agent interactions with separation and velocity correction.
 
 ## Known Issue
-- Residual wall contact jitter: after recent collision refactors (BVH + overlap depenetration + sticky slide), characters can still exhibit small oscillations when continuously pushing into walls/edges. Logs show repeated `slide-stick` hits (low TOI) and `depenetration` on multiple triangle normals within the same area. Requires a stable contact manifold or velocity/intent projection onto the contact plane without reintroducing general wall jitter.
+- Wall/edge corner jitter resolved: pre-sweep depenetration now uses the deepest single contact normal for side hits and skips slop on side contacts (push capped by skinWidth), preventing cross-corner jumps.
