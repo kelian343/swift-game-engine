@@ -33,6 +33,7 @@ public final class SceneServices {
 public final class CollisionQueryService {
     public private(set) var query: CollisionQuery?
     private var dirty: Bool = true
+    private var staticMeshCache: [Entity: StaticMeshSnapshot] = [:]
 
     public init() {}
 
@@ -43,32 +44,77 @@ public final class CollisionQueryService {
     public func rebuild(world: World) {
         query = CollisionQuery(world: world)
         dirty = false
+        refreshStaticMeshCache(world: world)
     }
 
     public func update(world: World) {
-        if dirty || query == nil || hasMovedStaticMeshes(world: world) {
+        if dirty || query == nil || staticMeshesChanged(world: world) {
             rebuild(world: world)
         }
     }
 
-    private func hasMovedStaticMeshes(world: World) -> Bool {
-        let entities = world.query(PhysicsBodyComponent.self, StaticMeshComponent.self)
-        let pStore = world.store(PhysicsBodyComponent.self)
+    private struct StaticMeshSnapshot {
+        let translation: SIMD3<Float>
+        let rotation: simd_quatf
+        let scale: SIMD3<Float>
+        let vertexCount: Int
+        let indexCount: Int
+    }
 
+    private func staticMeshesChanged(world: World) -> Bool {
+        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+        let tStore = world.store(TransformComponent.self)
+        let mStore = world.store(StaticMeshComponent.self)
+        if entities.count != staticMeshCache.count {
+            return true
+        }
+
+        let eps: Float = 1e-6
         for e in entities {
-            guard let body = pStore[e] else { continue }
-            if body.bodyType == .static { continue }
-
-            let delta = body.position - body.prevPosition
-            if simd_length_squared(delta) > 1e-8 {
+            guard let t = tStore[e], let m = mStore[e] else { continue }
+            if m.dirty {
                 return true
             }
-            let rotDelta = body.rotation.vector - body.prevRotation.vector
-            if simd_length_squared(rotDelta) > 1e-8 {
+            guard let snapshot = staticMeshCache[e] else { return true }
+            let deltaPos = t.translation - snapshot.translation
+            if simd_length_squared(deltaPos) > eps {
+                return true
+            }
+            let deltaRot = t.rotation.vector - snapshot.rotation.vector
+            if simd_length_squared(deltaRot) > eps {
+                return true
+            }
+            let deltaScale = t.scale - snapshot.scale
+            if simd_length_squared(deltaScale) > eps {
+                return true
+            }
+            let vertexCount = m.mesh.streams.positions.count
+            let indexCount = m.mesh.indexCount
+            if vertexCount != snapshot.vertexCount || indexCount != snapshot.indexCount {
                 return true
             }
         }
 
         return false
+    }
+
+    private func refreshStaticMeshCache(world: World) {
+        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+        let tStore = world.store(TransformComponent.self)
+        let mStore = world.store(StaticMeshComponent.self)
+        staticMeshCache.removeAll(keepingCapacity: true)
+
+        for e in entities {
+            guard let t = tStore[e], var m = mStore[e] else { continue }
+            staticMeshCache[e] = StaticMeshSnapshot(translation: t.translation,
+                                                    rotation: t.rotation,
+                                                    scale: t.scale,
+                                                    vertexCount: m.mesh.streams.positions.count,
+                                                    indexCount: m.mesh.indexCount)
+            if m.dirty {
+                m.dirty = false
+                mStore[e] = m
+            }
+        }
     }
 }

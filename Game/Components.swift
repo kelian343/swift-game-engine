@@ -103,13 +103,16 @@ public struct StaticMeshComponent {
     public var mesh: ProceduralMeshDescriptor
     public var material: SurfaceMaterial
     public var triangleMaterials: [SurfaceMaterial]?
+    public var dirty: Bool
 
     public init(mesh: ProceduralMeshDescriptor,
                 material: SurfaceMaterial = .default,
-                triangleMaterials: [SurfaceMaterial]? = nil) {
+                triangleMaterials: [SurfaceMaterial]? = nil,
+                dirty: Bool = false) {
         self.mesh = mesh
         self.material = material
         self.triangleMaterials = triangleMaterials
+        self.dirty = dirty
     }
 }
 

@@ -1,143 +1,30 @@
-# Project Progress
+# Project Introduction
 
-## Current Status
-- Phase 1 complete: static TriMesh + Uniform Grid query layer (raycast/capsule cast).
-- Phase 2 complete: player collider is capsule.
-- Phase 3 complete: capsule sweep CCD (TOI) integrated into kinematic movement.
-- Phase 4 complete: move & slide + ground snap; added stability filters for wall/ground noise.
-- Phase 5 complete: mu_s stick/slide slope behavior; per-triangle surface material support; uphill assist.
-- Agent-agent collision in place: capsule-capsule CCD in move & slide + post-move separation with velocity correction and wall-block transfer to avoid jitter.
-- Gravity + jump input integrated; jump preserves Y velocity; grounded state stabilized.
-- High-speed landing smoothing added: groundedNear gating for clamp/gravity, ground sweep/snap soft limits, and ground contact skin tuning.
-- Fixed-step frequency increased to 120Hz with maxSubsteps=8 to reduce large per-step motion.
-- Jump height increased (jumpSpeed raised).
-- Demo tweaks: ground plane enlarged; dynamic oscillating NPC added for push tests (higher massWeight); test wall and ramp heights doubled.
-- RT-only procedural skinned character MVP complete: 8-bone rig, procedural pose, CPU skinning into RT geometry buffers, per-frame BLAS/TLAS rebuild; player now uses skinned mesh in RT path.
-- RT transparency support added: alpha-driven layered ray integration (multi-layer) and transmissive shadow attenuation; transparent capsules tuned to alpha=0.2.
-- Player overlay capsule added: semi-transparent capsule mesh follows player collision volume for visual debugging.
-- Input updated: right stick controls camera view; left stick controls movement and turning (turn speed limited).
-- Facing fix: procedural skinned character yaw corrected so forward aligns with camera-forward convention.
-- Rendering pipeline refactor: migrated raster path from MTL4 to standard MTL, unified RT + raster on a single MTLCommandBuffer.
-- Added system-level UI pass via RenderGraph: RT renders to offscreen texture, composite pass draws to drawable, UI pass overlays (alpha blending enabled).
-- Debug UI overlay added: FPS digits atlas + quad-based UI rendering in top-right; viewport size hook for UI layout.
-- RT BLAS optimization: static meshes now reuse cached BLAS; dynamic meshes rebuild BLAS per frame while TLAS updates instance transforms.
-- RT BLAS refit: dynamic BLAS are now refit in place when topology is unchanged (build only on topology change).
-- RT scene refactor: RayTracingScene split into RTGeometryCache (buffers/slices) and RTAccelerationBuilder (BLAS/TLAS build/refit).
-- RT TLAS refit: TLAS now refits when instance/BLAS counts are stable, falling back to rebuild on topology changes.
-- GPU skinning (RT path): CPU skinning replaced by compute kernel writing dynamic vertex buffer; skinned source buffers cached, palettes uploaded per frame.
-- Procedural mesh API fully migrated: MeshData/SkinnedMeshData and ProceduralMeshBridge removed; ECS components and render items now carry ProceduralMeshDescriptor/SkinnedMeshDescriptor.
-- Procedural mesh usage updated across demo/UI/renderer: GPUMesh now builds directly from descriptor streams; collision static mesh reads descriptor positions/indices.
-- Procedural PBR materials migrated: new ProceduralTextureGenerator + MaterialDescriptor/MaterialFactory; materials now use PBR textures (baseColor/normal/metallicRoughness/emissive/occlusion) and factors; old ProceduralTextures/TextureSourceRGBA8 removed; shaders + RT instance info updated accordingly.
-- RT lighting upgrades: directional lights now support enabled + maxDistance; only the main light casts shadows (others direct only).
-- RT refraction: added transmissionFactor + ior in materials/RT instances; deterministic single-bounce refraction (no noise).
-- RT ray caps: transparency layers capped to 3; reflection/refraction layers capped to 1 for stability.
-- Tone mapping reverted to ACES; exposure defaults lowered; RT ambient intensity reduced.
-- 4K banding fixes: RT output uses rgba16Float; IBL env cube upgraded to rgba16Float; composite dithering added to reduce color banding.
-- Demo lighting/material tweaks: sun set to “morning” profile; wall/ramp switched to flat-color materials for perf.
+## Rendering System
+- Metal-based renderer with a ray tracing compute path and a raster path.
+- RenderGraph drives offscreen RT output, composite to drawable, and UI overlay pass.
+- Unified command buffer for RT + raster; RT output uses 16-bit float where needed.
+- RT supports transparency layers, refraction, and directional lighting with selective shadows.
 
-## Project Overview
-- macOS Metal game; renderer uses ray tracing compute path with ECS + fixed-step physics.
-- Physics architecture is being rebuilt around kinematic capsule movement + sweep CCD against static TriMesh.
-- Static geometry is derived from ProceduralMeshes and fed to CollisionQuery/StaticTriMesh.
-- RenderGraph now drives composite + UI passes; RT output is composited before UI.
-- Procedural PBR materials: texture generation + material creation are now unified under new APIs, with all call sites migrated.
+## Procedural Mesh System
+- Procedural mesh descriptors define vertex streams and index buffers.
+- ECS render items carry mesh descriptors directly; GPU mesh builds from descriptors.
+- Static collision meshes read positions/indices from procedural descriptors.
+- Dynamic meshes can update buffers per frame for RT acceleration builds/refits.
 
-## Full Plan (Reference)
-### Phase 1: Static TriMesh + Uniform Grid Query Layer
-Goal: make stable, reusable "who would I hit?" queries.
-- Add CollisionQuery interface with raycast / capsuleCast (sphereCast optional).
-- Build static TriMesh (positions + triangle indices + per-tri AABB).
-- Build Uniform Grid: cell -> [triangleId]. No BVH yet.
-- Acceptance: raycast can hit triangles; grid returns candidates.
+## Procedural Material System
+- Material descriptors unify PBR texture generation and parameter factors.
+- Material factory creates baseColor/normal/metallicRoughness/emissive/occlusion maps.
+- Render and RT instance data consume the same material descriptor layout.
 
-### Phase 2: Capsule Player (keep old response)
-Goal: gain capsule stability with minimal response changes.
-- Add CharacterControllerComponent (radius/halfHeight/skin/snap/etc).
-- Decouple render mesh vs collider (capsule collider, render mesh can be box).
-- Acceptance: fewer corner/step snags.
+## Procedural Pose System
+- Skeleton and pose components drive procedural animation.
+- Pose system computes local/model transforms and palette per fixed step.
+- Procedural pose is speed-driven with ground-aware adjustments.
+- GPU skinning uses palette buffers to write skinned vertices each frame.
 
-### Phase 3: Capsule Sweep CCD (TOI), stop only
-Goal: remove penetration as main path; stop at contact.
-- Broadphase via grid candidates; narrowphase compute earliest TOI.
-- Add KinematicMoveStopSystem: move to TOI (with skin) or full delta.
-- Acceptance: high-speed impacts do not tunnel.
-
-### Phase 4: Move & Slide + Ground Snap
-Goal: smooth wall/terrain movement.
-- Iterate 3–5 casts per step: move to contact, project remaining onto tangent.
-- Ground probe + snap to prevent jitter on curved/triangulated surfaces.
-- Acceptance: stable wall sliding and terrain following.
-
-### Phase 5: Mu_s Stick/Slide
-Goal: slope behavior with material tuning (ice/mud/stone).
-- Add per-triangle material with mu_s/mu_k.
-- Grounded: compare tangential gravity vs mu_s; decide stick/slide.
-- Stick: cancel downhill drift; Slide: apply g_tan with mu_k.
- - Uphill assist: boost uphill input to reduce slope penalty.
-
-### Phase 6: Kinematic Platforms + Carry
-Goal: stable moving platforms without tunneling.
-- Platform sweep (box or capsule cast).
-- Update order: platform first, then player (carry delta into player).
-- If squeezed against ceiling, platform stops (stable first).
-
-### Phase 7: Cleanup
-Goal: remove old penetration/solver paths.
-- Disable/remove old solver/manifold for player/platform.
-- Keep triggers/overlap system for interactions.
-
-## In Progress / Next
-- Phase 6 next: kinematic platforms + carry.
-- Continue tuning agent collision weights/margins as needed for push feel.
-- Phase 7 later: cleanup (remove old penetration/solver paths; keep triggers).
-- Next optional: improve skinned character (foot bones/IK) or reduce RT cost (GPU skinning, BLAS refit).
-- Optional next: expand RT cache invalidation (mesh mutation/material changes) and consider BLAS refit for dynamic buffers.
-
-## Phase 6 (Planned): Kinematic Platforms + Carry
-Goal: platform carry without tunneling or jitter.
-- Platforms sweep first (box cast preferred; capsule as fallback).
-- If blocked, stop or reverse platform.
-- If player grounded on platform, apply platformDelta before player move & slide.
-- If platform would squeeze player against ceiling, platform stops.
-✅ Acceptance: stable carry, no wall squeeze, no jitter.
-
-## Phase 7 (Planned): Cleanup
-Goal: remove old penetration/solver paths.
-- Disable old solver/manifold for player/platform.
-- Keep triggers/overlap system for interactions.
-✅ Acceptance: simpler core physics path, fewer bugs.
-
-## Debug Logging Currently Enabled
-- None (all debug logging removed).
-
-## RT-only MVP Plan (Implemented)
-Goal: procedural skinned character visible in RayTracing without Raster.
-- ECS data: Skeleton (8-bone rig), PoseComponent, SkinnedMeshComponent.
-  - Skeleton: parent[], bindLocal[], invBindModel[].
-  - PoseComponent: local[], model[], palette[], phase.
-  - SkinnedMeshComponent: SkinnedMeshDescriptor (streams + indices), material.
-- ProceduralPoseSystem (fixed-step):
-  - Inputs: PhysicsBodyComponent, CharacterControllerComponent, MoveIntentComponent.
-  - Outputs: PoseComponent.local/model/palette.
-  - Behavior: speed-driven phase, groundNormal pelvis tilt, leg swing + subtle breathing.
-- Skinned mesh data + generation:
-  - SkinnedMeshDescriptor (streams: positions/normals/uvs/boneIndices/boneWeights; UInt16/UInt32 indices).
-  - ProceduralMeshes.humanoidSkinned (torso + legL + legR).
-    - Torso weights: pelvis/spine/chest/head.
-    - Legs weights: thigh/calf per side.
-- GPU skinning (per frame):
-  - Palette buffer uploaded, compute kernel writes skinned positions into dynamic RT vertex buffer.
-- RT geometry update:
-  - RayTracingScene.buildGeometryBuffers: append skinned vertex/uv data (skip mesh vertex buffer).
-  - RayTracingScene.buildAccelerationStructures: rebuild BLAS per frame from packed buffers.
-- Render extraction:
-  - RenderItem carries SkinningPayload (SkinnedMeshDescriptor + PoseComponent.palette).
-  - RenderExtractSystem emits skinned items; normal items unchanged.
-- Demo scene:
-  - Player keeps PhysicsBody + CharacterController.
-  - Render uses SkeletonComponent + PoseComponent + SkinnedMeshComponent.
-  - Rendering remains RayTracingRenderer.render.
-- Verification:
-  - RayTracing shows walking/sway/tilt.
-  - Per-frame BLAS rebuild is stable.
-  - Movement/slope changes are visible.
+## Physics System (Collision)
+- Kinematic capsule movement with sweep CCD against static TriMesh.
+- Uniform grid broadphase for triangle candidate queries.
+- Move-and-slide with ground probe/snap for stable terrain traversal.
+- Capsule-capsule CCD for agent interactions with separation and velocity correction.
