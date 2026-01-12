@@ -558,8 +558,6 @@ private struct GroundContactState {
 }
 
 private struct GroundContactResolver {
-    static var debugEnabled: Bool = true
-
     static func resolveSnap(position: inout SIMD3<Float>,
                             body: inout PhysicsBodyComponent,
                             controller: CharacterControllerComponent,
@@ -660,14 +658,6 @@ private struct GroundContactResolver {
             }
         }
 
-        if debugEnabled && state.grounded {
-            let dotN = simd_dot(prevNormal, state.normal)
-            if dotN < 0.85 || prevTriangleIndex != state.triangleIndex {
-                print("[GroundSnap] pos=\(position) toi=\(centerHit.toi) near=\(state.groundedNear) canSnap=\(canSnap) " +
-                      "tri=\(state.triangleIndex) prevTri=\(prevTriangleIndex) n=\(state.normal) prevN=\(prevNormal) dot=\(dotN)")
-            }
-        }
-
         _ = wasGrounded
         return state
     }
@@ -714,17 +704,11 @@ private struct GroundContactResolver {
                 let v = body.linearVelocity
                 let vTan = v - normal * simd_dot(v, normal)
                 let downhillSpeed = simd_dot(vTan, gTanDir)
-                if debugEnabled && downhillSpeed > 0.01 {
-                    print("[SlopeStick] gTan=\(gTanLen) stickLimit=\(stickLimit) downhillSpeed=\(downhillSpeed) n=\(normal)")
-                }
                 if downhillSpeed > 0 {
                     body.linearVelocity -= gTanDir * downhillSpeed
                 }
             } else {
                 let slideAccelMag = max(gTanLen - state.material.muK * gNMag, 0)
-                if debugEnabled && slideAccelMag > 0.01 {
-                    print("[SlopeSlide] gTan=\(gTanLen) stickLimit=\(stickLimit) slideAccel=\(slideAccelMag) n=\(normal)")
-                }
                 if slideAccelMag > 0 {
                     body.linearVelocity += gTanDir * slideAccelMag * dt
                 }
