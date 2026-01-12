@@ -76,10 +76,13 @@ public struct CollisionQueryStats {
     public var capsuleCandidateCount: Int = 0
     public var capsuleSweepCount: Int = 0
     public var capsuleCandidatesClamped: Bool = false
+    public var capsuleUsedCoarseGrid: Bool = false
 }
 
 public struct StaticTriMesh {
     private static let maxCandidateTriangles: Int = 8192
+    private static let coarseGridScale: Int = 4
+    private static let fineCellThreshold: Int64 = 4096
 
     public struct AABB {
         public var min: SIMD3<Float>
@@ -105,6 +108,7 @@ public struct StaticTriMesh {
     public private(set) var triangleMaterials: [SurfaceMaterial]
     public private(set) var stats: CollisionQueryStats = CollisionQueryStats()
     private let grid: UniformGrid?
+    private let coarseGrid: UniformGrid?
 
     public init(world: World) {
         let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
@@ -170,9 +174,14 @@ public struct StaticTriMesh {
         self.indices = indices
         self.triangleAABBs = triangleAABBs
         self.triangleMaterials = triangleMaterials
+        let cellSize: Float = 4.0
         self.grid = StaticTriMesh.buildGrid(positions: positions,
                                             triangleAABBs: triangleAABBs,
-                                            cellSize: 4.0)
+                                            cellSize: cellSize)
+        let coarseCellSize = cellSize * Float(StaticTriMesh.coarseGridScale)
+        self.coarseGrid = StaticTriMesh.buildGrid(positions: positions,
+                                                  triangleAABBs: triangleAABBs,
+                                                  cellSize: coarseCellSize)
     }
 
     public func raycast(origin: SIMD3<Float>,
@@ -194,6 +203,7 @@ public struct StaticTriMesh {
                                    radius: radius,
                                    halfHeight: halfHeight,
                                    grid: grid,
+                                   coarseGrid: coarseGrid,
                                    blockingOnly: false,
                                    minNormalY: nil)
         }
@@ -210,6 +220,7 @@ public struct StaticTriMesh {
                                    radius: radius,
                                    halfHeight: halfHeight,
                                    grid: grid,
+                                   coarseGrid: coarseGrid,
                                    blockingOnly: true,
                                    minNormalY: nil)
         }
@@ -235,6 +246,7 @@ public struct StaticTriMesh {
                                    radius: radius,
                                    halfHeight: halfHeight,
                                    grid: grid,
+                                   coarseGrid: coarseGrid,
                                    blockingOnly: false,
                                    minNormalY: minNormalY)
         }
@@ -486,6 +498,7 @@ private extension StaticTriMesh {
                                           radius: Float,
                                           halfHeight: Float,
                                           grid: UniformGrid,
+                                          coarseGrid: UniformGrid?,
                                           blockingOnly: Bool,
                                           minNormalY: Float?) -> CapsuleCastHit? {
         let len = simd_length(delta)
@@ -515,20 +528,51 @@ private extension StaticTriMesh {
 
         let minCell = StaticTriMesh.cellCoord(position: clampedMin, origin: grid.origin, cellSize: grid.cellSize)
         let maxCell = StaticTriMesh.cellCoord(position: clampedMax, origin: grid.origin, cellSize: grid.cellSize)
+        let dx = Int64(maxCell.x - minCell.x + 1)
+        let dy = Int64(maxCell.y - minCell.y + 1)
+        let dz = Int64(maxCell.z - minCell.z + 1)
+        let fineCellCount = max(0, dx) * max(0, dy) * max(0, dz)
+        let useCoarse = coarseGrid != nil && fineCellCount > StaticTriMesh.fineCellThreshold
+        stats.capsuleUsedCoarseGrid = useCoarse
 
         var candidates = Set<Int>()
         var clamped = false
         let maxCandidates = StaticTriMesh.maxCandidateTriangles
-        candidateLoop: for z in minCell.z...maxCell.z {
-            for y in minCell.y...maxCell.y {
-                for x in minCell.x...maxCell.x {
-                    let key = CellCoord(x: x, y: y, z: z)
-                    if let tris = grid.cells[key] {
-                        for tri in tris {
-                            candidates.insert(tri)
-                            if candidates.count >= maxCandidates {
-                                clamped = true
-                                break candidateLoop
+        if useCoarse, let coarseGrid {
+            let coarseMinCell = StaticTriMesh.cellCoord(position: clampedMin,
+                                                        origin: coarseGrid.origin,
+                                                        cellSize: coarseGrid.cellSize)
+            let coarseMaxCell = StaticTriMesh.cellCoord(position: clampedMax,
+                                                        origin: coarseGrid.origin,
+                                                        cellSize: coarseGrid.cellSize)
+            candidateLoop: for z in coarseMinCell.z...coarseMaxCell.z {
+                for y in coarseMinCell.y...coarseMaxCell.y {
+                    for x in coarseMinCell.x...coarseMaxCell.x {
+                        let key = CellCoord(x: x, y: y, z: z)
+                        if let tris = coarseGrid.cells[key] {
+                            for tri in tris {
+                                candidates.insert(tri)
+                                if candidates.count >= maxCandidates {
+                                    clamped = true
+                                    break candidateLoop
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            candidateLoop: for z in minCell.z...maxCell.z {
+                for y in minCell.y...maxCell.y {
+                    for x in minCell.x...maxCell.x {
+                        let key = CellCoord(x: x, y: y, z: z)
+                        if let tris = grid.cells[key] {
+                            for tri in tris {
+                                candidates.insert(tri)
+                                if candidates.count >= maxCandidates {
+                                    clamped = true
+                                    break candidateLoop
+                                }
                             }
                         }
                     }
