@@ -242,13 +242,11 @@ public final class DemoScene: RenderScene {
         do {
             let playerRadius: Float = 1.5
             let playerHalfHeight: Float = 1.0
-            let skinnedDesc = ProceduralMeshes.humanoidSkinned(HumanoidSkinnedParams(legHeight: 1.8,
-                                                                                    legRadius: 0.35,
-                                                                                    torsoHeight: 2.0,
-                                                                                    torsoRadius: 0.55,
-                                                                                    hipSeparation: 0.45,
-                                                                                    radialSegments: 12,
-                                                                                    heightSegments: 4))
+            let skeleton = Skeleton.humanoid8()
+            let skinnedDesc = ProceduralMeshes.skeletonCapsules(skeleton: skeleton,
+                                                                SkeletonCapsuleParams(radius: 0.22,
+                                                                                      radialSegments: 12,
+                                                                                      hemisphereSegments: 6))
             let baseColor = ProceduralTextureGenerator.checkerboard(width: 256,
                                                                      height: 256,
                                                                      cell: 48,
@@ -286,7 +284,6 @@ public final class DemoScene: RenderScene {
                                                       groundSnapSkin: 0.05))
             world.add(e, AgentCollisionComponent(massWeight: 3.0))
 
-            let skeleton = Skeleton.humanoid8()
             world.add(e, SkeletonComponent(skeleton: skeleton))
             world.add(e, PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal))
             world.add(e, SkinnedMeshComponent(mesh: skinnedDesc, material: mat))

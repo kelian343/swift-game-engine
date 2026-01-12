@@ -8,18 +8,56 @@
 import simd
 
 public struct Skeleton {
+    public struct BoneMap {
+        public var pelvis: Int
+        public var spine: Int
+        public var head: Int
+        public var thighL: Int
+        public var calfL: Int
+        public var thighR: Int
+        public var calfR: Int
+        public var chest: Int
+
+        public init(pelvis: Int,
+                    spine: Int,
+                    head: Int,
+                    thighL: Int,
+                    calfL: Int,
+                    thighR: Int,
+                    calfR: Int,
+                    chest: Int) {
+            self.pelvis = pelvis
+            self.spine = spine
+            self.head = head
+            self.thighL = thighL
+            self.calfL = calfL
+            self.thighR = thighR
+            self.calfR = calfR
+            self.chest = chest
+        }
+
+        public func isValid(for boneCount: Int) -> Bool {
+            let ids = [pelvis, spine, head, thighL, calfL, thighR, calfR, chest]
+            return ids.allSatisfy { $0 >= 0 && $0 < boneCount }
+        }
+    }
+
     public let boneCount: Int
     public let parent: [Int]
     public let bindLocal: [matrix_float4x4]
     public let invBindModel: [matrix_float4x4]
+    public let boneMap: BoneMap?
 
-    public init(parent: [Int], bindLocal: [matrix_float4x4]) {
+    public init(parent: [Int],
+                bindLocal: [matrix_float4x4],
+                boneMap: BoneMap? = nil) {
         precondition(parent.count == bindLocal.count, "Skeleton parent/bindLocal count mismatch")
         self.parent = parent
         self.bindLocal = bindLocal
         self.boneCount = parent.count
         let model = Skeleton.buildModelTransforms(parent: parent, local: bindLocal)
         self.invBindModel = model.map { simd_inverse($0) }
+        self.boneMap = boneMap
     }
 
     public static func buildModelTransforms(parent: [Int],
@@ -66,6 +104,14 @@ public struct Skeleton {
             matrix4x4_translation(0, chestY, 0)                 // chest
         ]
 
-        return Skeleton(parent: parent, bindLocal: bindLocal)
+        let map = BoneMap(pelvis: 0,
+                          spine: 1,
+                          head: 2,
+                          thighL: 3,
+                          calfL: 4,
+                          thighR: 5,
+                          calfR: 6,
+                          chest: 7)
+        return Skeleton(parent: parent, bindLocal: bindLocal, boneMap: map)
     }
 }

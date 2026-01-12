@@ -111,9 +111,44 @@ public struct HumanoidSkinnedParams {
     }
 }
 
+public struct SkeletonCapsuleParams {
+    public var radius: Float
+    public var radialSegments: Int
+    public var hemisphereSegments: Int
+
+    public init(radius: Float = 0.18,
+                radialSegments: Int = 10,
+                hemisphereSegments: Int = 6) {
+        self.radius = radius
+        self.radialSegments = radialSegments
+        self.hemisphereSegments = hemisphereSegments
+    }
+}
+
 /// Demo generator: a textured box with normals + UVs.
 /// You can replace this with any procedural generator (marching cubes, hull, parametric, etc).
 enum ProceduralMeshes {
+    private static func rotationFrom(_ from: SIMD3<Float>, to: SIMD3<Float>) -> simd_quatf {
+        let f = simd_normalize(from)
+        let t = simd_normalize(to)
+        let d = max(-1.0, min(1.0, simd_dot(f, t)))
+        if d > 0.999 {
+            return simd_quatf(angle: 0, axis: f)
+        }
+        if d < -0.999 {
+            let axis = simd_normalize(simd_cross(f, SIMD3<Float>(1, 0, 0)))
+            let safeAxis = simd_length(axis) > 0.0001 ? axis : SIMD3<Float>(0, 0, 1)
+            return simd_quatf(angle: .pi, axis: safeAxis)
+        }
+        let axis = simd_normalize(simd_cross(f, t))
+        let angle = acos(d)
+        return simd_quatf(angle: angle, axis: axis)
+    }
+
+    private static func translation(_ m: matrix_float4x4) -> SIMD3<Float> {
+        SIMD3<Float>(m.columns.3.x, m.columns.3.y, m.columns.3.z)
+    }
+
     private static func buildDescriptor(name: String,
                                         vertices: [VertexPNUT],
                                         indices16: [UInt16]) -> ProceduralMeshDescriptor {
@@ -453,6 +488,96 @@ enum ProceduralMeshes {
                                                                    boneWeights: boneWeights),
                                      indices16: indices,
                                      name: "humanoidSkinned")
+    }
+
+    static func skeletonCapsules(skeleton: Skeleton,
+                                 _ params: SkeletonCapsuleParams = SkeletonCapsuleParams()) -> SkinnedMeshDescriptor {
+        let bindModel = Skeleton.buildModelTransforms(parent: skeleton.parent,
+                                                      local: skeleton.bindLocal)
+        var positions: [SIMD3<Float>] = []
+        var normals: [SIMD3<Float>] = []
+        var uvs: [SIMD2<Float>] = []
+        var boneIndices: [SIMD4<UInt16>] = []
+        var boneWeights: [SIMD4<Float>] = []
+        var indices: [UInt32] = []
+
+        for boneIndex in 0..<skeleton.boneCount {
+            let parentIndex = skeleton.parent[boneIndex]
+            if parentIndex < 0 { continue }
+
+            let parentPos = translation(bindModel[parentIndex])
+            let bonePos = translation(bindModel[boneIndex])
+            let dir = bonePos - parentPos
+            let length = simd_length(dir)
+            if length < 0.0001 { continue }
+
+            let axis = dir / length
+            let halfLength = length * 0.5
+            let radius = min(params.radius, halfLength)
+            let halfHeight = max(0, halfLength - radius)
+
+            let capsule = ProceduralMeshes.capsule(CapsuleParams(radius: radius,
+                                                                 halfHeight: halfHeight,
+                                                                 radialSegments: params.radialSegments,
+                                                                 hemisphereSegments: params.hemisphereSegments))
+            guard let capNormals = capsule.streams.normals,
+                  let capUVs = capsule.streams.uvs else {
+                continue
+            }
+
+            let baseVertex = UInt32(positions.count)
+            let rot = rotationFrom(SIMD3<Float>(0, 1, 0), to: axis)
+            let rotMat = matrix_float4x4(rot)
+            let center = parentPos + axis * halfLength
+            let world = simd_mul(matrix4x4_translation(center.x, center.y, center.z), rotMat)
+            let halfExtent = halfHeight + radius
+
+            for (i, pos) in capsule.streams.positions.enumerated() {
+                let local = SIMD4<Float>(pos, 1.0)
+                let rotated = simd_mul(rotMat, SIMD4<Float>(capNormals[i], 0.0))
+                let worldPos = simd_mul(world, local)
+                positions.append(SIMD3<Float>(worldPos.x, worldPos.y, worldPos.z))
+                normals.append(simd_normalize(SIMD3<Float>(rotated.x, rotated.y, rotated.z)))
+                uvs.append(capUVs[i])
+
+                let t = halfExtent > 0 ? (pos.y + halfExtent) / (2.0 * halfExtent) : 1.0
+                let wParent = max(0.0, min(1.0, 1.0 - t))
+                let wChild = max(0.0, min(1.0, t))
+                boneIndices.append(SIMD4<UInt16>(UInt16(parentIndex),
+                                                 UInt16(boneIndex),
+                                                 0,
+                                                 0))
+                boneWeights.append(SIMD4<Float>(wParent, wChild, 0, 0))
+            }
+
+            if let idx16 = capsule.indices16 {
+                for idx in idx16 {
+                    indices.append(baseVertex + UInt32(idx))
+                }
+            } else if let idx32 = capsule.indices32 {
+                for idx in idx32 {
+                    indices.append(baseVertex + idx)
+                }
+            }
+        }
+
+        var builder = SkinnedMeshBuilder()
+        builder.setName("skeletonCapsules")
+        builder.setPositions(positions)
+        builder.setNormals(normals)
+        builder.setUVs(uvs)
+        builder.setBoneIndices(boneIndices)
+        builder.setBoneWeights(boneWeights)
+        builder.setIndices32(indices)
+        return builder.build()
+            ?? SkinnedMeshDescriptor(topology: .triangles,
+                                     streams: SkinnedVertexStreams(positions: positions,
+                                                                   normals: normals,
+                                                                   uvs: uvs,
+                                                                   boneIndices: boneIndices,
+                                                                   boneWeights: boneWeights),
+                                     indices32: indices,
+                                     name: "skeletonCapsules")
     }
 
     static func dome(_ params: DomeParams = DomeParams()) -> ProceduralMeshDescriptor {
