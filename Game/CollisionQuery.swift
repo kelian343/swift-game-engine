@@ -75,6 +75,11 @@ public final class CollisionQuery {
 public struct CollisionQueryStats {
     public var capsuleCandidateCount: Int = 0
     public var capsuleSweepCount: Int = 0
+    public var capsuleSweepIterations: Int = 0
+    public var capsuleSweepMaxIterations: Int = 0
+    public var capsuleCellMin: SIMD3<Int> = SIMD3<Int>(0, 0, 0)
+    public var capsuleCellMax: SIMD3<Int> = SIMD3<Int>(0, 0, 0)
+    public var capsuleCellCount: Int64 = 0
     public var capsuleCandidatesClamped: Bool = false
     public var capsuleUsedCoarseGrid: Bool = false
 }
@@ -122,8 +127,9 @@ public struct StaticTriMesh {
 
         for e in entities {
             guard let t = tStore[e], let m = mStore[e] else { continue }
+            let collisionMesh = m.collisionMesh ?? m.mesh
             let baseIndex = UInt32(positions.count)
-            let localPositions = m.mesh.streams.positions
+            let localPositions = collisionMesh.streams.positions
             positions.reserveCapacity(positions.count + localPositions.count)
             for pLocal in localPositions {
                 let p = SIMD4<Float>(pLocal.x, pLocal.y, pLocal.z, 1)
@@ -131,36 +137,42 @@ public struct StaticTriMesh {
                 positions.append(SIMD3<Float>(wp.x, wp.y, wp.z))
             }
 
-            let indexStart = indices.count
-            if let i16 = m.mesh.indices16 {
-                indices.reserveCapacity(indices.count + i16.count)
-                for idx in i16 {
-                    indices.append(baseIndex + UInt32(idx))
-                }
-            } else if let i32 = m.mesh.indices32 {
-                indices.reserveCapacity(indices.count + i32.count)
-                for idx in i32 {
-                    indices.append(baseIndex + idx)
-                }
+            let localIndices: [UInt32]
+            if let i16 = collisionMesh.indices16 {
+                localIndices = i16.map { UInt32($0) }
+            } else if let i32 = collisionMesh.indices32 {
+                localIndices = i32
+            } else {
+                localIndices = []
             }
 
-            let indexEnd = indices.count
-            let triCount = (indexEnd - indexStart) / 3
+            let triCount = localIndices.count / 3
             let triSource: [SurfaceMaterial]
             if let perTri = m.triangleMaterials, perTri.count == triCount {
                 triSource = perTri
             } else {
                 triSource = Array(repeating: m.material, count: triCount)
             }
-            var tri = indexStart
+            var tri = 0
             var triLocal = 0
-            while tri + 2 < indexEnd {
-                let i0 = Int(indices[tri])
-                let i1 = Int(indices[tri + 1])
-                let i2 = Int(indices[tri + 2])
+            let areaEps: Float = 1e-10
+            while tri + 2 < localIndices.count {
+                let i0 = Int(baseIndex + localIndices[tri])
+                let i1 = Int(baseIndex + localIndices[tri + 1])
+                let i2 = Int(baseIndex + localIndices[tri + 2])
                 let p0 = positions[i0]
                 let p1 = positions[i1]
                 let p2 = positions[i2]
+                let e1 = p1 - p0
+                let e2 = p2 - p0
+                if simd_length_squared(simd_cross(e1, e2)) <= areaEps {
+                    tri += 3
+                    triLocal += 1
+                    continue
+                }
+                indices.append(UInt32(i0))
+                indices.append(UInt32(i1))
+                indices.append(UInt32(i2))
                 let minP = simd_min(p0, simd_min(p1, p2))
                 let maxP = simd_max(p0, simd_max(p1, p2))
                 triangleAABBs.append(AABB(min: minP, max: maxP))
@@ -174,7 +186,7 @@ public struct StaticTriMesh {
         self.indices = indices
         self.triangleAABBs = triangleAABBs
         self.triangleMaterials = triangleMaterials
-        let cellSize: Float = 4.0
+        let cellSize: Float = 2.0
         self.grid = StaticTriMesh.buildGrid(positions: positions,
                                             triangleAABBs: triangleAABBs,
                                             cellSize: cellSize)
@@ -273,6 +285,7 @@ public struct StaticTriMesh {
             let v0 = positions[Int(indices[i])]
             let v1 = positions[Int(indices[i + 1])]
             let v2 = positions[Int(indices[i + 2])]
+            var iterCount = 0
             if let hit = sweepCapsuleTriangle(from: from,
                                               dir: dir,
                                               maxDistance: len,
@@ -281,7 +294,8 @@ public struct StaticTriMesh {
                                               v0: v0,
                                               v1: v1,
                                               v2: v2,
-                                              triangleIndex: triIndex),
+                                              triangleIndex: triIndex,
+                                              iterations: &iterCount),
                hit.toi < bestT {
                 bestT = hit.toi
                 bestHit = hit
@@ -331,7 +345,38 @@ private extension StaticTriMesh {
             }
         }
 
+        logDenseCells(cells: cells, cellSize: cellSize, origin: origin)
         return UniformGrid(origin: origin, cellSize: cellSize, bounds: bounds, cells: cells)
+    }
+
+    private static func logDenseCells(cells: [CellCoord: [Int]],
+                                      cellSize: Float,
+                                      origin: SIMD3<Float>) {
+        let densityThreshold = 200
+        let maxEntries = 10
+        var hotspots: [(CellCoord, Int)] = []
+        hotspots.reserveCapacity(min(cells.count, maxEntries))
+        var maxCount = 0
+        for (cell, tris) in cells {
+            let count = tris.count
+            if count > maxCount {
+                maxCount = count
+            }
+            if count >= densityThreshold {
+                hotspots.append((cell, count))
+            }
+        }
+        if hotspots.isEmpty {
+            return
+        }
+        hotspots.sort { $0.1 > $1.1 }
+        if hotspots.count > maxEntries {
+            hotspots.removeSubrange(maxEntries..<hotspots.count)
+        }
+        print("[CollisionGrid] dense cells cellSize=\(cellSize) origin=\(origin) maxCount=\(maxCount) threshold=\(densityThreshold)")
+        for (cell, count) in hotspots {
+            print("[CollisionGrid] cell=(\(cell.x),\(cell.y),\(cell.z)) triCount=\(count)")
+        }
     }
 
     private static func cellCoord(position: SIMD3<Float>, origin: SIMD3<Float>, cellSize: Float) -> CellCoord {
@@ -504,6 +549,15 @@ private extension StaticTriMesh {
         let len = simd_length(delta)
         if len < 1e-6 { return nil }
         let dir = delta / len
+        stats.capsuleSweepCount = 0
+        stats.capsuleSweepIterations = 0
+        stats.capsuleSweepMaxIterations = 0
+        stats.capsuleCandidateCount = 0
+        stats.capsuleCandidatesClamped = false
+        stats.capsuleUsedCoarseGrid = false
+        stats.capsuleCellCount = 0
+        stats.capsuleCellMin = SIMD3<Int>(0, 0, 0)
+        stats.capsuleCellMax = SIMD3<Int>(0, 0, 0)
 
         let up = SIMD3<Float>(0, 1, 0)
         let a0 = from + up * halfHeight
@@ -545,6 +599,12 @@ private extension StaticTriMesh {
             let coarseMaxCell = StaticTriMesh.cellCoord(position: clampedMax,
                                                         origin: coarseGrid.origin,
                                                         cellSize: coarseGrid.cellSize)
+            stats.capsuleCellMin = SIMD3<Int>(coarseMinCell.x, coarseMinCell.y, coarseMinCell.z)
+            stats.capsuleCellMax = SIMD3<Int>(coarseMaxCell.x, coarseMaxCell.y, coarseMaxCell.z)
+            let cdx = Int64(coarseMaxCell.x - coarseMinCell.x + 1)
+            let cdy = Int64(coarseMaxCell.y - coarseMinCell.y + 1)
+            let cdz = Int64(coarseMaxCell.z - coarseMinCell.z + 1)
+            stats.capsuleCellCount = max(0, cdx) * max(0, cdy) * max(0, cdz)
             candidateLoop: for z in coarseMinCell.z...coarseMaxCell.z {
                 for y in coarseMinCell.y...coarseMaxCell.y {
                     for x in coarseMinCell.x...coarseMaxCell.x {
@@ -562,6 +622,9 @@ private extension StaticTriMesh {
                 }
             }
         } else {
+            stats.capsuleCellMin = SIMD3<Int>(minCell.x, minCell.y, minCell.z)
+            stats.capsuleCellMax = SIMD3<Int>(maxCell.x, maxCell.y, maxCell.z)
+            stats.capsuleCellCount = fineCellCount
             candidateLoop: for z in minCell.z...maxCell.z {
                 for y in minCell.y...maxCell.y {
                     for x in minCell.x...maxCell.x {
@@ -582,11 +645,18 @@ private extension StaticTriMesh {
 
         stats.capsuleCandidateCount = candidates.count
         stats.capsuleCandidatesClamped = clamped
-        if candidates.isEmpty { return nil }
+        if candidates.isEmpty {
+            stats.capsuleSweepCount = 0
+            stats.capsuleSweepIterations = 0
+            stats.capsuleSweepMaxIterations = 0
+            return nil
+        }
 
         var bestHit: CapsuleCastHit?
         var bestT = len
         var sweepTests = 0
+        var sweepIterations = 0
+        var sweepMaxIterations = 0
 
         for triIndex in candidates {
             let triBounds = triangleAABBs[triIndex]
@@ -602,6 +672,7 @@ private extension StaticTriMesh {
             let v2 = positions[Int(indices[base + 2])]
 
             sweepTests += 1
+            var iterCount = 0
             if let hit = sweepCapsuleTriangle(from: from,
                                               dir: dir,
                                               maxDistance: len,
@@ -610,7 +681,8 @@ private extension StaticTriMesh {
                                               v0: v0,
                                               v1: v1,
                                               v2: v2,
-                                              triangleIndex: triIndex),
+                                              triangleIndex: triIndex,
+                                              iterations: &iterCount),
                hit.toi < bestT {
                 if blockingOnly {
                     if simd_dot(delta, hit.normal) >= 0 {
@@ -626,9 +698,15 @@ private extension StaticTriMesh {
                 bestT = hit.toi
                 bestHit = hit
             }
+            sweepIterations += iterCount
+            if iterCount > sweepMaxIterations {
+                sweepMaxIterations = iterCount
+            }
         }
 
         stats.capsuleSweepCount = sweepTests
+        stats.capsuleSweepIterations = sweepIterations
+        stats.capsuleSweepMaxIterations = sweepMaxIterations
         return bestHit
     }
 
@@ -640,15 +718,21 @@ private extension StaticTriMesh {
                                       v0: SIMD3<Float>,
                                       v1: SIMD3<Float>,
                                       v2: SIMD3<Float>,
-                                      triangleIndex: Int) -> CapsuleCastHit? {
+                                      triangleIndex: Int,
+                                      iterations: inout Int) -> CapsuleCastHit? {
         let minStep = max(radius * 0.02, 1e-4)
         let maxIter = min(256, Int(ceil(maxDistance / minStep)) + 1)
         let contactEps: Float = 1e-5
         var t: Float = 0
         let triNormal = simd_normalize(simd_cross(v1 - v0, v2 - v0))
 
+        var iterCount = 0
         for _ in 0..<maxIter {
-            if t > maxDistance { return nil }
+            iterCount += 1
+            if t > maxDistance {
+                iterations = iterCount
+                return nil
+            }
             let center = from + dir * t
             let (dist, segPoint, triPoint) = segmentTriangleDistance(center: center,
                                                                      halfHeight: halfHeight,
@@ -666,6 +750,7 @@ private extension StaticTriMesh {
                 if simd_dot(triN, n) < 0 {
                     triN = -triN
                 }
+                iterations = iterCount
                 return CapsuleCastHit(toi: t,
                                       position: triPoint,
                                       normal: n,
@@ -678,6 +763,7 @@ private extension StaticTriMesh {
             t += advance
         }
 
+        iterations = iterCount
         return nil
     }
 

@@ -88,8 +88,9 @@ public final class CollisionQueryService {
             if simd_length_squared(deltaScale) > eps {
                 return true
             }
-            let vertexCount = m.mesh.streams.positions.count
-            let indexCount = m.mesh.indexCount
+            let collisionMesh = m.collisionMesh ?? m.mesh
+            let vertexCount = collisionMesh.streams.positions.count
+            let indexCount = collisionMesh.indexCount
             if vertexCount != snapshot.vertexCount || indexCount != snapshot.indexCount {
                 return true
             }
@@ -106,11 +107,12 @@ public final class CollisionQueryService {
 
         for e in entities {
             guard let t = tStore[e], var m = mStore[e] else { continue }
+            let collisionMesh = m.collisionMesh ?? m.mesh
             staticMeshCache[e] = StaticMeshSnapshot(translation: t.translation,
                                                     rotation: t.rotation,
                                                     scale: t.scale,
-                                                    vertexCount: m.mesh.streams.positions.count,
-                                                    indexCount: m.mesh.indexCount)
+                                                    vertexCount: collisionMesh.streams.positions.count,
+                                                    indexCount: collisionMesh.indexCount)
             if m.dirty {
                 m.dirty = false
                 mStore[e] = m

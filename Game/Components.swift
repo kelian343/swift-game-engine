@@ -101,15 +101,18 @@ public struct FollowTargetComponent {
 
 public struct StaticMeshComponent {
     public var mesh: ProceduralMeshDescriptor
+    public var collisionMesh: ProceduralMeshDescriptor?
     public var material: SurfaceMaterial
     public var triangleMaterials: [SurfaceMaterial]?
     public var dirty: Bool
 
     public init(mesh: ProceduralMeshDescriptor,
+                collisionMesh: ProceduralMeshDescriptor? = nil,
                 material: SurfaceMaterial = .default,
                 triangleMaterials: [SurfaceMaterial]? = nil,
                 dirty: Bool = false) {
         self.mesh = mesh
+        self.collisionMesh = collisionMesh
         self.material = material
         self.triangleMaterials = triangleMaterials
         self.dirty = dirty

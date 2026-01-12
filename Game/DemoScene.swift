@@ -388,8 +388,8 @@ public final class DemoScene: RenderScene {
         // --- Test Dome: curved top for sliding
         do {
             let meshDesc = ProceduralMeshes.dome(DomeParams(radius: 4.0,
-                                                           radialSegments: 32,
-                                                           ringSegments: 12))
+                                                           radialSegments: 12,
+                                                           ringSegments: 6))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestDome")
             let mat = makeSolidMaterial(label: "DomeMat",
                                         color: SIMD4<UInt8>(120, 200, 140, 255),

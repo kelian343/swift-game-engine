@@ -558,6 +558,20 @@ private struct GroundContactState {
 }
 
 private struct GroundContactResolver {
+    private static func logGroundSample(_ label: String,
+                                        position: SIMD3<Float>,
+                                        hit: CapsuleCastHit?,
+                                        stats: CollisionQueryStats) {
+        let cellMin = stats.capsuleCellMin
+        let cellMax = stats.capsuleCellMax
+        let cellRange = "cellMin=(\(cellMin.x),\(cellMin.y),\(cellMin.z)) cellMax=(\(cellMax.x),\(cellMax.y),\(cellMax.z)) cellCount=\(stats.capsuleCellCount)"
+        if let hit {
+            print("[GroundSample] \(label) pos=\(position) tri=\(hit.triangleIndex) normalY=\(hit.triangleNormal.y) toi=\(hit.toi) candidates=\(stats.capsuleCandidateCount) sweep=\(stats.capsuleSweepCount) iters=\(stats.capsuleSweepIterations) maxIter=\(stats.capsuleSweepMaxIterations) clamped=\(stats.capsuleCandidatesClamped) coarse=\(stats.capsuleUsedCoarseGrid) \(cellRange)")
+        } else {
+            print("[GroundSample] \(label) pos=\(position) hit=nil candidates=\(stats.capsuleCandidateCount) sweep=\(stats.capsuleSweepCount) iters=\(stats.capsuleSweepIterations) maxIter=\(stats.capsuleSweepMaxIterations) clamped=\(stats.capsuleCandidatesClamped) coarse=\(stats.capsuleUsedCoarseGrid) \(cellRange)")
+        }
+    }
+
     static func resolveSnap(position: inout SIMD3<Float>,
                             body: inout PhysicsBodyComponent,
                             controller: CharacterControllerComponent,
@@ -577,11 +591,14 @@ private struct GroundContactResolver {
 
         let down = SIMD3<Float>(0, -1, 0)
         let snapDelta = down * controller.snapDistance
-        guard let centerHit = query.capsuleCastGround(from: position,
-                                                      delta: snapDelta,
-                                                      radius: controller.radius,
-                                                      halfHeight: controller.halfHeight,
-                                                      minNormalY: controller.minGroundDot),
+        query.resetStats()
+        let centerHit = query.capsuleCastGround(from: position,
+                                                delta: snapDelta,
+                                                radius: controller.radius,
+                                                halfHeight: controller.halfHeight,
+                                                minNormalY: controller.minGroundDot)
+        logGroundSample("center", position: position, hit: centerHit, stats: query.stats)
+        guard let centerHit,
               centerHit.toi <= controller.snapDistance else {
             return state
         }
@@ -620,11 +637,17 @@ private struct GroundContactResolver {
                 let combineTol = max(controller.groundSnapSkin, controller.skinWidth, 0.05)
                 for offset in sampleOffsets {
                     let samplePos = position + SIMD3<Float>(offset.x, 0, offset.y)
-                    if let hit = query.capsuleCastGround(from: samplePos,
-                                                         delta: snapDelta,
-                                                         radius: controller.radius,
-                                                         halfHeight: controller.halfHeight,
-                                                         minNormalY: controller.minGroundDot),
+                    query.resetStats()
+                    let hit = query.capsuleCastGround(from: samplePos,
+                                                      delta: snapDelta,
+                                                      radius: controller.radius,
+                                                      halfHeight: controller.halfHeight,
+                                                      minNormalY: controller.minGroundDot)
+                    logGroundSample("sample(\(offset.x),\(offset.y))",
+                                    position: samplePos,
+                                    hit: hit,
+                                    stats: query.stats)
+                    if let hit,
                        hit.toi <= centerHit.toi + combineTol {
                         if simd_dot(hit.triangleNormal, centerHit.triangleNormal) > 0.98 {
                             normalSum += hit.triangleNormal
@@ -1138,6 +1161,12 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
         return CapsuleCapsuleHit(toi: toi, normal: n, other: other)
     }
 
+    private func logCollisionStats(_ query: CollisionQuery, context: String, delta: SIMD3<Float>) {
+        let stats = query.stats
+        let deltaLen = simd_length(delta)
+        print("[Collision] \(context) candidates=\(stats.capsuleCandidateCount) sweep=\(stats.capsuleSweepCount) iters=\(stats.capsuleSweepIterations) maxIter=\(stats.capsuleSweepMaxIterations) clamped=\(stats.capsuleCandidatesClamped) coarse=\(stats.capsuleUsedCoarseGrid) deltaLen=\(deltaLen)")
+    }
+
     public func fixedUpdate(world: World, dt: Float) {
         guard let query = query else { return }
         let bodies = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
@@ -1202,6 +1231,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                           delta: remaining,
                                                           radius: controller.radius,
                                                           halfHeight: controller.halfHeight)
+                logCollisionStats(query, context: "sweep-blocking", delta: remaining)
                 let agentHit = AgentSweepSolver.bestHit(position: position,
                                                         remaining: remaining,
                                                         remainingLen: len,
@@ -1256,6 +1286,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                                 wasGroundedNear: wasGroundedNear,
                                                                 prevNormal: controller.groundNormal,
                                                                 prevTriangleIndex: controller.groundTriangleIndex)
+            logCollisionStats(query, context: "ground-snap", delta: SIMD3<Float>(0, -controller.snapDistance, 0))
             isGrounded = groundState.grounded
             isGroundedNear = groundState.groundedNear
 
