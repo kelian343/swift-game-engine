@@ -345,38 +345,7 @@ private extension StaticTriMesh {
             }
         }
 
-        logDenseCells(cells: cells, cellSize: cellSize, origin: origin)
         return UniformGrid(origin: origin, cellSize: cellSize, bounds: bounds, cells: cells)
-    }
-
-    private static func logDenseCells(cells: [CellCoord: [Int]],
-                                      cellSize: Float,
-                                      origin: SIMD3<Float>) {
-        let densityThreshold = 200
-        let maxEntries = 10
-        var hotspots: [(CellCoord, Int)] = []
-        hotspots.reserveCapacity(min(cells.count, maxEntries))
-        var maxCount = 0
-        for (cell, tris) in cells {
-            let count = tris.count
-            if count > maxCount {
-                maxCount = count
-            }
-            if count >= densityThreshold {
-                hotspots.append((cell, count))
-            }
-        }
-        if hotspots.isEmpty {
-            return
-        }
-        hotspots.sort { $0.1 > $1.1 }
-        if hotspots.count > maxEntries {
-            hotspots.removeSubrange(maxEntries..<hotspots.count)
-        }
-        print("[CollisionGrid] dense cells cellSize=\(cellSize) origin=\(origin) maxCount=\(maxCount) threshold=\(densityThreshold)")
-        for (cell, count) in hotspots {
-            print("[CollisionGrid] cell=(\(cell.x),\(cell.y),\(cell.z)) triCount=\(count)")
-        }
     }
 
     private static func cellCoord(position: SIMD3<Float>, origin: SIMD3<Float>, cellSize: Float) -> CellCoord {
