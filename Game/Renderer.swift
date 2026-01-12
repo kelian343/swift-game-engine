@@ -224,7 +224,7 @@ final class Renderer: NSObject, MTKViewDelegate {
     private func updateRTTargetIfNeeded(view: MTKView, scale: Float) {
         let scaledWidth = max(Int((Float(view.drawableSize.width) * scale).rounded(.toNearestOrAwayFromZero)), 1)
         let scaledHeight = max(Int((Float(view.drawableSize.height) * scale).rounded(.toNearestOrAwayFromZero)), 1)
-        let format = view.colorPixelFormat
+        let format: MTLPixelFormat = .rgba16Float
 
         if let existing = rtColorTexture,
            existing.width == scaledWidth,
