@@ -9,6 +9,7 @@ import simd
 
 public enum ProceduralTextureFormat {
     case rgba8Unorm
+    case rgba8UnormSrgb
 }
 
 public struct ProceduralTexture {
@@ -29,7 +30,10 @@ public enum ProceduralTextureGenerator {
     public static let digitsAtlasCellWidth: Int = 8
     public static let digitsAtlasCellHeight: Int = 12
 
-    public static func solid(width: Int, height: Int, color: SIMD4<UInt8>) -> ProceduralTexture {
+    public static func solid(width: Int,
+                             height: Int,
+                             color: SIMD4<UInt8>,
+                             format: ProceduralTextureFormat = .rgba8Unorm) -> ProceduralTexture {
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         for i in stride(from: 0, to: bytes.count, by: 4) {
             bytes[i + 0] = color.x
@@ -39,7 +43,7 @@ public enum ProceduralTextureGenerator {
         }
         return ProceduralTexture(width: width,
                                  height: height,
-                                 format: .rgba8Unorm,
+                                 format: format,
                                  bytes: bytes)
     }
 
@@ -47,7 +51,8 @@ public enum ProceduralTextureGenerator {
                                     height: Int = 256,
                                     cell: Int = 32,
                                     colorA: UInt8 = 230,
-                                    colorB: UInt8 = 40) -> ProceduralTexture {
+                                    colorB: UInt8 = 40,
+                                    format: ProceduralTextureFormat = .rgba8Unorm) -> ProceduralTexture {
         var bytes = [UInt8](repeating: 0, count: width * height * 4)
         for y in 0..<height {
             for x in 0..<width {
@@ -64,12 +69,12 @@ public enum ProceduralTextureGenerator {
         }
         return ProceduralTexture(width: width,
                                  height: height,
-                                 format: .rgba8Unorm,
+                                 format: format,
                                  bytes: bytes)
     }
 
     /// Digits atlas (0-9) in a single row, alpha-masked for overlay text.
-    public static func digitsAtlas() -> ProceduralTexture {
+    public static func digitsAtlas(format: ProceduralTextureFormat = .rgba8Unorm) -> ProceduralTexture {
         let cellW = digitsAtlasCellWidth
         let cellH = digitsAtlasCellHeight
         let atlasW = cellW * 10
@@ -114,7 +119,7 @@ public enum ProceduralTextureGenerator {
 
         return ProceduralTexture(width: atlasW,
                                  height: atlasH,
-                                 format: .rgba8Unorm,
+                                 format: format,
                                  bytes: bytes)
     }
 
@@ -187,13 +192,15 @@ public enum ProceduralTextureGenerator {
 
     public static func emissive(width: Int = 4,
                                 height: Int = 4,
-                                color: SIMD3<Float>) -> ProceduralTexture {
+                                color: SIMD3<Float>,
+                                format: ProceduralTextureFormat = .rgba8Unorm) -> ProceduralTexture {
         let r = UInt8(max(0, min(255, Int(color.x * 255))))
         let g = UInt8(max(0, min(255, Int(color.y * 255))))
         let b = UInt8(max(0, min(255, Int(color.z * 255))))
         return solid(width: width,
                      height: height,
-                     color: SIMD4<UInt8>(r, g, b, 255))
+                     color: SIMD4<UInt8>(r, g, b, 255),
+                     format: format)
     }
 
     public static func normalMapFromHeight(width: Int = 256,

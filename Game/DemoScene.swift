@@ -15,7 +15,7 @@ public final class DemoScene: RenderScene {
     public private(set) var renderItems: [RenderItem] = []
     public private(set) var overlayItems: [RenderItem] = []
     public private(set) var revision: UInt64 = 0
-    public var toneMappingExposure: Float = 0.7
+    public var toneMappingExposure: Float = 1.0
     public var toneMappingEnabled: Bool = true
     public var directionalLights: [DirectionalLight] = []
     public var rtResolutionScale: Float = 1.0
@@ -68,7 +68,10 @@ public final class DemoScene: RenderScene {
                                metallic: Float,
                                roughness: Float,
                                alpha: Float = 1.0) -> Material {
-            let base = ProceduralTextureGenerator.solid(width: 4, height: 4, color: color)
+            let base = ProceduralTextureGenerator.solid(width: 4,
+                                                        height: 4,
+                                                        color: color,
+                                                        format: .rgba8UnormSrgb)
             let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
                                                                   height: 4,
                                                                   metallic: metallic,
@@ -246,7 +249,10 @@ public final class DemoScene: RenderScene {
                                                                                     hipSeparation: 0.45,
                                                                                     radialSegments: 12,
                                                                                     heightSegments: 4))
-            let baseColor = ProceduralTextureGenerator.checkerboard(width: 256, height: 256, cell: 48)
+            let baseColor = ProceduralTextureGenerator.checkerboard(width: 256,
+                                                                     height: 256,
+                                                                     cell: 48,
+                                                                     format: .rgba8UnormSrgb)
             let mat = makeBaseColorMaterial(label: "PlayerMat",
                                             baseColor: baseColor,
                                             metallic: 0.0,
@@ -410,14 +416,16 @@ public final class DemoScene: RenderScene {
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestStep")
             let base = ProceduralTextureGenerator.solid(width: 4,
                                                         height: 4,
-                                                        color: SIMD4<UInt8>(255, 220, 120, 255))
+                                                        color: SIMD4<UInt8>(255, 220, 120, 255),
+                                                        format: .rgba8UnormSrgb)
             let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
                                                                   height: 4,
                                                                   metallic: 0.0,
                                                                   roughness: 0.8)
             let emissive = ProceduralTextureGenerator.emissive(width: 4,
                                                                height: 4,
-                                                               color: SIMD3<Float>(1.0, 0.7, 0.2))
+                                                               color: SIMD3<Float>(1.0, 0.7, 0.2),
+                                                               format: .rgba8UnormSrgb)
             let desc = MaterialDescriptor(baseColor: base,
                                           metallicRoughness: mr,
                                           emissive: emissive,

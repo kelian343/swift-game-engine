@@ -21,7 +21,7 @@ final class FPSOverlaySystem {
     init(device: MTLDevice) {
         self.device = device
 
-        let atlas = ProceduralTextureGenerator.digitsAtlas()
+        let atlas = ProceduralTextureGenerator.digitsAtlas(format: .rgba8UnormSrgb)
         let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
                                                               height: 4,
                                                               metallic: 0.0,

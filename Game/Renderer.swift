@@ -83,7 +83,8 @@ final class Renderer: NSObject, MTKViewDelegate {
             device: device,
             source: ProceduralTextureGenerator.solid(width: 1,
                                                      height: 1,
-                                                     color: SIMD4<UInt8>(255, 255, 255, 255)),
+                                                     color: SIMD4<UInt8>(255, 255, 255, 255),
+                                                     format: .rgba8UnormSrgb),
             label: "FallbackWhite"
         )
         self.fallbackNormal = TextureResource(
@@ -95,7 +96,8 @@ final class Renderer: NSObject, MTKViewDelegate {
             device: device,
             source: ProceduralTextureGenerator.solid(width: 1,
                                                      height: 1,
-                                                     color: SIMD4<UInt8>(0, 0, 0, 255)),
+                                                     color: SIMD4<UInt8>(0, 0, 0, 255),
+                                                     format: .rgba8UnormSrgb),
             label: "FallbackEmissive"
         )
         self.fallbackOcclusion = TextureResource(

@@ -24,6 +24,8 @@ public final class TextureResource {
             switch source.format {
             case .rgba8Unorm:
                 return .rgba8Unorm
+            case .rgba8UnormSrgb:
+                return .rgba8Unorm_srgb
             }
         }()
 
