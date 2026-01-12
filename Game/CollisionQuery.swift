@@ -25,10 +25,14 @@ public struct CapsuleCastHit {
 }
 
 public final class CollisionQuery {
-    private let staticMesh: StaticTriMesh
+    private var staticMesh: StaticTriMesh
 
     public init(world: World) {
         self.staticMesh = StaticTriMesh(world: world)
+    }
+
+    public var stats: CollisionQueryStats {
+        staticMesh.stats
     }
 
     public func raycast(origin: SIMD3<Float>,
@@ -64,7 +68,15 @@ public final class CollisionQuery {
     }
 }
 
+public struct CollisionQueryStats {
+    public var capsuleCandidateCount: Int = 0
+    public var capsuleSweepCount: Int = 0
+    public var capsuleCandidatesClamped: Bool = false
+}
+
 public struct StaticTriMesh {
+    private static let maxCandidateTriangles: Int = 8192
+
     public struct AABB {
         public var min: SIMD3<Float>
         public var max: SIMD3<Float>
@@ -87,6 +99,7 @@ public struct StaticTriMesh {
     public private(set) var indices: [UInt32]
     public private(set) var triangleAABBs: [AABB]
     public private(set) var triangleMaterials: [SurfaceMaterial]
+    public private(set) var stats: CollisionQueryStats = CollisionQueryStats()
     private let grid: UniformGrid?
 
     public init(world: World) {
@@ -167,10 +180,10 @@ public struct StaticTriMesh {
         return raycastBrute(origin: origin, direction: direction, maxDistance: maxDistance)
     }
 
-    public func capsuleCast(from: SIMD3<Float>,
-                            delta: SIMD3<Float>,
-                            radius: Float,
-                            halfHeight: Float) -> CapsuleCastHit? {
+    public mutating func capsuleCast(from: SIMD3<Float>,
+                                     delta: SIMD3<Float>,
+                                     radius: Float,
+                                     halfHeight: Float) -> CapsuleCastHit? {
         if let grid {
             return capsuleCastGrid(from: from,
                                    delta: delta,
@@ -183,10 +196,10 @@ public struct StaticTriMesh {
         return capsuleCastApprox(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
     }
 
-    public func capsuleCastBlocking(from: SIMD3<Float>,
-                                    delta: SIMD3<Float>,
-                                    radius: Float,
-                                    halfHeight: Float) -> CapsuleCastHit? {
+    public mutating func capsuleCastBlocking(from: SIMD3<Float>,
+                                             delta: SIMD3<Float>,
+                                             radius: Float,
+                                             halfHeight: Float) -> CapsuleCastHit? {
         if let grid {
             return capsuleCastGrid(from: from,
                                    delta: delta,
@@ -203,11 +216,11 @@ public struct StaticTriMesh {
         return nil
     }
 
-    public func capsuleCastGround(from: SIMD3<Float>,
-                                  delta: SIMD3<Float>,
-                                  radius: Float,
-                                  halfHeight: Float,
-                                  minNormalY: Float) -> CapsuleCastHit? {
+    public mutating func capsuleCastGround(from: SIMD3<Float>,
+                                           delta: SIMD3<Float>,
+                                           radius: Float,
+                                           halfHeight: Float,
+                                           minNormalY: Float) -> CapsuleCastHit? {
         if let grid {
             return capsuleCastGrid(from: from,
                                    delta: delta,
@@ -460,13 +473,13 @@ private extension StaticTriMesh {
         return hit
     }
 
-    private func capsuleCastGrid(from: SIMD3<Float>,
-                                 delta: SIMD3<Float>,
-                                 radius: Float,
-                                 halfHeight: Float,
-                                 grid: UniformGrid,
-                                 blockingOnly: Bool,
-                                 minNormalY: Float?) -> CapsuleCastHit? {
+    private mutating func capsuleCastGrid(from: SIMD3<Float>,
+                                          delta: SIMD3<Float>,
+                                          radius: Float,
+                                          halfHeight: Float,
+                                          grid: UniformGrid,
+                                          blockingOnly: Bool,
+                                          minNormalY: Float?) -> CapsuleCastHit? {
         let len = simd_length(delta)
         if len < 1e-6 { return nil }
         let dir = delta / len
@@ -496,31 +509,47 @@ private extension StaticTriMesh {
         let maxCell = StaticTriMesh.cellCoord(position: clampedMax, origin: grid.origin, cellSize: grid.cellSize)
 
         var candidates = Set<Int>()
-        for z in minCell.z...maxCell.z {
+        var clamped = false
+        let maxCandidates = StaticTriMesh.maxCandidateTriangles
+        candidateLoop: for z in minCell.z...maxCell.z {
             for y in minCell.y...maxCell.y {
                 for x in minCell.x...maxCell.x {
                     let key = CellCoord(x: x, y: y, z: z)
                     if let tris = grid.cells[key] {
                         for tri in tris {
                             candidates.insert(tri)
+                            if candidates.count >= maxCandidates {
+                                clamped = true
+                                break candidateLoop
+                            }
                         }
                     }
                 }
             }
         }
 
+        stats.capsuleCandidateCount = candidates.count
+        stats.capsuleCandidatesClamped = clamped
         if candidates.isEmpty { return nil }
 
         var bestHit: CapsuleCastHit?
         var bestT = len
+        var sweepTests = 0
 
         for triIndex in candidates {
+            let triBounds = triangleAABBs[triIndex]
+            if triBounds.max.x < minP.x || triBounds.min.x > maxP.x ||
+                triBounds.max.y < minP.y || triBounds.min.y > maxP.y ||
+                triBounds.max.z < minP.z || triBounds.min.z > maxP.z {
+                continue
+            }
             let base = triIndex * 3
             if base + 2 >= indices.count { continue }
             let v0 = positions[Int(indices[base])]
             let v1 = positions[Int(indices[base + 1])]
             let v2 = positions[Int(indices[base + 2])]
 
+            sweepTests += 1
             if let hit = sweepCapsuleTriangle(from: from,
                                               dir: dir,
                                               maxDistance: len,
@@ -547,6 +576,7 @@ private extension StaticTriMesh {
             }
         }
 
+        stats.capsuleSweepCount = sweepTests
         return bestHit
     }
 
