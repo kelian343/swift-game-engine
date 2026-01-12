@@ -114,6 +114,10 @@ public struct StaticMeshComponent {
         self.triangleMaterials = triangleMaterials
         self.dirty = dirty
     }
+
+    public mutating func markDirty() {
+        dirty = true
+    }
 }
 
 public struct CharacterControllerComponent {
