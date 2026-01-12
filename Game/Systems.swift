@@ -554,62 +554,117 @@ private struct GroundContactState {
     var groundedNear: Bool
     var normal: SIMD3<Float>
     var material: SurfaceMaterial
+    var triangleIndex: Int
 }
 
 private struct GroundContactResolver {
+    static var debugEnabled: Bool = true
+
     static func resolveSnap(position: inout SIMD3<Float>,
                             body: inout PhysicsBodyComponent,
                             controller: CharacterControllerComponent,
                             query: CollisionQuery,
                             wasGrounded: Bool,
-                            wasGroundedNear: Bool) -> GroundContactState {
+                            wasGroundedNear: Bool,
+                            prevNormal: SIMD3<Float>,
+                            prevTriangleIndex: Int) -> GroundContactState {
         var state = GroundContactState(grounded: false,
                                        groundedNear: false,
                                        normal: SIMD3<Float>(0, 1, 0),
-                                       material: .default)
+                                       material: .default,
+                                       triangleIndex: -1)
         if controller.snapDistance <= 0 {
             return state
         }
 
         let down = SIMD3<Float>(0, -1, 0)
         let snapDelta = down * controller.snapDistance
-        if let hit = query.capsuleCastGround(from: position,
-                                             delta: snapDelta,
-                                             radius: controller.radius,
-                                             halfHeight: controller.halfHeight,
-                                             minNormalY: controller.minGroundDot),
-           hit.toi <= controller.snapDistance {
-            let baseCenterY = position.y - controller.halfHeight
-            let bottomY = baseCenterY - controller.radius
-            let groundTol = max(controller.skinWidth, controller.groundSnapSkin)
-            let validGroundPoint = hit.position.y <= bottomY + groundTol
-            let groundNearThreshold = max(controller.groundSnapSkin, controller.skinWidth)
-            let nearGround = hit.toi <= groundNearThreshold
-            state.groundedNear = nearGround
-            let groundGateVel = body.linearVelocity.y <= 0
-            let vInto = simd_dot(body.linearVelocity, hit.normal)
-            let groundGateSpeed = vInto >= -controller.groundSnapMaxSpeed
-            let groundGateToi = hit.toi <= controller.groundSnapMaxToi
-            var canSnap = validGroundPoint && groundGateVel && (nearGround || groundGateSpeed || groundGateToi)
-            if wasGroundedNear && hit.toi <= controller.snapDistance {
-                canSnap = validGroundPoint
-            }
-            if validGroundPoint && (nearGround || canSnap) {
-                state.grounded = true
-                state.normal = hit.triangleNormal
-                state.material = hit.material
-            }
-            if canSnap {
-                let rawMove = max(hit.toi - controller.groundSnapSkin, 0)
-                var moveDist = rawMove
-                if nearGround && moveDist > controller.groundSnapMaxStep {
-                    moveDist = controller.groundSnapMaxStep
+        guard let centerHit = query.capsuleCastGround(from: position,
+                                                      delta: snapDelta,
+                                                      radius: controller.radius,
+                                                      halfHeight: controller.halfHeight,
+                                                      minNormalY: controller.minGroundDot),
+              centerHit.toi <= controller.snapDistance else {
+            return state
+        }
+
+        let baseCenterY = position.y - controller.halfHeight
+        let bottomY = baseCenterY - controller.radius
+        let groundTol = max(controller.skinWidth, controller.groundSnapSkin)
+        let validGroundPoint = centerHit.position.y <= bottomY + groundTol
+        let groundNearThreshold = max(controller.groundSnapSkin, controller.skinWidth)
+        let nearGround = centerHit.toi <= groundNearThreshold
+        state.groundedNear = nearGround
+        let groundGateVel = body.linearVelocity.y <= 0
+        let vInto = simd_dot(body.linearVelocity, centerHit.normal)
+        let groundGateSpeed = vInto >= -controller.groundSnapMaxSpeed
+        let groundGateToi = centerHit.toi <= controller.groundSnapMaxToi
+        var canSnap = validGroundPoint && groundGateVel && (nearGround || groundGateSpeed || groundGateToi)
+        if wasGroundedNear && centerHit.toi <= controller.snapDistance {
+            canSnap = validGroundPoint
+        }
+
+        if validGroundPoint && (nearGround || canSnap) {
+            state.grounded = true
+            state.material = centerHit.material
+            state.triangleIndex = centerHit.triangleIndex
+
+            var normalSum = centerHit.triangleNormal
+            let flatDot: Float = 0.98
+            if centerHit.triangleNormal.y < flatDot && (wasGroundedNear || nearGround) {
+                let offset = controller.radius * 0.6
+                let sampleOffsets: [SIMD2<Float>] = [
+                    SIMD2<Float>(offset, 0),
+                    SIMD2<Float>(-offset, 0),
+                    SIMD2<Float>(0, offset),
+                    SIMD2<Float>(0, -offset)
+                ]
+                let combineTol = max(controller.groundSnapSkin, controller.skinWidth, 0.05)
+                for offset in sampleOffsets {
+                    let samplePos = position + SIMD3<Float>(offset.x, 0, offset.y)
+                    if let hit = query.capsuleCastGround(from: samplePos,
+                                                         delta: snapDelta,
+                                                         radius: controller.radius,
+                                                         halfHeight: controller.halfHeight,
+                                                         minNormalY: controller.minGroundDot),
+                       hit.toi <= centerHit.toi + combineTol {
+                        if simd_dot(hit.triangleNormal, centerHit.triangleNormal) > 0.98 {
+                            normalSum += hit.triangleNormal
+                        }
+                    }
                 }
-                position += down * moveDist
-                let vIntoSnap = simd_dot(body.linearVelocity, hit.normal)
-                if vIntoSnap < 0 {
-                    body.linearVelocity -= hit.normal * vIntoSnap
-                }
+            }
+            let nLen = simd_length(normalSum)
+            state.normal = nLen > 1e-6 ? normalSum / nLen : centerHit.triangleNormal
+        }
+
+        if canSnap {
+            let rawMove = max(centerHit.toi - controller.groundSnapSkin, 0)
+            var moveDist = rawMove
+            if nearGround && moveDist > controller.groundSnapMaxStep {
+                moveDist = controller.groundSnapMaxStep
+            }
+            position += down * moveDist
+            let vIntoSnap = simd_dot(body.linearVelocity, centerHit.normal)
+            if vIntoSnap < 0 {
+                body.linearVelocity -= centerHit.normal * vIntoSnap
+            }
+        }
+
+        if state.grounded && wasGroundedNear {
+            let dotN = simd_dot(prevNormal, state.normal)
+            if dotN > 0.9 {
+                let blend: Float = 0.2
+                let smoothed = simd_normalize(prevNormal * (1 - blend) + state.normal * blend)
+                state.normal = smoothed
+            }
+        }
+
+        if debugEnabled && state.grounded {
+            let dotN = simd_dot(prevNormal, state.normal)
+            if dotN < 0.85 || prevTriangleIndex != state.triangleIndex {
+                print("[GroundSnap] pos=\(position) toi=\(centerHit.toi) near=\(state.groundedNear) canSnap=\(canSnap) " +
+                      "tri=\(state.triangleIndex) prevTri=\(prevTriangleIndex) n=\(state.normal) prevN=\(prevNormal) dot=\(dotN)")
             }
         }
 
@@ -618,12 +673,25 @@ private struct GroundContactResolver {
     }
 
     static func applySlopeFriction(body: inout PhysicsBodyComponent,
-                                   controller: CharacterControllerComponent,
+                                   controller: inout CharacterControllerComponent,
                                    gravity: SIMD3<Float>,
                                    dt: Float,
                                    state: GroundContactState) {
-        guard state.grounded else { return }
+        guard state.grounded else {
+            controller.groundSliding = false
+            return
+        }
         let normal = simd_normalize(state.normal)
+        if normal.y > 0.98 {
+            controller.groundTransitionFrames = 0
+            controller.groundSliding = false
+            return
+        }
+        if controller.groundTransitionFrames > 0 {
+            controller.groundTransitionFrames -= 1
+            controller.groundSliding = false
+            return
+        }
         let gN = simd_dot(gravity, normal)
         let gTan = gravity - normal * gN
         let gTanLen = simd_length(gTan)
@@ -632,15 +700,31 @@ private struct GroundContactResolver {
             let gNMag = abs(gN)
             let gTanDir = gTan / gTanLen
             let stickLimit = state.material.muS * gNMag
-            if gTanLen <= stickLimit {
+            let enterSlide = gTanLen > stickLimit * 1.05
+            let exitSlide = gTanLen < stickLimit * 0.9
+            if controller.groundSliding {
+                if exitSlide {
+                    controller.groundSliding = false
+                }
+            } else if enterSlide {
+                controller.groundSliding = true
+            }
+
+            if !controller.groundSliding && gTanLen <= stickLimit {
                 let v = body.linearVelocity
                 let vTan = v - normal * simd_dot(v, normal)
                 let downhillSpeed = simd_dot(vTan, gTanDir)
+                if debugEnabled && downhillSpeed > 0.01 {
+                    print("[SlopeStick] gTan=\(gTanLen) stickLimit=\(stickLimit) downhillSpeed=\(downhillSpeed) n=\(normal)")
+                }
                 if downhillSpeed > 0 {
                     body.linearVelocity -= gTanDir * downhillSpeed
                 }
             } else {
                 let slideAccelMag = max(gTanLen - state.material.muK * gNMag, 0)
+                if debugEnabled && slideAccelMag > 0.01 {
+                    print("[SlopeSlide] gTan=\(gTanLen) stickLimit=\(stickLimit) slideAccel=\(slideAccelMag) n=\(normal)")
+                }
                 if slideAccelMag > 0 {
                     body.linearVelocity += gTanDir * slideAccelMag * dt
                 }
@@ -1185,12 +1269,21 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                                 controller: controller,
                                                                 query: query,
                                                                 wasGrounded: wasGrounded,
-                                                                wasGroundedNear: wasGroundedNear)
+                                                                wasGroundedNear: wasGroundedNear,
+                                                                prevNormal: controller.groundNormal,
+                                                                prevTriangleIndex: controller.groundTriangleIndex)
             isGrounded = groundState.grounded
             isGroundedNear = groundState.groundedNear
 
+            if groundState.grounded {
+                let normalUpDelta = groundState.normal.y - controller.groundNormal.y
+                if groundState.triangleIndex != controller.groundTriangleIndex && normalUpDelta > 0.02 {
+                    controller.groundTransitionFrames = 3
+                }
+            }
+
             GroundContactResolver.applySlopeFriction(body: &body,
-                                                     controller: controller,
+                                                     controller: &controller,
                                                      gravity: gravity,
                                                      dt: dt,
                                                      state: groundState)
@@ -1200,6 +1293,9 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             controller.grounded = isGrounded
             controller.groundedNear = isGroundedNear
             controller.groundNormal = groundState.grounded ? groundState.normal : SIMD3<Float>(0, 1, 0)
+            if groundState.grounded {
+                controller.groundTriangleIndex = groundState.triangleIndex
+            }
             cStore[e] = controller
 
         }
@@ -1476,6 +1572,7 @@ public final class AgentSeparationSystem: FixedStepSystem {
                             controller.grounded = true
                             controller.groundedNear = hit.toi <= max(controller.groundSnapSkin, controller.skinWidth)
                             controller.groundNormal = hit.triangleNormal
+                            controller.groundTriangleIndex = hit.triangleIndex
                             cStore[agent.entity] = controller
                         }
                     }

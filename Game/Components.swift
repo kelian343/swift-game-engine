@@ -133,6 +133,9 @@ public struct CharacterControllerComponent {
     public var maxSlideIterations: Int
     public var minGroundDot: Float
     public var groundNormal: SIMD3<Float>
+    public var groundTriangleIndex: Int
+    public var groundSliding: Bool
+    public var groundTransitionFrames: Int
     public var uphillBoostScale: Float
     public var grounded: Bool
     public var groundedNear: Bool
@@ -149,6 +152,9 @@ public struct CharacterControllerComponent {
                 maxSlideIterations: Int = 4,
                 minGroundDot: Float = 0.5,
                 groundNormal: SIMD3<Float> = SIMD3<Float>(0, 1, 0),
+                groundTriangleIndex: Int = -1,
+                groundSliding: Bool = false,
+                groundTransitionFrames: Int = 0,
                 uphillBoostScale: Float = 1.0,
                 grounded: Bool = false,
                 groundedNear: Bool = false) {
@@ -164,6 +170,9 @@ public struct CharacterControllerComponent {
         self.maxSlideIterations = maxSlideIterations
         self.minGroundDot = minGroundDot
         self.groundNormal = groundNormal
+        self.groundTriangleIndex = groundTriangleIndex
+        self.groundSliding = groundSliding
+        self.groundTransitionFrames = groundTransitionFrames
         self.uphillBoostScale = uphillBoostScale
         self.grounded = grounded
         self.groundedNear = groundedNear
