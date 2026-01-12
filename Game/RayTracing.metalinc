@@ -12,6 +12,12 @@ inline float sat(float v) {
     return clamp(v, 0.0, 1.0);
 }
 
+inline float hash12_rt(float2 p) {
+    float3 p3 = fract(float3(p.xyx) * 0.1031);
+    p3 += dot(p3, p3.yzx + 33.33);
+    return fract((p3.x + p3.y) * p3.z);
+}
+
 inline float3 fresnel_schlick(float cosTheta, float3 F0) {
     return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
@@ -717,6 +723,9 @@ kernel void raytraceKernel(texture2d<float, access::write> outTexture [[texture(
 
     float3 bg = float3(0.02, 0.02, 0.03);
     float3 outColor = accumColor + bg * (1.0 - accumAlpha);
+    float n = hash12_rt(float2(gid));
+    float3 dither = (n - 0.5) * (1.0 / 255.0);
+    outColor = max(outColor + dither, 0.0);
     outTexture.write(float4(outColor, 1.0), gid);
 }
 
