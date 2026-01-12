@@ -47,7 +47,7 @@ extension RenderScene {
     }
 
     var toneMappingExposure: Float { 1.0 }
-    var toneMappingEnabled: Bool { true }
+    var toneMappingEnabled: Bool { false }
     var directionalLights: [DirectionalLight] { [] }
     var rtResolutionScale: Float { 1.0 }
 }
