@@ -39,6 +39,14 @@ public final class CollisionQuery {
         staticMesh.resetStats()
     }
 
+    public func updateStaticTransforms(world: World, entities: [Entity]) {
+        staticMesh.updateStaticTransforms(world: world, entities: entities)
+    }
+
+    public func updateDynamicTransforms(world: World, entities: [Entity]) {
+        staticMesh.updateDynamicTransforms(world: world, entities: entities)
+    }
+
     public func raycast(origin: SIMD3<Float>,
                         direction: SIMD3<Float>,
                         maxDistance: Float) -> RaycastHit? {
@@ -85,166 +93,424 @@ public struct CollisionQueryStats {
 }
 
 public struct StaticTriMesh {
-    private static let maxCandidateTriangles: Int = 8192
-    private static let coarseGridScale: Int = 4
-    private static let fineCellThreshold: Int64 = 4096
+    private static let leafTriangleLimit: Int = 4
 
     public struct AABB {
         public var min: SIMD3<Float>
         public var max: SIMD3<Float>
     }
 
-    private struct CellCoord: Hashable {
-        let x: Int
-        let y: Int
-        let z: Int
+    private struct MeshSlice {
+        let entity: Entity
+        let vertexRange: Range<Int>
+        let indexRange: Range<Int>
+        let triangleRange: Range<Int>
     }
 
-    private struct UniformGrid {
-        let origin: SIMD3<Float>
-        let cellSize: Float
-        let bounds: AABB
-        let cells: [CellCoord: [Int]]
+    private struct BVHNode {
+        var bounds: AABB
+        var left: Int
+        var right: Int
+        var start: Int
+        var count: Int
+        var parent: Int
     }
 
-    public private(set) var positions: [SIMD3<Float>]
-    public private(set) var indices: [UInt32]
-    public private(set) var triangleAABBs: [AABB]
-    public private(set) var triangleMaterials: [SurfaceMaterial]
-    public private(set) var stats: CollisionQueryStats = CollisionQueryStats()
-    private let grid: UniformGrid?
-    private let coarseGrid: UniformGrid?
+    private struct BVH {
+        var nodes: [BVHNode]
+        var triOrder: [Int]
+        var triLeaf: [Int]
+        var root: Int
 
-    public init(world: World) {
-        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
-        let tStore = world.store(TransformComponent.self)
-        let mStore = world.store(StaticMeshComponent.self)
+        init(triangleAABBs: [AABB]) {
+            self.nodes = []
+            self.triOrder = Array(0..<triangleAABBs.count)
+            self.triLeaf = Array(repeating: -1, count: triangleAABBs.count)
+            self.root = -1
+            if !triangleAABBs.isEmpty {
+                self.root = build(triangleAABBs: triangleAABBs,
+                                  start: 0,
+                                  count: triangleAABBs.count,
+                                  parent: -1)
+            }
+        }
 
+        mutating func rebuild(triangleAABBs: [AABB]) {
+            nodes.removeAll(keepingCapacity: true)
+            triOrder = Array(0..<triangleAABBs.count)
+            triLeaf = Array(repeating: -1, count: triangleAABBs.count)
+            root = -1
+            if !triangleAABBs.isEmpty {
+                root = build(triangleAABBs: triangleAABBs,
+                             start: 0,
+                             count: triangleAABBs.count,
+                             parent: -1)
+            }
+        }
+
+        mutating func refit(updatedTriangles: [Int], triangleAABBs: [AABB]) {
+            guard !nodes.isEmpty else { return }
+            var updatedLeaves = Set<Int>()
+            for tri in updatedTriangles {
+                let leaf = triLeaf[tri]
+                if leaf >= 0 {
+                    updatedLeaves.insert(leaf)
+                }
+            }
+            for leaf in updatedLeaves {
+                let node = nodes[leaf]
+                let bounds = boundsForRange(triangleAABBs: triangleAABBs,
+                                            start: node.start,
+                                            count: node.count)
+                nodes[leaf].bounds = bounds
+            }
+            for leaf in updatedLeaves {
+                var parent = nodes[leaf].parent
+                while parent >= 0 {
+                    let left = nodes[parent].left
+                    let right = nodes[parent].right
+                    nodes[parent].bounds = merge(nodes[left].bounds, nodes[right].bounds)
+                    parent = nodes[parent].parent
+                }
+            }
+        }
+
+        private mutating func build(triangleAABBs: [AABB],
+                                    start: Int,
+                                    count: Int,
+                                    parent: Int) -> Int {
+            let nodeIndex = nodes.count
+            let bounds = boundsForRange(triangleAABBs: triangleAABBs, start: start, count: count)
+            nodes.append(BVHNode(bounds: bounds,
+                                 left: -1,
+                                 right: -1,
+                                 start: start,
+                                 count: count,
+                                 parent: parent))
+            if count <= StaticTriMesh.leafTriangleLimit {
+                for i in 0..<count {
+                    let tri = triOrder[start + i]
+                    triLeaf[tri] = nodeIndex
+                }
+                return nodeIndex
+            }
+
+            let centroidBounds = centroidBoundsForRange(triangleAABBs: triangleAABBs,
+                                                        start: start,
+                                                        count: count)
+            let extent = centroidBounds.max - centroidBounds.min
+            let axis: Int
+            if extent.x >= extent.y && extent.x >= extent.z {
+                axis = 0
+            } else if extent.y >= extent.z {
+                axis = 1
+            } else {
+                axis = 2
+            }
+
+            var slice = Array(triOrder[start..<start + count])
+            slice.sort { a, b in
+                let ca = centroid(triangleAABBs[a])
+                let cb = centroid(triangleAABBs[b])
+                switch axis {
+                case 0: return ca.x < cb.x
+                case 1: return ca.y < cb.y
+                default: return ca.z < cb.z
+                }
+            }
+            for i in 0..<count {
+                triOrder[start + i] = slice[i]
+            }
+
+            let mid = start + count / 2
+            let left = build(triangleAABBs: triangleAABBs,
+                             start: start,
+                             count: mid - start,
+                             parent: nodeIndex)
+            let right = build(triangleAABBs: triangleAABBs,
+                              start: mid,
+                              count: start + count - mid,
+                              parent: nodeIndex)
+            nodes[nodeIndex].left = left
+            nodes[nodeIndex].right = right
+            nodes[nodeIndex].start = 0
+            nodes[nodeIndex].count = 0
+            nodes[nodeIndex].bounds = merge(nodes[left].bounds, nodes[right].bounds)
+            return nodeIndex
+        }
+
+        private func boundsForRange(triangleAABBs: [AABB], start: Int, count: Int) -> AABB {
+            let first = triangleAABBs[triOrder[start]]
+            var bmin = first.min
+            var bmax = first.max
+            if count > 1 {
+                for i in 1..<count {
+                    let bounds = triangleAABBs[triOrder[start + i]]
+                    bmin = simd_min(bmin, bounds.min)
+                    bmax = simd_max(bmax, bounds.max)
+                }
+            }
+            return AABB(min: bmin, max: bmax)
+        }
+
+        private func centroidBoundsForRange(triangleAABBs: [AABB], start: Int, count: Int) -> AABB {
+            let first = centroid(triangleAABBs[triOrder[start]])
+            var bmin = first
+            var bmax = first
+            if count > 1 {
+                for i in 1..<count {
+                    let c = centroid(triangleAABBs[triOrder[start + i]])
+                    bmin = simd_min(bmin, c)
+                    bmax = simd_max(bmax, c)
+                }
+            }
+            return AABB(min: bmin, max: bmax)
+        }
+
+        private func centroid(_ bounds: AABB) -> SIMD3<Float> {
+            (bounds.min + bounds.max) * 0.5
+        }
+
+        private func merge(_ a: AABB, _ b: AABB) -> AABB {
+            AABB(min: simd_min(a.min, b.min), max: simd_max(a.max, b.max))
+        }
+    }
+
+    private struct TriangleMeshSet {
         var positions: [SIMD3<Float>] = []
         var indices: [UInt32] = []
         var triangleAABBs: [AABB] = []
         var triangleMaterials: [SurfaceMaterial] = []
+        var slices: [Entity: MeshSlice] = [:]
+        var bvh: BVH? = nil
 
-        for e in entities {
-            guard let t = tStore[e], let m = mStore[e] else { continue }
-            let collisionMesh = m.collisionMesh ?? m.mesh
-            let baseIndex = UInt32(positions.count)
-            let localPositions = collisionMesh.streams.positions
-            positions.reserveCapacity(positions.count + localPositions.count)
-            for pLocal in localPositions {
-                let p = SIMD4<Float>(pLocal.x, pLocal.y, pLocal.z, 1)
-                let wp = simd_mul(t.modelMatrix, p)
-                positions.append(SIMD3<Float>(wp.x, wp.y, wp.z))
-            }
+        var hasTriangles: Bool { !triangleAABBs.isEmpty }
 
-            let localIndices: [UInt32]
-            if let i16 = collisionMesh.indices16 {
-                localIndices = i16.map { UInt32($0) }
-            } else if let i32 = collisionMesh.indices32 {
-                localIndices = i32
-            } else {
-                localIndices = []
-            }
+        mutating func rebuild(entities: [Entity],
+                              tStore: ComponentStore<TransformComponent>,
+                              mStore: ComponentStore<StaticMeshComponent>) {
+            positions.removeAll(keepingCapacity: true)
+            indices.removeAll(keepingCapacity: true)
+            triangleAABBs.removeAll(keepingCapacity: true)
+            triangleMaterials.removeAll(keepingCapacity: true)
+            slices.removeAll(keepingCapacity: true)
 
-            let triCount = localIndices.count / 3
-            let triSource: [SurfaceMaterial]
-            if let perTri = m.triangleMaterials, perTri.count == triCount {
-                triSource = perTri
-            } else {
-                triSource = Array(repeating: m.material, count: triCount)
-            }
-            var tri = 0
-            var triLocal = 0
             let areaEps: Float = 1e-10
-            while tri + 2 < localIndices.count {
-                let i0 = Int(baseIndex + localIndices[tri])
-                let i1 = Int(baseIndex + localIndices[tri + 1])
-                let i2 = Int(baseIndex + localIndices[tri + 2])
-                let p0 = positions[i0]
-                let p1 = positions[i1]
-                let p2 = positions[i2]
-                let e1 = p1 - p0
-                let e2 = p2 - p0
-                if simd_length_squared(simd_cross(e1, e2)) <= areaEps {
+            for e in entities {
+                guard let t = tStore[e], let m = mStore[e] else { continue }
+                let collisionMesh = m.collisionMesh ?? m.mesh
+                let baseVertex = positions.count
+                let localPositions = collisionMesh.streams.positions
+                positions.reserveCapacity(positions.count + localPositions.count)
+                for pLocal in localPositions {
+                    let p = SIMD4<Float>(pLocal.x, pLocal.y, pLocal.z, 1)
+                    let wp = simd_mul(t.modelMatrix, p)
+                    positions.append(SIMD3<Float>(wp.x, wp.y, wp.z))
+                }
+
+                let localIndices: [UInt32]
+                if let i16 = collisionMesh.indices16 {
+                    localIndices = i16.map { UInt32($0) }
+                } else if let i32 = collisionMesh.indices32 {
+                    localIndices = i32
+                } else {
+                    localIndices = []
+                }
+
+                let triCount = localIndices.count / 3
+                let triSource: [SurfaceMaterial]
+                if let perTri = m.triangleMaterials, perTri.count == triCount {
+                    triSource = perTri
+                } else {
+                    triSource = Array(repeating: m.material, count: triCount)
+                }
+
+                let indexStart = indices.count
+                let triStart = triangleAABBs.count
+                var tri = 0
+                var triLocal = 0
+                while tri + 2 < localIndices.count {
+                    let i0 = Int(UInt32(baseVertex) + localIndices[tri])
+                    let i1 = Int(UInt32(baseVertex) + localIndices[tri + 1])
+                    let i2 = Int(UInt32(baseVertex) + localIndices[tri + 2])
+                    let p0 = positions[i0]
+                    let p1 = positions[i1]
+                    let p2 = positions[i2]
+                    let e1 = p1 - p0
+                    let e2 = p2 - p0
+                    if simd_length_squared(simd_cross(e1, e2)) <= areaEps {
+                        tri += 3
+                        triLocal += 1
+                        continue
+                    }
+                    indices.append(UInt32(i0))
+                    indices.append(UInt32(i1))
+                    indices.append(UInt32(i2))
+                    let minP = simd_min(p0, simd_min(p1, p2))
+                    let maxP = simd_max(p0, simd_max(p1, p2))
+                    triangleAABBs.append(AABB(min: minP, max: maxP))
+                    triangleMaterials.append(triSource[triLocal])
                     tri += 3
                     triLocal += 1
-                    continue
                 }
-                indices.append(UInt32(i0))
-                indices.append(UInt32(i1))
-                indices.append(UInt32(i2))
-                let minP = simd_min(p0, simd_min(p1, p2))
-                let maxP = simd_max(p0, simd_max(p1, p2))
-                triangleAABBs.append(AABB(min: minP, max: maxP))
-                triangleMaterials.append(triSource[triLocal])
-                tri += 3
-                triLocal += 1
+
+                let indexEnd = indices.count
+                let triEnd = triangleAABBs.count
+                if indexEnd > indexStart && triEnd > triStart {
+                    slices[e] = MeshSlice(entity: e,
+                                          vertexRange: baseVertex..<positions.count,
+                                          indexRange: indexStart..<indexEnd,
+                                          triangleRange: triStart..<triEnd)
+                }
+            }
+
+            if triangleAABBs.isEmpty {
+                bvh = nil
+            } else {
+                bvh = BVH(triangleAABBs: triangleAABBs)
             }
         }
 
-        self.positions = positions
-        self.indices = indices
-        self.triangleAABBs = triangleAABBs
-        self.triangleMaterials = triangleMaterials
-        let cellSize: Float = 2.0
-        self.grid = StaticTriMesh.buildGrid(positions: positions,
-                                            triangleAABBs: triangleAABBs,
-                                            cellSize: cellSize)
-        let coarseCellSize = cellSize * Float(StaticTriMesh.coarseGridScale)
-        self.coarseGrid = StaticTriMesh.buildGrid(positions: positions,
-                                                  triangleAABBs: triangleAABBs,
-                                                  cellSize: coarseCellSize)
+        mutating func updateTransforms(entities: [Entity],
+                                       tStore: ComponentStore<TransformComponent>,
+                                       mStore: ComponentStore<StaticMeshComponent>) -> [Int] {
+            guard !entities.isEmpty, !triangleAABBs.isEmpty else { return [] }
+            var updatedTriangles: [Int] = []
+            updatedTriangles.reserveCapacity(entities.count * 16)
+
+            for e in entities {
+                guard let slice = slices[e], let t = tStore[e], let m = mStore[e] else { continue }
+                let collisionMesh = m.collisionMesh ?? m.mesh
+                let localPositions = collisionMesh.streams.positions
+                if localPositions.count != slice.vertexRange.count {
+                    continue
+                }
+                for i in 0..<localPositions.count {
+                    let pLocal = localPositions[i]
+                    let p = SIMD4<Float>(pLocal.x, pLocal.y, pLocal.z, 1)
+                    let wp = simd_mul(t.modelMatrix, p)
+                    positions[slice.vertexRange.lowerBound + i] = SIMD3<Float>(wp.x, wp.y, wp.z)
+                }
+
+                var triIndex = slice.triangleRange.lowerBound
+                var i = slice.indexRange.lowerBound
+                while i + 2 < slice.indexRange.upperBound {
+                    let i0 = Int(indices[i])
+                    let i1 = Int(indices[i + 1])
+                    let i2 = Int(indices[i + 2])
+                    let p0 = positions[i0]
+                    let p1 = positions[i1]
+                    let p2 = positions[i2]
+                    let minP = simd_min(p0, simd_min(p1, p2))
+                    let maxP = simd_max(p0, simd_max(p1, p2))
+                    triangleAABBs[triIndex] = AABB(min: minP, max: maxP)
+                    updatedTriangles.append(triIndex)
+                    i += 3
+                    triIndex += 1
+                }
+            }
+
+            if !updatedTriangles.isEmpty {
+                bvh?.refit(updatedTriangles: updatedTriangles, triangleAABBs: triangleAABBs)
+            }
+            return updatedTriangles
+        }
+
+        func materialForTriangle(_ triangleIndex: Int) -> SurfaceMaterial {
+            if triangleIndex >= 0 && triangleIndex < triangleMaterials.count {
+                return triangleMaterials[triangleIndex]
+            }
+            return .default
+        }
+    }
+
+    public private(set) var stats: CollisionQueryStats = CollisionQueryStats()
+    private var staticSet: TriangleMeshSet = TriangleMeshSet()
+    private var dynamicSet: TriangleMeshSet = TriangleMeshSet()
+
+    public init(world: World) {
+        let tStore = world.store(TransformComponent.self)
+        let mStore = world.store(StaticMeshComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+        let (staticEntities, dynamicEntities) = StaticTriMesh.partitionEntities(entities: entities,
+                                                                               pStore: pStore)
+        staticSet.rebuild(entities: staticEntities, tStore: tStore, mStore: mStore)
+        dynamicSet.rebuild(entities: dynamicEntities, tStore: tStore, mStore: mStore)
+    }
+
+    public mutating func resetStats() {
+        stats = CollisionQueryStats()
+    }
+
+    public mutating func rebuildStatic(world: World) {
+        let tStore = world.store(TransformComponent.self)
+        let mStore = world.store(StaticMeshComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+        let (staticEntities, _) = StaticTriMesh.partitionEntities(entities: entities, pStore: pStore)
+        staticSet.rebuild(entities: staticEntities, tStore: tStore, mStore: mStore)
+    }
+
+    public mutating func rebuildDynamic(world: World) {
+        let tStore = world.store(TransformComponent.self)
+        let mStore = world.store(StaticMeshComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+        let (_, dynamicEntities) = StaticTriMesh.partitionEntities(entities: entities, pStore: pStore)
+        dynamicSet.rebuild(entities: dynamicEntities, tStore: tStore, mStore: mStore)
+    }
+
+    public mutating func updateStaticTransforms(world: World, entities: [Entity]) {
+        let tStore = world.store(TransformComponent.self)
+        let mStore = world.store(StaticMeshComponent.self)
+        _ = staticSet.updateTransforms(entities: entities, tStore: tStore, mStore: mStore)
+    }
+
+    public mutating func updateDynamicTransforms(world: World, entities: [Entity]) {
+        let tStore = world.store(TransformComponent.self)
+        let mStore = world.store(StaticMeshComponent.self)
+        _ = dynamicSet.updateTransforms(entities: entities, tStore: tStore, mStore: mStore)
     }
 
     public func raycast(origin: SIMD3<Float>,
                         direction: SIMD3<Float>,
                         maxDistance: Float) -> RaycastHit? {
-        if let grid {
-            return raycastGrid(origin: origin, direction: direction, maxDistance: maxDistance, grid: grid)
-        }
-        return raycastBrute(origin: origin, direction: direction, maxDistance: maxDistance)
+        let staticHit = raycastBVH(origin: origin,
+                                   direction: direction,
+                                   maxDistance: maxDistance,
+                                   set: staticSet,
+                                   triangleIndexOffset: 0)
+        let dynamicHit = raycastBVH(origin: origin,
+                                    direction: direction,
+                                    maxDistance: maxDistance,
+                                    set: dynamicSet,
+                                    triangleIndexOffset: staticSet.triangleAABBs.count)
+        return chooseNearest(staticHit, dynamicHit)
     }
 
     public mutating func capsuleCast(from: SIMD3<Float>,
                                      delta: SIMD3<Float>,
                                      radius: Float,
                                      halfHeight: Float) -> CapsuleCastHit? {
-        if let grid {
-            return capsuleCastGrid(from: from,
-                                   delta: delta,
-                                   radius: radius,
-                                   halfHeight: halfHeight,
-                                   grid: grid,
-                                   coarseGrid: coarseGrid,
-                                   blockingOnly: false,
-                                   minNormalY: nil)
-        }
-        return capsuleCastApprox(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
+        capsuleCastCombined(from: from,
+                            delta: delta,
+                            radius: radius,
+                            halfHeight: halfHeight,
+                            blockingOnly: false,
+                            minNormalY: nil)
     }
 
     public mutating func capsuleCastBlocking(from: SIMD3<Float>,
                                              delta: SIMD3<Float>,
                                              radius: Float,
                                              halfHeight: Float) -> CapsuleCastHit? {
-        if let grid {
-            return capsuleCastGrid(from: from,
-                                   delta: delta,
-                                   radius: radius,
-                                   halfHeight: halfHeight,
-                                   grid: grid,
-                                   coarseGrid: coarseGrid,
-                                   blockingOnly: true,
-                                   minNormalY: nil)
-        }
-        if let hit = capsuleCastApprox(from: from, delta: delta, radius: radius, halfHeight: halfHeight),
-           simd_dot(delta, hit.normal) < 0 {
-            return hit
-        }
-        return nil
-    }
-
-    public mutating func resetStats() {
-        stats = CollisionQueryStats()
+        capsuleCastCombined(from: from,
+                            delta: delta,
+                            radius: radius,
+                            halfHeight: halfHeight,
+                            blockingOnly: true,
+                            minNormalY: nil)
     }
 
     public mutating func capsuleCastGround(from: SIMD3<Float>,
@@ -252,281 +518,146 @@ public struct StaticTriMesh {
                                            radius: Float,
                                            halfHeight: Float,
                                            minNormalY: Float) -> CapsuleCastHit? {
-        if let grid {
-            return capsuleCastGrid(from: from,
-                                   delta: delta,
-                                   radius: radius,
-                                   halfHeight: halfHeight,
-                                   grid: grid,
-                                   coarseGrid: coarseGrid,
-                                   blockingOnly: false,
-                                   minNormalY: minNormalY)
-        }
-        if let hit = capsuleCastApprox(from: from, delta: delta, radius: radius, halfHeight: halfHeight),
-           hit.triangleNormal.y >= minNormalY {
-            return hit
-        }
-        return nil
-    }
-
-    public func capsuleCastApprox(from: SIMD3<Float>,
-                                  delta: SIMD3<Float>,
-                                  radius: Float,
-                                  halfHeight: Float) -> CapsuleCastHit? {
-        let len = simd_length(delta)
-        if len < 1e-6 { return nil }
-        let dir = delta / len
-
-        var bestHit: CapsuleCastHit?
-        var bestT = len
-        var triIndex = 0
-        var i = 0
-        while i + 2 < indices.count {
-            let v0 = positions[Int(indices[i])]
-            let v1 = positions[Int(indices[i + 1])]
-            let v2 = positions[Int(indices[i + 2])]
-            var iterCount = 0
-            if let hit = sweepCapsuleTriangle(from: from,
-                                              dir: dir,
-                                              maxDistance: len,
-                                              radius: radius,
-                                              halfHeight: halfHeight,
-                                              v0: v0,
-                                              v1: v1,
-                                              v2: v2,
-                                              triangleIndex: triIndex,
-                                              iterations: &iterCount),
-               hit.toi < bestT {
-                bestT = hit.toi
-                bestHit = hit
-            }
-            i += 3
-            triIndex += 1
-        }
-
-        return bestHit
+        capsuleCastCombined(from: from,
+                            delta: delta,
+                            radius: radius,
+                            halfHeight: halfHeight,
+                            blockingOnly: false,
+                            minNormalY: minNormalY)
     }
 }
 
 private extension StaticTriMesh {
-    func materialForTriangle(_ triangleIndex: Int) -> SurfaceMaterial {
-        if triangleIndex >= 0 && triangleIndex < triangleMaterials.count {
-            return triangleMaterials[triangleIndex]
-        }
-        return .default
-    }
-
-    private static func buildGrid(positions: [SIMD3<Float>],
-                                  triangleAABBs: [AABB],
-                                  cellSize: Float) -> UniformGrid? {
-        guard !positions.isEmpty, !triangleAABBs.isEmpty else { return nil }
-        var minP = positions[0]
-        var maxP = positions[0]
-        for p in positions.dropFirst() {
-            minP = simd_min(minP, p)
-            maxP = simd_max(maxP, p)
-        }
-        let bounds = AABB(min: minP, max: maxP)
-        let origin = bounds.min
-
-        var cells: [CellCoord: [Int]] = [:]
-        cells.reserveCapacity(triangleAABBs.count)
-
-        for (triIndex, triBounds) in triangleAABBs.enumerated() {
-            let minCell = cellCoord(position: triBounds.min, origin: origin, cellSize: cellSize)
-            let maxCell = cellCoord(position: triBounds.max, origin: origin, cellSize: cellSize)
-            for z in minCell.z...maxCell.z {
-                for y in minCell.y...maxCell.y {
-                    for x in minCell.x...maxCell.x {
-                        let key = CellCoord(x: x, y: y, z: z)
-                        cells[key, default: []].append(triIndex)
-                    }
-                }
+    static func partitionEntities(entities: [Entity],
+                                  pStore: ComponentStore<PhysicsBodyComponent>) -> ([Entity], [Entity]) {
+        var statics: [Entity] = []
+        var dynamics: [Entity] = []
+        statics.reserveCapacity(entities.count)
+        dynamics.reserveCapacity(entities.count)
+        for e in entities {
+            if let body = pStore[e], body.bodyType != .static {
+                dynamics.append(e)
+            } else {
+                statics.append(e)
             }
         }
-
-        return UniformGrid(origin: origin, cellSize: cellSize, bounds: bounds, cells: cells)
+        return (statics, dynamics)
     }
 
-    private static func cellCoord(position: SIMD3<Float>, origin: SIMD3<Float>, cellSize: Float) -> CellCoord {
-        let rel = (position - origin) / cellSize
-        return CellCoord(x: Int(floor(rel.x)),
-                         y: Int(floor(rel.y)),
-                         z: Int(floor(rel.z)))
+    func chooseNearest(_ a: RaycastHit?, _ b: RaycastHit?) -> RaycastHit? {
+        if let a = a, let b = b {
+            return a.distance <= b.distance ? a : b
+        }
+        return a ?? b
     }
 
-    func raycastBrute(origin: SIMD3<Float>,
-                      direction: SIMD3<Float>,
-                      maxDistance: Float) -> RaycastHit? {
+    func chooseNearest(_ a: CapsuleCastHit?, _ b: CapsuleCastHit?) -> CapsuleCastHit? {
+        if let a = a, let b = b {
+            return a.toi <= b.toi ? a : b
+        }
+        return a ?? b
+    }
+
+    private func raycastBVH(origin: SIMD3<Float>,
+                            direction: SIMD3<Float>,
+                            maxDistance: Float,
+                            set: TriangleMeshSet,
+                            triangleIndexOffset: Int) -> RaycastHit? {
+        guard let bvh = set.bvh, bvh.root >= 0 else { return nil }
         let eps: Float = 1e-6
         var closestT = maxDistance
         var hit: RaycastHit?
+        var stack: [Int] = [bvh.root]
 
-        var triIndex = 0
-        var i = 0
-        while i + 2 < indices.count {
-            let i0 = Int(indices[i])
-            let i1 = Int(indices[i + 1])
-            let i2 = Int(indices[i + 2])
-
-            let v0 = positions[i0]
-            let v1 = positions[i1]
-            let v2 = positions[i2]
-
-            if let t = rayTriangle(origin: origin,
-                                   direction: direction,
-                                   v0: v0,
-                                   v1: v1,
-                                   v2: v2,
-                                   eps: eps),
-               t < closestT {
-                let n = simd_normalize(simd_cross(v1 - v0, v2 - v0))
-                let normal = simd_dot(n, direction) > 0 ? -n : n
-                let position = origin + direction * t
-                closestT = t
-                hit = RaycastHit(distance: t,
-                                 position: position,
-                                 normal: normal,
-                                 triangleIndex: triIndex,
-                                 material: materialForTriangle(triIndex))
+        while let nodeIndex = stack.popLast() {
+            let node = bvh.nodes[nodeIndex]
+            guard let range = rayAABB(origin: origin, direction: direction, bounds: node.bounds) else {
+                continue
+            }
+            if range.0 > closestT {
+                continue
             }
 
-            i += 3
-            triIndex += 1
-        }
-
-        return hit
-    }
-
-    private func raycastGrid(origin: SIMD3<Float>,
-                             direction: SIMD3<Float>,
-                             maxDistance: Float,
-                             grid: UniformGrid) -> RaycastHit? {
-        guard let range = rayAABB(origin: origin, direction: direction, bounds: grid.bounds) else {
-            return nil
-        }
-        let tEnter = max(range.0, 0)
-        let tExit = min(range.1, maxDistance)
-        if tExit < tEnter { return nil }
-
-        let startPos = origin + direction * tEnter
-        var cell = StaticTriMesh.cellCoord(position: startPos, origin: grid.origin, cellSize: grid.cellSize)
-
-        let dir = direction
-        let stepX = dir.x >= 0 ? 1 : -1
-        let stepY = dir.y >= 0 ? 1 : -1
-        let stepZ = dir.z >= 0 ? 1 : -1
-
-        let cellSize = grid.cellSize
-        let originGrid = grid.origin
-
-        func boundary(_ c: Int, _ step: Int, _ axisOrigin: Float) -> Float {
-            let edge = step > 0 ? Float(c + 1) : Float(c)
-            return axisOrigin + edge * cellSize
-        }
-
-        var tMaxX = dir.x == 0 ? Float.greatestFiniteMagnitude :
-            (boundary(cell.x, stepX, originGrid.x) - origin.x) / dir.x
-        var tMaxY = dir.y == 0 ? Float.greatestFiniteMagnitude :
-            (boundary(cell.y, stepY, originGrid.y) - origin.y) / dir.y
-        var tMaxZ = dir.z == 0 ? Float.greatestFiniteMagnitude :
-            (boundary(cell.z, stepZ, originGrid.z) - origin.z) / dir.z
-
-        let tDeltaX = dir.x == 0 ? Float.greatestFiniteMagnitude : cellSize / abs(dir.x)
-        let tDeltaY = dir.y == 0 ? Float.greatestFiniteMagnitude : cellSize / abs(dir.y)
-        let tDeltaZ = dir.z == 0 ? Float.greatestFiniteMagnitude : cellSize / abs(dir.z)
-
-        let eps: Float = 1e-6
-        var closestT = maxDistance
-        var hit: RaycastHit?
-        var visited = Set<Int>()
-
-        var t = tEnter
-        while t <= tExit && t <= closestT {
-            if let tris = grid.cells[cell] {
-                for triIndex in tris {
-                    if visited.contains(triIndex) { continue }
-                    visited.insert(triIndex)
-
+            if node.left < 0 {
+                let start = node.start
+                let end = start + node.count
+                for i in start..<end {
+                    let triIndex = bvh.triOrder[i]
                     let base = triIndex * 3
-                    let i0 = Int(indices[base])
-                    let i1 = Int(indices[base + 1])
-                    let i2 = Int(indices[base + 2])
-                    let v0 = positions[i0]
-                    let v1 = positions[i1]
-                    let v2 = positions[i2]
-
-                    if let tHit = rayTriangle(origin: origin,
-                                              direction: direction,
-                                              v0: v0,
-                                              v1: v1,
-                                              v2: v2,
-                                              eps: eps),
-                       tHit < closestT {
+                    if base + 2 >= set.indices.count { continue }
+                    let i0 = Int(set.indices[base])
+                    let i1 = Int(set.indices[base + 1])
+                    let i2 = Int(set.indices[base + 2])
+                    let v0 = set.positions[i0]
+                    let v1 = set.positions[i1]
+                    let v2 = set.positions[i2]
+                    if let t = rayTriangle(origin: origin,
+                                           direction: direction,
+                                           v0: v0,
+                                           v1: v1,
+                                           v2: v2,
+                                           eps: eps),
+                       t < closestT {
                         let n = simd_normalize(simd_cross(v1 - v0, v2 - v0))
                         let normal = simd_dot(n, direction) > 0 ? -n : n
-                        let position = origin + direction * tHit
-                        closestT = tHit
-                        hit = RaycastHit(distance: tHit,
+                        let position = origin + direction * t
+                        closestT = t
+                        hit = RaycastHit(distance: t,
                                          position: position,
                                          normal: normal,
-                                         triangleIndex: triIndex,
-                                         material: materialForTriangle(triIndex))
+                                         triangleIndex: triIndex + triangleIndexOffset,
+                                         material: set.materialForTriangle(triIndex))
                     }
                 }
-            }
-
-            let nextT = min(tMaxX, min(tMaxY, tMaxZ))
-            if closestT <= nextT {
-                break
-            }
-
-            if tMaxX < tMaxY {
-                if tMaxX < tMaxZ {
-                    cell = CellCoord(x: cell.x + stepX, y: cell.y, z: cell.z)
-                    t = tMaxX
-                    tMaxX += tDeltaX
-                } else {
-                    cell = CellCoord(x: cell.x, y: cell.y, z: cell.z + stepZ)
-                    t = tMaxZ
-                    tMaxZ += tDeltaZ
-                }
             } else {
-                if tMaxY < tMaxZ {
-                    cell = CellCoord(x: cell.x, y: cell.y + stepY, z: cell.z)
-                    t = tMaxY
-                    tMaxY += tDeltaY
-                } else {
-                    cell = CellCoord(x: cell.x, y: cell.y, z: cell.z + stepZ)
-                    t = tMaxZ
-                    tMaxZ += tDeltaZ
-                }
+                stack.append(node.left)
+                stack.append(node.right)
             }
         }
 
         return hit
     }
 
-    private mutating func capsuleCastGrid(from: SIMD3<Float>,
-                                          delta: SIMD3<Float>,
-                                          radius: Float,
-                                          halfHeight: Float,
-                                          grid: UniformGrid,
-                                          coarseGrid: UniformGrid?,
-                                          blockingOnly: Bool,
-                                          minNormalY: Float?) -> CapsuleCastHit? {
+    private mutating func capsuleCastCombined(from: SIMD3<Float>,
+                                              delta: SIMD3<Float>,
+                                              radius: Float,
+                                              halfHeight: Float,
+                                              blockingOnly: Bool,
+                                              minNormalY: Float?) -> CapsuleCastHit? {
+        let len = simd_length(delta)
+        if len < 1e-6 { return nil }
+        resetStats()
+        let staticHit = capsuleCastBVH(from: from,
+                                       delta: delta,
+                                       radius: radius,
+                                       halfHeight: halfHeight,
+                                       set: staticSet,
+                                       triangleIndexOffset: 0,
+                                       blockingOnly: blockingOnly,
+                                       minNormalY: minNormalY)
+        let dynamicHit = capsuleCastBVH(from: from,
+                                        delta: delta,
+                                        radius: radius,
+                                        halfHeight: halfHeight,
+                                        set: dynamicSet,
+                                        triangleIndexOffset: staticSet.triangleAABBs.count,
+                                        blockingOnly: blockingOnly,
+                                        minNormalY: minNormalY)
+        return chooseNearest(staticHit, dynamicHit)
+    }
+
+    private mutating func capsuleCastBVH(from: SIMD3<Float>,
+                                         delta: SIMD3<Float>,
+                                         radius: Float,
+                                         halfHeight: Float,
+                                         set: TriangleMeshSet,
+                                         triangleIndexOffset: Int,
+                                         blockingOnly: Bool,
+                                         minNormalY: Float?) -> CapsuleCastHit? {
+        guard let bvh = set.bvh, bvh.root >= 0 else { return nil }
         let len = simd_length(delta)
         if len < 1e-6 { return nil }
         let dir = delta / len
-        stats.capsuleSweepCount = 0
-        stats.capsuleSweepIterations = 0
-        stats.capsuleSweepMaxIterations = 0
-        stats.capsuleCandidateCount = 0
-        stats.capsuleCandidatesClamped = false
-        stats.capsuleUsedCoarseGrid = false
-        stats.capsuleCellCount = 0
-        stats.capsuleCellMin = SIMD3<Int>(0, 0, 0)
-        stats.capsuleCellMax = SIMD3<Int>(0, 0, 0)
 
         let up = SIMD3<Float>(0, 1, 0)
         let a0 = from + up * halfHeight
@@ -540,142 +671,82 @@ private extension StaticTriMesh {
         minP -= ext
         maxP += ext
 
-        if maxP.x < grid.bounds.min.x || minP.x > grid.bounds.max.x ||
-            maxP.y < grid.bounds.min.y || minP.y > grid.bounds.max.y ||
-            maxP.z < grid.bounds.min.z || minP.z > grid.bounds.max.z {
-            return nil
-        }
-
-        let clampedMin = simd_max(minP, grid.bounds.min)
-        let clampedMax = simd_min(maxP, grid.bounds.max)
-
-        let minCell = StaticTriMesh.cellCoord(position: clampedMin, origin: grid.origin, cellSize: grid.cellSize)
-        let maxCell = StaticTriMesh.cellCoord(position: clampedMax, origin: grid.origin, cellSize: grid.cellSize)
-        let dx = Int64(maxCell.x - minCell.x + 1)
-        let dy = Int64(maxCell.y - minCell.y + 1)
-        let dz = Int64(maxCell.z - minCell.z + 1)
-        let fineCellCount = max(0, dx) * max(0, dy) * max(0, dz)
-        let useCoarse = coarseGrid != nil && fineCellCount > StaticTriMesh.fineCellThreshold
-        stats.capsuleUsedCoarseGrid = useCoarse
-
-        var candidates = Set<Int>()
-        var clamped = false
-        let maxCandidates = StaticTriMesh.maxCandidateTriangles
-        if useCoarse, let coarseGrid {
-            let coarseMinCell = StaticTriMesh.cellCoord(position: clampedMin,
-                                                        origin: coarseGrid.origin,
-                                                        cellSize: coarseGrid.cellSize)
-            let coarseMaxCell = StaticTriMesh.cellCoord(position: clampedMax,
-                                                        origin: coarseGrid.origin,
-                                                        cellSize: coarseGrid.cellSize)
-            stats.capsuleCellMin = SIMD3<Int>(coarseMinCell.x, coarseMinCell.y, coarseMinCell.z)
-            stats.capsuleCellMax = SIMD3<Int>(coarseMaxCell.x, coarseMaxCell.y, coarseMaxCell.z)
-            let cdx = Int64(coarseMaxCell.x - coarseMinCell.x + 1)
-            let cdy = Int64(coarseMaxCell.y - coarseMinCell.y + 1)
-            let cdz = Int64(coarseMaxCell.z - coarseMinCell.z + 1)
-            stats.capsuleCellCount = max(0, cdx) * max(0, cdy) * max(0, cdz)
-            candidateLoop: for z in coarseMinCell.z...coarseMaxCell.z {
-                for y in coarseMinCell.y...coarseMaxCell.y {
-                    for x in coarseMinCell.x...coarseMaxCell.x {
-                        let key = CellCoord(x: x, y: y, z: z)
-                        if let tris = coarseGrid.cells[key] {
-                            for tri in tris {
-                                candidates.insert(tri)
-                                if candidates.count >= maxCandidates {
-                                    clamped = true
-                                    break candidateLoop
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        } else {
-            stats.capsuleCellMin = SIMD3<Int>(minCell.x, minCell.y, minCell.z)
-            stats.capsuleCellMax = SIMD3<Int>(maxCell.x, maxCell.y, maxCell.z)
-            stats.capsuleCellCount = fineCellCount
-            candidateLoop: for z in minCell.z...maxCell.z {
-                for y in minCell.y...maxCell.y {
-                    for x in minCell.x...maxCell.x {
-                        let key = CellCoord(x: x, y: y, z: z)
-                        if let tris = grid.cells[key] {
-                            for tri in tris {
-                                candidates.insert(tri)
-                                if candidates.count >= maxCandidates {
-                                    clamped = true
-                                    break candidateLoop
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        stats.capsuleCandidateCount = candidates.count
-        stats.capsuleCandidatesClamped = clamped
-        if candidates.isEmpty {
-            stats.capsuleSweepCount = 0
-            stats.capsuleSweepIterations = 0
-            stats.capsuleSweepMaxIterations = 0
-            return nil
-        }
-
         var bestHit: CapsuleCastHit?
         var bestT = len
         var sweepTests = 0
         var sweepIterations = 0
         var sweepMaxIterations = 0
+        var candidateCount = 0
+        var stack: [Int] = [bvh.root]
 
-        for triIndex in candidates {
-            let triBounds = triangleAABBs[triIndex]
-            if triBounds.max.x < minP.x || triBounds.min.x > maxP.x ||
-                triBounds.max.y < minP.y || triBounds.min.y > maxP.y ||
-                triBounds.max.z < minP.z || triBounds.min.z > maxP.z {
+        while let nodeIndex = stack.popLast() {
+            let node = bvh.nodes[nodeIndex]
+            if node.bounds.max.x < minP.x || node.bounds.min.x > maxP.x ||
+                node.bounds.max.y < minP.y || node.bounds.min.y > maxP.y ||
+                node.bounds.max.z < minP.z || node.bounds.min.z > maxP.z {
                 continue
             }
-            let base = triIndex * 3
-            if base + 2 >= indices.count { continue }
-            let v0 = positions[Int(indices[base])]
-            let v1 = positions[Int(indices[base + 1])]
-            let v2 = positions[Int(indices[base + 2])]
-
-            sweepTests += 1
-            var iterCount = 0
-            if let hit = sweepCapsuleTriangle(from: from,
-                                              dir: dir,
-                                              maxDistance: len,
-                                              radius: radius,
-                                              halfHeight: halfHeight,
-                                              v0: v0,
-                                              v1: v1,
-                                              v2: v2,
-                                              triangleIndex: triIndex,
-                                              iterations: &iterCount),
-               hit.toi < bestT {
-                if blockingOnly {
-                    if simd_dot(delta, hit.normal) >= 0 {
+            if node.left < 0 {
+                let start = node.start
+                let end = start + node.count
+                for i in start..<end {
+                    let triIndex = bvh.triOrder[i]
+                    let triBounds = set.triangleAABBs[triIndex]
+                    if triBounds.max.x < minP.x || triBounds.min.x > maxP.x ||
+                        triBounds.max.y < minP.y || triBounds.min.y > maxP.y ||
+                        triBounds.max.z < minP.z || triBounds.min.z > maxP.z {
                         continue
                     }
-                    if simd_dot(delta, hit.triangleNormal) >= 0 {
-                        continue
+                    candidateCount += 1
+                    let base = triIndex * 3
+                    if base + 2 >= set.indices.count { continue }
+                    let v0 = set.positions[Int(set.indices[base])]
+                    let v1 = set.positions[Int(set.indices[base + 1])]
+                    let v2 = set.positions[Int(set.indices[base + 2])]
+                    sweepTests += 1
+                    var iterCount = 0
+                    if var hit = sweepCapsuleTriangle(from: from,
+                                                      dir: dir,
+                                                      maxDistance: len,
+                                                      radius: radius,
+                                                      halfHeight: halfHeight,
+                                                      v0: v0,
+                                                      v1: v1,
+                                                      v2: v2,
+                                                      triangleIndex: triIndex,
+                                                      iterations: &iterCount),
+                       hit.toi < bestT {
+                        hit.material = set.materialForTriangle(triIndex)
+                        hit.triangleIndex = triIndex + triangleIndexOffset
+                        if blockingOnly {
+                            if simd_dot(delta, hit.normal) >= 0 {
+                                continue
+                            }
+                            if simd_dot(delta, hit.triangleNormal) >= 0 {
+                                continue
+                            }
+                        }
+                        if let minY = minNormalY, hit.triangleNormal.y < minY {
+                            continue
+                        }
+                        bestT = hit.toi
+                        bestHit = hit
+                    }
+                    sweepIterations += iterCount
+                    if iterCount > sweepMaxIterations {
+                        sweepMaxIterations = iterCount
                     }
                 }
-                if let minY = minNormalY, hit.triangleNormal.y < minY {
-                    continue
-                }
-                bestT = hit.toi
-                bestHit = hit
-            }
-            sweepIterations += iterCount
-            if iterCount > sweepMaxIterations {
-                sweepMaxIterations = iterCount
+            } else {
+                stack.append(node.left)
+                stack.append(node.right)
             }
         }
 
-        stats.capsuleSweepCount = sweepTests
-        stats.capsuleSweepIterations = sweepIterations
-        stats.capsuleSweepMaxIterations = sweepMaxIterations
+        stats.capsuleCandidateCount += candidateCount
+        stats.capsuleSweepCount += sweepTests
+        stats.capsuleSweepIterations += sweepIterations
+        stats.capsuleSweepMaxIterations = max(stats.capsuleSweepMaxIterations, sweepMaxIterations)
         return bestHit
     }
 
@@ -689,51 +760,105 @@ private extension StaticTriMesh {
                                       v2: SIMD3<Float>,
                                       triangleIndex: Int,
                                       iterations: inout Int) -> CapsuleCastHit? {
-        let minStep = max(radius * 0.02, 1e-4)
-        let maxIter = min(256, Int(ceil(maxDistance / minStep)) + 1)
+        let minAdvance = max(radius * 0.02, 1e-4)
+        let maxIter = min(256, Int(ceil(maxDistance / minAdvance)) + 1)
         let contactEps: Float = 1e-5
-        var t: Float = 0
         let triNormal = simd_normalize(simd_cross(v1 - v0, v2 - v0))
 
-        var iterCount = 0
+        var t: Float = 0
+        var lastSafeT: Float = 0
+
         for _ in 0..<maxIter {
-            iterCount += 1
+            iterations += 1
             if t > maxDistance {
-                iterations = iterCount
                 return nil
             }
             let center = from + dir * t
-            let (dist, segPoint, triPoint) = segmentTriangleDistance(center: center,
-                                                                     halfHeight: halfHeight,
-                                                                     v0: v0,
-                                                                     v1: v1,
-                                                                     v2: v2)
+            let (dist, _, _) = segmentTriangleDistance(center: center,
+                                                       halfHeight: halfHeight,
+                                                       v0: v0,
+                                                       v1: v1,
+                                                       v2: v2)
             if dist <= radius + contactEps {
+                let tHit = refineTOI(from: from,
+                                     dir: dir,
+                                     radius: radius,
+                                     halfHeight: halfHeight,
+                                     v0: v0,
+                                     v1: v1,
+                                     v2: v2,
+                                     t0: lastSafeT,
+                                     t1: t,
+                                     maxDistance: maxDistance)
+                let hitCenter = from + dir * tHit
+                let (hitDist, hitSeg, hitTri) = segmentTriangleDistance(center: hitCenter,
+                                                                        halfHeight: halfHeight,
+                                                                        v0: v0,
+                                                                        v1: v1,
+                                                                        v2: v2)
                 let n: SIMD3<Float>
-                if dist < 1e-6 {
+                if hitDist < 1e-6 {
                     n = simd_dot(triNormal, dir) > 0 ? -triNormal : triNormal
                 } else {
-                    n = simd_normalize(segPoint - triPoint)
+                    n = simd_normalize(hitSeg - hitTri)
                 }
                 var triN = triNormal
                 if simd_dot(triN, n) < 0 {
                     triN = -triN
                 }
-                iterations = iterCount
-                return CapsuleCastHit(toi: t,
-                                      position: triPoint,
+                return CapsuleCastHit(toi: tHit,
+                                      position: hitTri,
                                       normal: n,
                                       triangleNormal: triN,
                                       triangleIndex: triangleIndex,
-                                      material: materialForTriangle(triangleIndex))
+                                      material: .default)
             }
 
-            let advance = max(dist - radius, 0)
-            t += advance
+            lastSafeT = t
+            let advance = max(dist - radius, minAdvance)
+            if advance <= 0 {
+                t += minAdvance
+            } else {
+                t += advance
+            }
         }
 
-        iterations = iterCount
         return nil
+    }
+
+    private func refineTOI(from: SIMD3<Float>,
+                           dir: SIMD3<Float>,
+                           radius: Float,
+                           halfHeight: Float,
+                           v0: SIMD3<Float>,
+                           v1: SIMD3<Float>,
+                           v2: SIMD3<Float>,
+                           t0: Float,
+                           t1: Float,
+                           maxDistance: Float) -> Float {
+        let clampT0 = max(0, min(t0, maxDistance))
+        let clampT1 = max(0, min(t1, maxDistance))
+        var lo = min(clampT0, clampT1)
+        var hi = max(clampT0, clampT1)
+        if hi - lo < 1e-5 {
+            return hi
+        }
+        let refineIterations = 10
+        for _ in 0..<refineIterations {
+            let mid = 0.5 * (lo + hi)
+            let center = from + dir * mid
+            let (dist, _, _) = segmentTriangleDistance(center: center,
+                                                       halfHeight: halfHeight,
+                                                       v0: v0,
+                                                       v1: v1,
+                                                       v2: v2)
+            if dist <= radius {
+                hi = mid
+            } else {
+                lo = mid
+            }
+        }
+        return hi
     }
 
     private func segmentTriangleDistance(center: SIMD3<Float>,

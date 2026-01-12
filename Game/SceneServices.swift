@@ -48,9 +48,22 @@ public final class CollisionQueryService {
     }
 
     public func update(world: World) {
-        if dirty || query == nil || staticMeshesChanged(world: world) {
+        if dirty || query == nil {
             rebuild(world: world)
+            return
         }
+        let changeSet = staticMeshChanges(world: world)
+        if changeSet.structuralChange {
+            rebuild(world: world)
+            return
+        }
+        if !changeSet.staticTransforms.isEmpty {
+            query?.updateStaticTransforms(world: world, entities: changeSet.staticTransforms)
+        }
+        if !changeSet.dynamicTransforms.isEmpty {
+            query?.updateDynamicTransforms(world: world, entities: changeSet.dynamicTransforms)
+        }
+        refreshStaticMeshCache(world: world)
     }
 
     private struct StaticMeshSnapshot {
@@ -59,60 +72,103 @@ public final class CollisionQueryService {
         let scale: SIMD3<Float>
         let vertexCount: Int
         let indexCount: Int
+        let bodyType: BodyType?
     }
 
-    private func staticMeshesChanged(world: World) -> Bool {
+    private struct StaticMeshChangeSet {
+        var structuralChange: Bool
+        var staticTransforms: [Entity]
+        var dynamicTransforms: [Entity]
+    }
+
+    private func staticMeshChanges(world: World) -> StaticMeshChangeSet {
         let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
         let tStore = world.store(TransformComponent.self)
         let mStore = world.store(StaticMeshComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
         if entities.count != staticMeshCache.count {
-            return true
+            return StaticMeshChangeSet(structuralChange: true,
+                                       staticTransforms: [],
+                                       dynamicTransforms: [])
         }
 
         let eps: Float = 1e-6
+        var staticTransformSet = Set<Entity>()
+        var dynamicTransformSet = Set<Entity>()
         for e in entities {
             guard let t = tStore[e], let m = mStore[e] else { continue }
             if m.dirty {
-                return true
+                return StaticMeshChangeSet(structuralChange: true,
+                                           staticTransforms: [],
+                                           dynamicTransforms: [])
             }
-            guard let snapshot = staticMeshCache[e] else { return true }
+            guard let snapshot = staticMeshCache[e] else {
+                return StaticMeshChangeSet(structuralChange: true,
+                                           staticTransforms: [],
+                                           dynamicTransforms: [])
+            }
+            let bodyType = pStore[e]?.bodyType
+            if snapshot.bodyType != bodyType {
+                return StaticMeshChangeSet(structuralChange: true,
+                                           staticTransforms: [],
+                                           dynamicTransforms: [])
+            }
             let deltaPos = t.translation - snapshot.translation
             if simd_length_squared(deltaPos) > eps {
-                return true
+                if bodyType == .static || bodyType == nil {
+                    staticTransformSet.insert(e)
+                } else {
+                    dynamicTransformSet.insert(e)
+                }
             }
             let deltaRot = t.rotation.vector - snapshot.rotation.vector
             if simd_length_squared(deltaRot) > eps {
-                return true
+                if bodyType == .static || bodyType == nil {
+                    staticTransformSet.insert(e)
+                } else {
+                    dynamicTransformSet.insert(e)
+                }
             }
             let deltaScale = t.scale - snapshot.scale
             if simd_length_squared(deltaScale) > eps {
-                return true
+                if bodyType == .static || bodyType == nil {
+                    staticTransformSet.insert(e)
+                } else {
+                    dynamicTransformSet.insert(e)
+                }
             }
             let collisionMesh = m.collisionMesh ?? m.mesh
             let vertexCount = collisionMesh.streams.positions.count
             let indexCount = collisionMesh.indexCount
             if vertexCount != snapshot.vertexCount || indexCount != snapshot.indexCount {
-                return true
+                return StaticMeshChangeSet(structuralChange: true,
+                                           staticTransforms: [],
+                                           dynamicTransforms: [])
             }
         }
 
-        return false
+        return StaticMeshChangeSet(structuralChange: false,
+                                   staticTransforms: Array(staticTransformSet),
+                                   dynamicTransforms: Array(dynamicTransformSet))
     }
 
     private func refreshStaticMeshCache(world: World) {
         let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
         let tStore = world.store(TransformComponent.self)
         let mStore = world.store(StaticMeshComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
         staticMeshCache.removeAll(keepingCapacity: true)
 
         for e in entities {
             guard let t = tStore[e], var m = mStore[e] else { continue }
+            let bodyType = pStore[e]?.bodyType
             let collisionMesh = m.collisionMesh ?? m.mesh
             staticMeshCache[e] = StaticMeshSnapshot(translation: t.translation,
                                                     rotation: t.rotation,
                                                     scale: t.scale,
                                                     vertexCount: collisionMesh.streams.positions.count,
-                                                    indexCount: collisionMesh.indexCount)
+                                                    indexCount: collisionMesh.indexCount,
+                                                    bodyType: bodyType)
             if m.dirty {
                 m.dirty = false
                 mStore[e] = m
