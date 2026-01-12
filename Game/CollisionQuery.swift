@@ -466,8 +466,17 @@ private extension StaticTriMesh {
         minP -= ext
         maxP += ext
 
-        let minCell = StaticTriMesh.cellCoord(position: minP, origin: grid.origin, cellSize: grid.cellSize)
-        let maxCell = StaticTriMesh.cellCoord(position: maxP, origin: grid.origin, cellSize: grid.cellSize)
+        if maxP.x < grid.bounds.min.x || minP.x > grid.bounds.max.x ||
+            maxP.y < grid.bounds.min.y || minP.y > grid.bounds.max.y ||
+            maxP.z < grid.bounds.min.z || minP.z > grid.bounds.max.z {
+            return nil
+        }
+
+        let clampedMin = simd_max(minP, grid.bounds.min)
+        let clampedMax = simd_min(maxP, grid.bounds.max)
+
+        let minCell = StaticTriMesh.cellCoord(position: clampedMin, origin: grid.origin, cellSize: grid.cellSize)
+        let maxCell = StaticTriMesh.cellCoord(position: clampedMax, origin: grid.origin, cellSize: grid.cellSize)
 
         var candidates = Set<Int>()
         for z in minCell.z...maxCell.z {
