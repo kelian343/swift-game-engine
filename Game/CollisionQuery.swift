@@ -34,46 +34,57 @@ public struct CapsuleOverlapHit {
 }
 
 public final class CollisionQuery {
-    private var staticMesh: StaticTriMesh
+    private var snapshot: CollisionWorldSnapshot
 
     public init(world: World) {
-        self.staticMesh = StaticTriMesh(world: world)
+        self.snapshot = CollisionWorldSnapshot(world: world)
     }
 
     public var stats: CollisionQueryStats {
-        staticMesh.stats
+        snapshot.stats
     }
 
     public func resetStats() {
-        staticMesh.resetStats()
+        snapshot.resetStats()
     }
 
     public func updateStaticTransforms(world: World, entities: [Entity]) {
-        staticMesh.updateStaticTransforms(world: world, entities: entities)
+        snapshot.updateStaticTransforms(world: world, entities: entities)
     }
 
     public func updateDynamicTransforms(world: World, entities: [Entity]) {
-        staticMesh.updateDynamicTransforms(world: world, entities: entities)
+        snapshot.updateDynamicTransforms(world: world, entities: entities)
     }
 
     public func raycast(origin: SIMD3<Float>,
                         direction: SIMD3<Float>,
                         maxDistance: Float) -> RaycastHit? {
-        staticMesh.raycast(origin: origin, direction: direction, maxDistance: maxDistance)
+        CollisionQueries.raycast(world: &snapshot,
+                                 origin: origin,
+                                 direction: direction,
+                                 maxDistance: maxDistance)
     }
 
     public func capsuleCast(from: SIMD3<Float>,
                             delta: SIMD3<Float>,
                             radius: Float,
                             halfHeight: Float) -> CapsuleCastHit? {
-        staticMesh.capsuleCast(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
+        CollisionQueries.capsuleCast(world: &snapshot,
+                                     from: from,
+                                     delta: delta,
+                                     radius: radius,
+                                     halfHeight: halfHeight)
     }
 
     public func capsuleCastBlocking(from: SIMD3<Float>,
                                     delta: SIMD3<Float>,
                                     radius: Float,
                                     halfHeight: Float) -> CapsuleCastHit? {
-        staticMesh.capsuleCastBlocking(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
+        CollisionQueries.capsuleCastBlocking(world: &snapshot,
+                                             from: from,
+                                             delta: delta,
+                                             radius: radius,
+                                             halfHeight: halfHeight)
     }
 
     public func capsuleCastGround(from: SIMD3<Float>,
@@ -81,27 +92,120 @@ public final class CollisionQuery {
                                   radius: Float,
                                   halfHeight: Float,
                                   minNormalY: Float) -> CapsuleCastHit? {
-        staticMesh.capsuleCastGround(from: from,
-                                     delta: delta,
-                                     radius: radius,
-                                     halfHeight: halfHeight,
-                                     minNormalY: minNormalY)
+        CollisionQueries.capsuleCastGround(world: &snapshot,
+                                           from: from,
+                                           delta: delta,
+                                           radius: radius,
+                                           halfHeight: halfHeight,
+                                           minNormalY: minNormalY)
     }
 
     public func capsuleOverlap(from: SIMD3<Float>,
                                radius: Float,
                                halfHeight: Float) -> CapsuleOverlapHit? {
-        staticMesh.capsuleOverlap(from: from, radius: radius, halfHeight: halfHeight)
+        CollisionQueries.capsuleOverlap(world: &snapshot,
+                                        from: from,
+                                        radius: radius,
+                                        halfHeight: halfHeight)
     }
 
     public func capsuleOverlapAll(from: SIMD3<Float>,
                                   radius: Float,
                                   halfHeight: Float,
                                   maxHits: Int = 8) -> [CapsuleOverlapHit] {
-        staticMesh.capsuleOverlapAll(from: from,
-                                     radius: radius,
-                                     halfHeight: halfHeight,
-                                     maxHits: max(1, maxHits))
+        CollisionQueries.capsuleOverlapAll(world: &snapshot,
+                                           from: from,
+                                           radius: radius,
+                                           halfHeight: halfHeight,
+                                           maxHits: max(1, maxHits))
+    }
+}
+
+public struct CollisionWorldSnapshot {
+    fileprivate var staticMesh: StaticTriMesh
+
+    public init(world: World) {
+        self.staticMesh = StaticTriMesh(world: world)
+    }
+
+    public var stats: CollisionQueryStats {
+        staticMesh.statsSnapshot
+    }
+
+    public mutating func resetStats() {
+        staticMesh.resetStats()
+    }
+
+    public mutating func rebuildStatic(world: World) {
+        staticMesh.rebuildStatic(world: world)
+    }
+
+    public mutating func rebuildDynamic(world: World) {
+        staticMesh.rebuildDynamic(world: world)
+    }
+
+    public mutating func updateStaticTransforms(world: World, entities: [Entity]) {
+        staticMesh.updateStaticTransforms(world: world, entities: entities)
+    }
+
+    public mutating func updateDynamicTransforms(world: World, entities: [Entity]) {
+        staticMesh.updateDynamicTransforms(world: world, entities: entities)
+    }
+}
+
+public struct CollisionQueries {
+    public static func raycast(world: inout CollisionWorldSnapshot,
+                               origin: SIMD3<Float>,
+                               direction: SIMD3<Float>,
+                               maxDistance: Float) -> RaycastHit? {
+        world.staticMesh.raycast(origin: origin, direction: direction, maxDistance: maxDistance)
+    }
+
+    public static func capsuleCast(world: inout CollisionWorldSnapshot,
+                                   from: SIMD3<Float>,
+                                   delta: SIMD3<Float>,
+                                   radius: Float,
+                                   halfHeight: Float) -> CapsuleCastHit? {
+        world.staticMesh.capsuleCast(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
+    }
+
+    public static func capsuleCastBlocking(world: inout CollisionWorldSnapshot,
+                                           from: SIMD3<Float>,
+                                           delta: SIMD3<Float>,
+                                           radius: Float,
+                                           halfHeight: Float) -> CapsuleCastHit? {
+        world.staticMesh.capsuleCastBlocking(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
+    }
+
+    public static func capsuleCastGround(world: inout CollisionWorldSnapshot,
+                                         from: SIMD3<Float>,
+                                         delta: SIMD3<Float>,
+                                         radius: Float,
+                                         halfHeight: Float,
+                                         minNormalY: Float) -> CapsuleCastHit? {
+        world.staticMesh.capsuleCastGround(from: from,
+                                           delta: delta,
+                                           radius: radius,
+                                           halfHeight: halfHeight,
+                                           minNormalY: minNormalY)
+    }
+
+    public static func capsuleOverlap(world: inout CollisionWorldSnapshot,
+                                      from: SIMD3<Float>,
+                                      radius: Float,
+                                      halfHeight: Float) -> CapsuleOverlapHit? {
+        world.staticMesh.capsuleOverlap(from: from, radius: radius, halfHeight: halfHeight)
+    }
+
+    public static func capsuleOverlapAll(world: inout CollisionWorldSnapshot,
+                                         from: SIMD3<Float>,
+                                         radius: Float,
+                                         halfHeight: Float,
+                                         maxHits: Int) -> [CapsuleOverlapHit] {
+        world.staticMesh.capsuleOverlapAll(from: from,
+                                           radius: radius,
+                                           halfHeight: halfHeight,
+                                           maxHits: max(1, maxHits))
     }
 }
 
@@ -117,6 +221,182 @@ public struct CollisionQueryStats {
     public var capsuleUsedCoarseGrid: Bool = false
 }
 
+private struct QueryStats {
+    var capsuleCandidateCount: Int = 0
+    var capsuleSweepCount: Int = 0
+    var capsuleSweepIterations: Int = 0
+    var capsuleSweepMaxIterations: Int = 0
+    var capsuleCellMin: SIMD3<Int> = SIMD3<Int>(0, 0, 0)
+    var capsuleCellMax: SIMD3<Int> = SIMD3<Int>(0, 0, 0)
+    var capsuleCellCount: Int64 = 0
+    var capsuleCandidatesClamped: Bool = false
+    var capsuleUsedCoarseGrid: Bool = false
+
+    mutating func reset() {
+        self = QueryStats()
+    }
+
+    var publicStats: CollisionQueryStats {
+        CollisionQueryStats(capsuleCandidateCount: capsuleCandidateCount,
+                            capsuleSweepCount: capsuleSweepCount,
+                            capsuleSweepIterations: capsuleSweepIterations,
+                            capsuleSweepMaxIterations: capsuleSweepMaxIterations,
+                            capsuleCellMin: capsuleCellMin,
+                            capsuleCellMax: capsuleCellMax,
+                            capsuleCellCount: capsuleCellCount,
+                            capsuleCandidatesClamped: capsuleCandidatesClamped,
+                            capsuleUsedCoarseGrid: capsuleUsedCoarseGrid)
+    }
+}
+
+private struct TriangleMeshSet {
+    var positions: [SIMD3<Float>] = []
+    var indices: [UInt32] = []
+    var triangleAABBs: [StaticTriMesh.AABB] = []
+    var triangleMaterials: [SurfaceMaterial] = []
+    var slices: [Entity: StaticTriMesh.MeshSlice] = [:]
+    var bvh: StaticTriMesh.BVH? = nil
+
+    var hasTriangles: Bool { !triangleAABBs.isEmpty }
+
+    mutating func rebuild(entities: [Entity],
+                          tStore: ComponentStore<TransformComponent>,
+                          mStore: ComponentStore<StaticMeshComponent>) {
+        positions.removeAll(keepingCapacity: true)
+        indices.removeAll(keepingCapacity: true)
+        triangleAABBs.removeAll(keepingCapacity: true)
+        triangleMaterials.removeAll(keepingCapacity: true)
+        slices.removeAll(keepingCapacity: true)
+
+        let areaEps: Float = 1e-10
+        for e in entities {
+            guard let t = tStore[e], let m = mStore[e] else { continue }
+            let collisionMesh = m.collisionMesh ?? m.mesh
+            let baseVertex = positions.count
+            let localPositions = collisionMesh.streams.positions
+            positions.reserveCapacity(positions.count + localPositions.count)
+            for pLocal in localPositions {
+                let p = SIMD4<Float>(pLocal.x, pLocal.y, pLocal.z, 1)
+                let wp = simd_mul(t.modelMatrix, p)
+                positions.append(SIMD3<Float>(wp.x, wp.y, wp.z))
+            }
+
+            let localIndices: [UInt32]
+            if let i16 = collisionMesh.indices16 {
+                localIndices = i16.map { UInt32($0) }
+            } else if let i32 = collisionMesh.indices32 {
+                localIndices = i32
+            } else {
+                localIndices = []
+            }
+
+            let triCount = localIndices.count / 3
+            let triSource: [SurfaceMaterial]
+            if let perTri = m.triangleMaterials, perTri.count == triCount {
+                triSource = perTri
+            } else {
+                triSource = Array(repeating: m.material, count: triCount)
+            }
+
+            let indexStart = indices.count
+            let triStart = triangleAABBs.count
+            var tri = 0
+            var triLocal = 0
+            while tri + 2 < localIndices.count {
+                let i0 = Int(UInt32(baseVertex) + localIndices[tri])
+                let i1 = Int(UInt32(baseVertex) + localIndices[tri + 1])
+                let i2 = Int(UInt32(baseVertex) + localIndices[tri + 2])
+                let p0 = positions[i0]
+                let p1 = positions[i1]
+                let p2 = positions[i2]
+                let e1 = p1 - p0
+                let e2 = p2 - p0
+                if simd_length_squared(simd_cross(e1, e2)) <= areaEps {
+                    tri += 3
+                    triLocal += 1
+                    continue
+                }
+                indices.append(UInt32(i0))
+                indices.append(UInt32(i1))
+                indices.append(UInt32(i2))
+                let minP = simd_min(p0, simd_min(p1, p2))
+                let maxP = simd_max(p0, simd_max(p1, p2))
+                triangleAABBs.append(StaticTriMesh.AABB(min: minP, max: maxP))
+                triangleMaterials.append(triSource[triLocal])
+                tri += 3
+                triLocal += 1
+            }
+
+            let indexEnd = indices.count
+            let triEnd = triangleAABBs.count
+            if indexEnd > indexStart && triEnd > triStart {
+                slices[e] = StaticTriMesh.MeshSlice(entity: e,
+                                                    vertexRange: baseVertex..<positions.count,
+                                                    indexRange: indexStart..<indexEnd,
+                                                    triangleRange: triStart..<triEnd)
+            }
+        }
+
+        if triangleAABBs.isEmpty {
+            bvh = nil
+        } else {
+            bvh = StaticTriMesh.BVH(triangleAABBs: triangleAABBs)
+        }
+    }
+
+    mutating func updateTransforms(entities: [Entity],
+                                   tStore: ComponentStore<TransformComponent>,
+                                   mStore: ComponentStore<StaticMeshComponent>) -> [Int] {
+        guard !entities.isEmpty, !triangleAABBs.isEmpty else { return [] }
+        var updatedTriangles: [Int] = []
+        updatedTriangles.reserveCapacity(entities.count * 16)
+
+        for e in entities {
+            guard let slice = slices[e], let t = tStore[e], let m = mStore[e] else { continue }
+            let collisionMesh = m.collisionMesh ?? m.mesh
+            let localPositions = collisionMesh.streams.positions
+            if localPositions.count != slice.vertexRange.count {
+                continue
+            }
+            for i in 0..<localPositions.count {
+                let pLocal = localPositions[i]
+                let p = SIMD4<Float>(pLocal.x, pLocal.y, pLocal.z, 1)
+                let wp = simd_mul(t.modelMatrix, p)
+                positions[slice.vertexRange.lowerBound + i] = SIMD3<Float>(wp.x, wp.y, wp.z)
+            }
+
+            var triIndex = slice.triangleRange.lowerBound
+            var i = slice.indexRange.lowerBound
+            while i + 2 < slice.indexRange.upperBound {
+                let i0 = Int(indices[i])
+                let i1 = Int(indices[i + 1])
+                let i2 = Int(indices[i + 2])
+                let p0 = positions[i0]
+                let p1 = positions[i1]
+                let p2 = positions[i2]
+                let minP = simd_min(p0, simd_min(p1, p2))
+                let maxP = simd_max(p0, simd_max(p1, p2))
+                triangleAABBs[triIndex] = StaticTriMesh.AABB(min: minP, max: maxP)
+                updatedTriangles.append(triIndex)
+                i += 3
+                triIndex += 1
+            }
+        }
+
+        if !updatedTriangles.isEmpty {
+            bvh?.refit(updatedTriangles: updatedTriangles, triangleAABBs: triangleAABBs)
+        }
+        return updatedTriangles
+    }
+
+    func materialForTriangle(_ triangleIndex: Int) -> SurfaceMaterial {
+        if triangleIndex >= 0 && triangleIndex < triangleMaterials.count {
+            return triangleMaterials[triangleIndex]
+        }
+        return .default
+    }
+}
+
 public struct StaticTriMesh {
     private static let leafTriangleLimit: Int = 4
 
@@ -125,14 +405,14 @@ public struct StaticTriMesh {
         public var max: SIMD3<Float>
     }
 
-    private struct MeshSlice {
+    fileprivate struct MeshSlice {
         let entity: Entity
         let vertexRange: Range<Int>
         let indexRange: Range<Int>
         let triangleRange: Range<Int>
     }
 
-    private struct BVHNode {
+    fileprivate struct BVHNode {
         var bounds: AABB
         var left: Int
         var right: Int
@@ -141,7 +421,7 @@ public struct StaticTriMesh {
         var parent: Int
     }
 
-    private struct BVH {
+    fileprivate struct BVH {
         var nodes: [BVHNode]
         var triOrder: [Int]
         var triLeaf: [Int]
@@ -301,157 +581,13 @@ public struct StaticTriMesh {
         }
     }
 
-    private struct TriangleMeshSet {
-        var positions: [SIMD3<Float>] = []
-        var indices: [UInt32] = []
-        var triangleAABBs: [AABB] = []
-        var triangleMaterials: [SurfaceMaterial] = []
-        var slices: [Entity: MeshSlice] = [:]
-        var bvh: BVH? = nil
-
-        var hasTriangles: Bool { !triangleAABBs.isEmpty }
-
-        mutating func rebuild(entities: [Entity],
-                              tStore: ComponentStore<TransformComponent>,
-                              mStore: ComponentStore<StaticMeshComponent>) {
-            positions.removeAll(keepingCapacity: true)
-            indices.removeAll(keepingCapacity: true)
-            triangleAABBs.removeAll(keepingCapacity: true)
-            triangleMaterials.removeAll(keepingCapacity: true)
-            slices.removeAll(keepingCapacity: true)
-
-            let areaEps: Float = 1e-10
-            for e in entities {
-                guard let t = tStore[e], let m = mStore[e] else { continue }
-                let collisionMesh = m.collisionMesh ?? m.mesh
-                let baseVertex = positions.count
-                let localPositions = collisionMesh.streams.positions
-                positions.reserveCapacity(positions.count + localPositions.count)
-                for pLocal in localPositions {
-                    let p = SIMD4<Float>(pLocal.x, pLocal.y, pLocal.z, 1)
-                    let wp = simd_mul(t.modelMatrix, p)
-                    positions.append(SIMD3<Float>(wp.x, wp.y, wp.z))
-                }
-
-                let localIndices: [UInt32]
-                if let i16 = collisionMesh.indices16 {
-                    localIndices = i16.map { UInt32($0) }
-                } else if let i32 = collisionMesh.indices32 {
-                    localIndices = i32
-                } else {
-                    localIndices = []
-                }
-
-                let triCount = localIndices.count / 3
-                let triSource: [SurfaceMaterial]
-                if let perTri = m.triangleMaterials, perTri.count == triCount {
-                    triSource = perTri
-                } else {
-                    triSource = Array(repeating: m.material, count: triCount)
-                }
-
-                let indexStart = indices.count
-                let triStart = triangleAABBs.count
-                var tri = 0
-                var triLocal = 0
-                while tri + 2 < localIndices.count {
-                    let i0 = Int(UInt32(baseVertex) + localIndices[tri])
-                    let i1 = Int(UInt32(baseVertex) + localIndices[tri + 1])
-                    let i2 = Int(UInt32(baseVertex) + localIndices[tri + 2])
-                    let p0 = positions[i0]
-                    let p1 = positions[i1]
-                    let p2 = positions[i2]
-                    let e1 = p1 - p0
-                    let e2 = p2 - p0
-                    if simd_length_squared(simd_cross(e1, e2)) <= areaEps {
-                        tri += 3
-                        triLocal += 1
-                        continue
-                    }
-                    indices.append(UInt32(i0))
-                    indices.append(UInt32(i1))
-                    indices.append(UInt32(i2))
-                    let minP = simd_min(p0, simd_min(p1, p2))
-                    let maxP = simd_max(p0, simd_max(p1, p2))
-                    triangleAABBs.append(AABB(min: minP, max: maxP))
-                    triangleMaterials.append(triSource[triLocal])
-                    tri += 3
-                    triLocal += 1
-                }
-
-                let indexEnd = indices.count
-                let triEnd = triangleAABBs.count
-                if indexEnd > indexStart && triEnd > triStart {
-                    slices[e] = MeshSlice(entity: e,
-                                          vertexRange: baseVertex..<positions.count,
-                                          indexRange: indexStart..<indexEnd,
-                                          triangleRange: triStart..<triEnd)
-                }
-            }
-
-            if triangleAABBs.isEmpty {
-                bvh = nil
-            } else {
-                bvh = BVH(triangleAABBs: triangleAABBs)
-            }
-        }
-
-        mutating func updateTransforms(entities: [Entity],
-                                       tStore: ComponentStore<TransformComponent>,
-                                       mStore: ComponentStore<StaticMeshComponent>) -> [Int] {
-            guard !entities.isEmpty, !triangleAABBs.isEmpty else { return [] }
-            var updatedTriangles: [Int] = []
-            updatedTriangles.reserveCapacity(entities.count * 16)
-
-            for e in entities {
-                guard let slice = slices[e], let t = tStore[e], let m = mStore[e] else { continue }
-                let collisionMesh = m.collisionMesh ?? m.mesh
-                let localPositions = collisionMesh.streams.positions
-                if localPositions.count != slice.vertexRange.count {
-                    continue
-                }
-                for i in 0..<localPositions.count {
-                    let pLocal = localPositions[i]
-                    let p = SIMD4<Float>(pLocal.x, pLocal.y, pLocal.z, 1)
-                    let wp = simd_mul(t.modelMatrix, p)
-                    positions[slice.vertexRange.lowerBound + i] = SIMD3<Float>(wp.x, wp.y, wp.z)
-                }
-
-                var triIndex = slice.triangleRange.lowerBound
-                var i = slice.indexRange.lowerBound
-                while i + 2 < slice.indexRange.upperBound {
-                    let i0 = Int(indices[i])
-                    let i1 = Int(indices[i + 1])
-                    let i2 = Int(indices[i + 2])
-                    let p0 = positions[i0]
-                    let p1 = positions[i1]
-                    let p2 = positions[i2]
-                    let minP = simd_min(p0, simd_min(p1, p2))
-                    let maxP = simd_max(p0, simd_max(p1, p2))
-                    triangleAABBs[triIndex] = AABB(min: minP, max: maxP)
-                    updatedTriangles.append(triIndex)
-                    i += 3
-                    triIndex += 1
-                }
-            }
-
-            if !updatedTriangles.isEmpty {
-                bvh?.refit(updatedTriangles: updatedTriangles, triangleAABBs: triangleAABBs)
-            }
-            return updatedTriangles
-        }
-
-        func materialForTriangle(_ triangleIndex: Int) -> SurfaceMaterial {
-            if triangleIndex >= 0 && triangleIndex < triangleMaterials.count {
-                return triangleMaterials[triangleIndex]
-            }
-            return .default
-        }
-    }
-
-    public private(set) var stats: CollisionQueryStats = CollisionQueryStats()
+    private var stats: QueryStats = QueryStats()
     private var staticSet: TriangleMeshSet = TriangleMeshSet()
     private var dynamicSet: TriangleMeshSet = TriangleMeshSet()
+
+    public var statsSnapshot: CollisionQueryStats {
+        stats.publicStats
+    }
 
     public init(world: World) {
         let tStore = world.store(TransformComponent.self)
@@ -465,7 +601,7 @@ public struct StaticTriMesh {
     }
 
     public mutating func resetStats() {
-        stats = CollisionQueryStats()
+        stats.reset()
     }
 
     public mutating func rebuildStatic(world: World) {

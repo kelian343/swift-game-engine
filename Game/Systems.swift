@@ -339,7 +339,7 @@ public final class GravitySystem: FixedStepSystem {
     }
 }
 
-private struct PlatformCarryResolver {
+private struct PlatformCarry {
     static func computeDelta(position: SIMD3<Float>,
                              controller: CharacterControllerComponent,
                              platformEntities: [Entity],
@@ -425,7 +425,9 @@ private struct PlatformCarryResolver {
         }
         return .zero
     }
+}
 
+private struct PlatformPushOut {
     static func applyPenetrationCorrection(position: inout SIMD3<Float>,
                                            controller: CharacterControllerComponent,
                                            platformEntities: [Entity],
@@ -558,6 +560,7 @@ private struct DepenetrationResolver {
                         halfHeight: Float,
                         skinWidth: Float,
                         query: CollisionQuery?,
+                        cachePolicy: inout any ContactCachePolicy,
                         iterations: Int = 4,
                         debugLabel: String = "") -> SIMD3<Float>? {
         guard let query else { return nil }
@@ -584,17 +587,18 @@ private struct DepenetrationResolver {
             for hit in sortedHits.prefix(useCount) {
                 maxDepth = max(maxDepth, hit.depth)
                 var n = hit.normal
-                if let cached = ContactManifoldCache.normalFor(controller: controller,
-                                                               triangleIndex: hit.triangleIndex) {
+                if let cached = cachePolicy.cachedNormal(controller: controller,
+                                                         triangleIndex: hit.triangleIndex) {
                     if simd_dot(cached, n) < 0 {
                         n = -n
                     }
                     n = cached
                 }
                 frameNormal += n * hit.depth
-                ContactManifoldCache.update(controller: &controller,
-                                            triangleIndex: hit.triangleIndex,
-                                            normal: n)
+                cachePolicy.record(controller: &controller,
+                                   triangleIndex: hit.triangleIndex,
+                                   normal: n,
+                                   isSideContact: hit.normal.y < controller.minGroundDot)
             }
             let frameNormalLen = simd_length(frameNormal)
             let depenNormal = frameNormalLen > 1e-6 ? frameNormal / frameNormalLen : frameNormal
@@ -630,22 +634,29 @@ private struct GroundContactState {
     var triangleIndex: Int
 }
 
-private struct GroundContactResolver {
-    static func resolveSnap(position: inout SIMD3<Float>,
-                            body: inout PhysicsBodyComponent,
-                            controller: CharacterControllerComponent,
-                            query: CollisionQuery,
-                            wasGrounded: Bool,
-                            wasGroundedNear: Bool,
-                            prevNormal: SIMD3<Float>,
-                            prevTriangleIndex: Int) -> GroundContactState {
+private struct GroundProbeResult {
+    var state: GroundContactState
+    var canSnap: Bool
+    var nearGround: Bool
+    var hit: CapsuleCastHit?
+}
+
+private struct GroundProbe {
+    static func resolve(position: SIMD3<Float>,
+                        body: PhysicsBodyComponent,
+                        controller: CharacterControllerComponent,
+                        query: CollisionQuery,
+                        wasGrounded: Bool,
+                        wasGroundedNear: Bool,
+                        prevNormal: SIMD3<Float>,
+                        prevTriangleIndex: Int) -> GroundProbeResult {
         var state = GroundContactState(grounded: false,
                                        groundedNear: false,
                                        normal: SIMD3<Float>(0, 1, 0),
                                        material: .default,
                                        triangleIndex: -1)
         if controller.snapDistance <= 0 {
-            return state
+            return GroundProbeResult(state: state, canSnap: false, nearGround: false, hit: nil)
         }
 
         let down = SIMD3<Float>(0, -1, 0)
@@ -658,7 +669,7 @@ private struct GroundContactResolver {
                                                 minNormalY: controller.minGroundDot)
         guard let centerHit,
               centerHit.toi <= controller.snapDistance else {
-            return state
+            return GroundProbeResult(state: state, canSnap: false, nearGround: false, hit: nil)
         }
 
         let baseCenterY = position.y - controller.halfHeight
@@ -713,19 +724,6 @@ private struct GroundContactResolver {
             state.normal = nLen > 1e-6 ? normalSum / nLen : centerHit.triangleNormal
         }
 
-        if canSnap {
-            let rawMove = max(centerHit.toi - controller.groundSnapSkin, 0)
-            var moveDist = rawMove
-            if nearGround && moveDist > controller.groundSnapMaxStep {
-                moveDist = controller.groundSnapMaxStep
-            }
-            position += down * moveDist
-            let vIntoSnap = simd_dot(body.linearVelocity, centerHit.normal)
-            if vIntoSnap < 0 {
-                body.linearVelocity -= centerHit.normal * vIntoSnap
-            }
-        }
-
         if state.grounded && wasGroundedNear {
             let dotN = simd_dot(prevNormal, state.normal)
             if dotN > 0.9 {
@@ -736,14 +734,37 @@ private struct GroundContactResolver {
         }
 
         _ = wasGrounded
-        return state
+        _ = prevTriangleIndex
+        return GroundProbeResult(state: state, canSnap: canSnap, nearGround: nearGround, hit: centerHit)
     }
+}
 
-    static func applySlopeFriction(body: inout PhysicsBodyComponent,
-                                   controller: inout CharacterControllerComponent,
-                                   gravity: SIMD3<Float>,
-                                   dt: Float,
-                                   state: GroundContactState) {
+private struct GroundSnap {
+    static func apply(position: inout SIMD3<Float>,
+                      body: inout PhysicsBodyComponent,
+                      controller: CharacterControllerComponent,
+                      result: GroundProbeResult) {
+        guard result.canSnap, let centerHit = result.hit else { return }
+        let down = SIMD3<Float>(0, -1, 0)
+        let rawMove = max(centerHit.toi - controller.groundSnapSkin, 0)
+        var moveDist = rawMove
+        if result.nearGround && moveDist > controller.groundSnapMaxStep {
+            moveDist = controller.groundSnapMaxStep
+        }
+        position += down * moveDist
+        let vIntoSnap = simd_dot(body.linearVelocity, centerHit.normal)
+        if vIntoSnap < 0 {
+            body.linearVelocity -= centerHit.normal * vIntoSnap
+        }
+    }
+}
+
+private struct SlopeFriction {
+    static func apply(body: inout PhysicsBodyComponent,
+                      controller: inout CharacterControllerComponent,
+                      gravity: SIMD3<Float>,
+                      dt: Float,
+                      state: GroundContactState) {
         guard state.grounded else {
             controller.groundSliding = false
             return
@@ -867,6 +888,72 @@ private struct AgentSweepSolver {
     }
 }
 
+public protocol ContactCachePolicy {
+    mutating func decay(controller: inout CharacterControllerComponent)
+    func cachedNormal(controller: CharacterControllerComponent, triangleIndex: Int) -> SIMD3<Float>?
+    mutating func record(controller: inout CharacterControllerComponent,
+                         triangleIndex: Int,
+                         normal: SIMD3<Float>,
+                         isSideContact: Bool)
+}
+
+public struct DefaultContactCachePolicy: ContactCachePolicy {
+    public init() {}
+
+    public mutating func decay(controller: inout CharacterControllerComponent) {
+        if controller.sideContactFrames > 0 {
+            controller.sideContactFrames -= 1
+        }
+        if controller.contactManifoldFrames > 0 {
+            controller.contactManifoldFrames -= 1
+            if controller.contactManifoldFrames == 0 {
+                ContactManifoldCache.reset(controller: &controller)
+                controller.sideContactNormal = .zero
+            }
+        }
+    }
+
+    public func cachedNormal(controller: CharacterControllerComponent, triangleIndex: Int) -> SIMD3<Float>? {
+        ContactManifoldCache.normalFor(controller: controller, triangleIndex: triangleIndex)
+    }
+
+    public mutating func record(controller: inout CharacterControllerComponent,
+                                triangleIndex: Int,
+                                normal: SIMD3<Float>,
+                                isSideContact: Bool) {
+        ContactManifoldCache.update(controller: &controller,
+                                    triangleIndex: triangleIndex,
+                                    normal: normal)
+        if isSideContact {
+            controller.sideContactNormal = simd_normalize(normal)
+            controller.sideContactFrames = 3
+        }
+    }
+}
+
+private struct SideContactOnlyCachePolicy: ContactCachePolicy {
+    mutating func decay(controller: inout CharacterControllerComponent) {
+        var policy = DefaultContactCachePolicy()
+        policy.decay(controller: &controller)
+    }
+
+    func cachedNormal(controller: CharacterControllerComponent, triangleIndex: Int) -> SIMD3<Float>? {
+        ContactManifoldCache.normalFor(controller: controller, triangleIndex: triangleIndex)
+    }
+
+    mutating func record(controller: inout CharacterControllerComponent,
+                         triangleIndex: Int,
+                         normal: SIMD3<Float>,
+                         isSideContact: Bool) {
+        guard isSideContact else { return }
+        ContactManifoldCache.update(controller: &controller,
+                                    triangleIndex: triangleIndex,
+                                    normal: normal)
+        controller.sideContactNormal = simd_normalize(normal)
+        controller.sideContactFrames = 3
+    }
+}
+
 private struct ContactManifoldCache {
     static let maxCount: Int = 4
     static let maxFrames: Int = 8
@@ -946,6 +1033,7 @@ private struct SlideResolver {
                            body: inout PhysicsBodyComponent,
                            position: inout SIMD3<Float>,
                            options: SlideOptions,
+                           cachedSideNormal: SIMD3<Float>? = nil,
                            debugLabel: String = "") -> Bool {
         if options.allowHorizontalGroundPass,
            case .staticHit(let sHit) = hit,
@@ -960,7 +1048,6 @@ private struct SlideResolver {
         var slideNormal: SIMD3<Float>
         let hitToi: Float
         var hitTriNormal: SIMD3<Float> = .zero
-        var hitTriangleIndex: Int = -1
         var hitIsStatic = false
         var hitIsGroundLike = false
         switch hit {
@@ -974,7 +1061,6 @@ private struct SlideResolver {
                 contactSkin = controller.skinWidth
             }
             hitTriNormal = sHit.triangleNormal
-            hitTriangleIndex = sHit.triangleIndex
             hitIsStatic = true
         case .agentHit(let aHit):
             hitToi = aHit.toi
@@ -983,9 +1069,7 @@ private struct SlideResolver {
         }
 
         if hitIsStatic && slideNormal.y < controller.minGroundDot && controller.sideContactFrames > 0 {
-            if hitTriangleIndex >= 0,
-               let cached = ContactManifoldCache.normalFor(controller: controller,
-                                                           triangleIndex: hitTriangleIndex) {
+            if let cached = cachedSideNormal {
                 var cachedN = cached
                 let dotC = simd_dot(cachedN, slideNormal)
                 if dotC < 0 {
@@ -1116,9 +1200,12 @@ private struct HitSelector {
 public final class KinematicMoveStopSystem: FixedStepSystem {
     private var query: CollisionQuery?
     private let gravity: SIMD3<Float>
+    private var contactCachePolicy: any ContactCachePolicy
 
-    public init(gravity: SIMD3<Float> = SIMD3<Float>(0, -98.0, 0)) {
+    public init(gravity: SIMD3<Float> = SIMD3<Float>(0, -98.0, 0),
+                contactCachePolicy: any ContactCachePolicy = DefaultContactCachePolicy()) {
         self.gravity = gravity
+        self.contactCachePolicy = contactCachePolicy
     }
 
     public func setQuery(_ query: CollisionQuery) {
@@ -1300,17 +1387,10 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
         return CapsuleCapsuleHit(toi: toi, normal: n, other: other)
     }
 
-    public func fixedUpdate(world: World, dt: Float) {
-        guard let query = query else { return }
-        let bodies = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
-        let pStore = world.store(PhysicsBodyComponent.self)
-        let cStore = world.store(CharacterControllerComponent.self)
-        let aStore = world.store(AgentCollisionComponent.self)
-        let platBodies = world.store(PhysicsBodyComponent.self)
-        let platCols = world.store(ColliderComponent.self)
-        let platformEntities = world.query(PhysicsBodyComponent.self,
-                                           ColliderComponent.self,
-                                           KinematicPlatformComponent.self)
+    private func collectAgentStates(bodies: [Entity],
+                                    pStore: ComponentStore<PhysicsBodyComponent>,
+                                    cStore: ComponentStore<CharacterControllerComponent>,
+                                    aStore: ComponentStore<AgentCollisionComponent>) -> [AgentSweepState] {
         var agentStates: [AgentSweepState] = []
         agentStates.reserveCapacity(bodies.count)
         for e in bodies {
@@ -1324,173 +1404,290 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                halfHeight: controller.halfHeight,
                                                filter: agent.filter))
         }
+        return agentStates
+    }
+
+    private func decayContactCache(controller: inout CharacterControllerComponent,
+                                   cachePolicy: inout any ContactCachePolicy) {
+        cachePolicy.decay(controller: &controller)
+    }
+
+    private func applyPlatformDelta(position: inout SIMD3<Float>,
+                                    controller: CharacterControllerComponent,
+                                    platformEntities: [Entity],
+                                    platBodies: ComponentStore<PhysicsBodyComponent>,
+                                    platCols: ComponentStore<ColliderComponent>) {
+        let platformDelta = PlatformCarry.computeDelta(position: position,
+                                                       controller: controller,
+                                                       platformEntities: platformEntities,
+                                                       bodies: platBodies,
+                                                       colliders: platCols)
+        if simd_length_squared(platformDelta) > 1e-8 {
+            position += platformDelta
+        }
+    }
+
+    private func applyPreSweepDepenetration(position: inout SIMD3<Float>,
+                                            body: inout PhysicsBodyComponent,
+                                            controller: inout CharacterControllerComponent,
+                                            remaining: inout SIMD3<Float>,
+                                            query: CollisionQuery,
+                                            cachePolicy: inout any ContactCachePolicy,
+                                            entity: Entity) {
+        if let depenNormal = DepenetrationResolver.resolve(position: &position,
+                                                           body: &body,
+                                                           controller: &controller,
+                                                           radius: controller.radius,
+                                                           halfHeight: controller.halfHeight,
+                                                           skinWidth: controller.skinWidth,
+                                                           query: query,
+                                                           cachePolicy: &cachePolicy,
+                                                           debugLabel: "pre-sweep \(entity.id)") {
+            let into = simd_dot(remaining, depenNormal)
+            if into < 0 {
+                remaining -= depenNormal * into
+            }
+        }
+    }
+
+    private func resolveKinematicSweep(entity: Entity,
+                                       position: inout SIMD3<Float>,
+                                       remaining: inout SIMD3<Float>,
+                                       body: inout PhysicsBodyComponent,
+                                       controller: inout CharacterControllerComponent,
+                                       wasGrounded: Bool,
+                                       wasGroundedNear: Bool,
+                                       selfAgent: AgentCollisionComponent?,
+                                       selfRadius: Float,
+                                       selfFilter: CollisionFilter,
+                                       agentStates: [AgentSweepState],
+                                       cachePolicy: inout any ContactCachePolicy,
+                                       query: CollisionQuery,
+                                       dt: Float) {
+        let baseMove = body.linearVelocity * dt
+        let baseMoveLen = simd_length(baseMove)
+        var lastSlideNormal: SIMD3<Float>? = nil
+        for _ in 0..<controller.maxSlideIterations {
+            let len = simd_length(remaining)
+            if len < 1e-6 { break }
+
+            var staticHit = query.capsuleCastBlocking(from: position,
+                                                      delta: remaining,
+                                                      radius: controller.radius,
+                                                      halfHeight: controller.halfHeight)
+            if var sHit = staticHit,
+               sHit.normal.y < controller.minGroundDot,
+               controller.sideContactFrames > 0,
+               let cached = cachePolicy.cachedNormal(controller: controller,
+                                                     triangleIndex: sHit.triangleIndex) {
+                var cachedN = cached
+                if simd_dot(cachedN, sHit.normal) < 0 {
+                    cachedN = -cachedN
+                }
+                sHit.normal = cachedN
+                staticHit = sHit
+            }
+            let agentHit = AgentSweepSolver.bestHit(position: position,
+                                                    remaining: remaining,
+                                                    remainingLen: len,
+                                                    baseMoveLen: baseMoveLen,
+                                                    dt: dt,
+                                                    selfEntity: entity,
+                                                    selfAgent: selfAgent,
+                                                    selfRadius: selfRadius,
+                                                    halfHeight: controller.halfHeight,
+                                                    selfFilter: selfFilter,
+                                                    agentStates: agentStates,
+                                                    sweep: capsuleCapsuleSweep)
+
+            if let hit = HitSelector.selectBestHit(staticHit: staticHit,
+                                                   agentHit: agentHit,
+                                                   controller: controller) {
+                let hitNormal: SIMD3<Float>
+                switch hit {
+                case .staticHit(let sHit):
+                    hitNormal = sHit.normal
+                case .agentHit(let aHit):
+                    hitNormal = aHit.normal
+                }
+                let options = SlideResolver.SlideOptions.kinematicMove
+                let cachedSideNormal: SIMD3<Float>?
+                if case .staticHit(let sHit) = hit,
+                   sHit.normal.y < controller.minGroundDot,
+                   controller.sideContactFrames > 0 {
+                    cachedSideNormal = cachePolicy.cachedNormal(controller: controller,
+                                                                triangleIndex: sHit.triangleIndex)
+                } else {
+                    cachedSideNormal = nil
+                }
+                let shouldBreak = SlideResolver.resolveHit(remaining: &remaining,
+                                                           len: len,
+                                                           hit: hit,
+                                                           controller: controller,
+                                                           wasGrounded: wasGrounded,
+                                                           wasGroundedNear: wasGroundedNear,
+                                                           body: &body,
+                                                           position: &position,
+                                                           options: options,
+                                                           cachedSideNormal: cachedSideNormal,
+                                                           debugLabel: "kinematic \(entity.id)")
+                if case .staticHit(let sHit) = hit, sHit.normal.y < controller.minGroundDot {
+                    cachePolicy.record(controller: &controller,
+                                       triangleIndex: sHit.triangleIndex,
+                                       normal: sHit.normal,
+                                       isSideContact: true)
+                }
+                if let last = lastSlideNormal {
+                    let dotN = simd_dot(last, hitNormal)
+                    if abs(dotN) < 0.98 {
+                        let axis = simd_cross(last, hitNormal)
+                        let axisLen = simd_length(axis)
+                        if axisLen > 1e-5 {
+                            let axisN = axis / axisLen
+                            remaining = axisN * simd_dot(remaining, axisN)
+                        }
+                    }
+                }
+                lastSlideNormal = hitNormal
+                if shouldBreak {
+                    break
+                }
+            } else {
+                position += remaining
+                remaining = .zero
+                break
+            }
+        }
+    }
+
+    private func resolveGroundContact(position: inout SIMD3<Float>,
+                                      body: inout PhysicsBodyComponent,
+                                      controller: inout CharacterControllerComponent,
+                                      query: CollisionQuery,
+                                      wasGrounded: Bool,
+                                      wasGroundedNear: Bool,
+                                      dt: Float) -> GroundContactState {
+        let probe = GroundProbe.resolve(position: position,
+                                        body: body,
+                                        controller: controller,
+                                        query: query,
+                                        wasGrounded: wasGrounded,
+                                        wasGroundedNear: wasGroundedNear,
+                                        prevNormal: controller.groundNormal,
+                                        prevTriangleIndex: controller.groundTriangleIndex)
+        let groundState = probe.state
+        GroundSnap.apply(position: &position,
+                         body: &body,
+                         controller: controller,
+                         result: probe)
+        if groundState.grounded {
+            let normalUpDelta = groundState.normal.y - controller.groundNormal.y
+            if groundState.triangleIndex != controller.groundTriangleIndex && normalUpDelta > 0.02 {
+                controller.groundTransitionFrames = 3
+            }
+        }
+
+        SlopeFriction.apply(body: &body,
+                            controller: &controller,
+                            gravity: gravity,
+                            dt: dt,
+                            state: groundState)
+        return groundState
+    }
+
+    private func writeBack(entity: Entity,
+                           position: SIMD3<Float>,
+                           body: PhysicsBodyComponent,
+                           controller: CharacterControllerComponent,
+                           groundState: GroundContactState,
+                           pStore: ComponentStore<PhysicsBodyComponent>,
+                           cStore: ComponentStore<CharacterControllerComponent>) {
+        var nextBody = body
+        var nextController = controller
+        nextBody.position = position
+        nextController.grounded = groundState.grounded
+        nextController.groundedNear = groundState.groundedNear
+        nextController.groundNormal = groundState.grounded ? groundState.normal : SIMD3<Float>(0, 1, 0)
+        if groundState.grounded {
+            nextController.groundTriangleIndex = groundState.triangleIndex
+        }
+        pStore[entity] = nextBody
+        cStore[entity] = nextController
+    }
+
+    public func fixedUpdate(world: World, dt: Float) {
+        guard let query = query else { return }
+        let bodies = world.query(PhysicsBodyComponent.self, CharacterControllerComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let cStore = world.store(CharacterControllerComponent.self)
+        let aStore = world.store(AgentCollisionComponent.self)
+        let platBodies = world.store(PhysicsBodyComponent.self)
+        let platCols = world.store(ColliderComponent.self)
+        let platformEntities = world.query(PhysicsBodyComponent.self,
+                                           ColliderComponent.self,
+                                           KinematicPlatformComponent.self)
+        let agentStates = collectAgentStates(bodies: bodies,
+                                             pStore: pStore,
+                                             cStore: cStore,
+                                             aStore: aStore)
         for e in bodies {
             guard var body = pStore[e], var controller = cStore[e] else { continue }
             if body.bodyType == .static { continue }
 
             var position = body.position
-            if controller.sideContactFrames > 0 {
-                controller.sideContactFrames -= 1
-            }
-            if controller.contactManifoldFrames > 0 {
-                controller.contactManifoldFrames -= 1
-                if controller.contactManifoldFrames == 0 {
-                    ContactManifoldCache.reset(controller: &controller)
-                    controller.sideContactNormal = .zero
-                }
-            }
+            decayContactCache(controller: &controller, cachePolicy: &contactCachePolicy)
             let selfAgent = aStore[e]
             let selfRadius = selfAgent?.radiusOverride ?? controller.radius
             let selfFilter = selfAgent?.filter ?? .default
             // Apply platform motion carry/push before character sweep.
-            let platformDelta = PlatformCarryResolver.computeDelta(position: position,
-                                                                  controller: controller,
-                                                                  platformEntities: platformEntities,
-                                                                  bodies: platBodies,
-                                                                  colliders: platCols)
+            applyPlatformDelta(position: &position,
+                               controller: controller,
+                               platformEntities: platformEntities,
+                               platBodies: platBodies,
+                               platCols: platCols)
             let wasGrounded = controller.grounded
             let wasGroundedNear = controller.groundedNear
             var remaining = VelocityGate.apply(body: &body,
                                                wasGrounded: wasGrounded,
                                                wasGroundedNear: wasGroundedNear,
                                                dt: dt)
-            if simd_length_squared(platformDelta) > 1e-8 {
-                position += platformDelta
-            }
-            if let depenNormal = DepenetrationResolver.resolve(position: &position,
-                                                               body: &body,
-                                                               controller: &controller,
-                                                               radius: controller.radius,
-                                                               halfHeight: controller.halfHeight,
-                                                               skinWidth: controller.skinWidth,
-                                                               query: query,
-                                                               debugLabel: "pre-sweep \(e.id)") {
-                let into = simd_dot(remaining, depenNormal)
-                if into < 0 {
-                    remaining -= depenNormal * into
-                }
-            }
-            var isGrounded = false
-            var isGroundedNear = false
-            let baseMove = body.linearVelocity * dt
-            let baseMoveLen = simd_length(baseMove)
-            var lastSlideNormal: SIMD3<Float>? = nil
-            for _ in 0..<controller.maxSlideIterations {
-                let len = simd_length(remaining)
-                if len < 1e-6 { break }
+            applyPreSweepDepenetration(position: &position,
+                                       body: &body,
+                                       controller: &controller,
+                                       remaining: &remaining,
+                                       query: query,
+                                       cachePolicy: &contactCachePolicy,
+                                       entity: e)
+            resolveKinematicSweep(entity: e,
+                                  position: &position,
+                                  remaining: &remaining,
+                                  body: &body,
+                                  controller: &controller,
+                                  wasGrounded: wasGrounded,
+                                  wasGroundedNear: wasGroundedNear,
+                                  selfAgent: selfAgent,
+                                  selfRadius: selfRadius,
+                                  selfFilter: selfFilter,
+                                  agentStates: agentStates,
+                                  cachePolicy: &contactCachePolicy,
+                                  query: query,
+                                  dt: dt)
 
-                var staticHit = query.capsuleCastBlocking(from: position,
-                                                          delta: remaining,
-                                                          radius: controller.radius,
-                                                          halfHeight: controller.halfHeight)
-                if var sHit = staticHit,
-                   sHit.normal.y < controller.minGroundDot,
-                   controller.sideContactFrames > 0,
-                   let cached = ContactManifoldCache.normalFor(controller: controller,
-                                                               triangleIndex: sHit.triangleIndex) {
-                    var cachedN = cached
-                    if simd_dot(cachedN, sHit.normal) < 0 {
-                        cachedN = -cachedN
-                    }
-                    sHit.normal = cachedN
-                    staticHit = sHit
-                }
-                let agentHit = AgentSweepSolver.bestHit(position: position,
-                                                        remaining: remaining,
-                                                        remainingLen: len,
-                                                        baseMoveLen: baseMoveLen,
-                                                        dt: dt,
-                                                        selfEntity: e,
-                                                        selfAgent: selfAgent,
-                                                        selfRadius: selfRadius,
-                                                        halfHeight: controller.halfHeight,
-                                                        selfFilter: selfFilter,
-                                                        agentStates: agentStates,
-                                                        sweep: capsuleCapsuleSweep)
+            let groundState = resolveGroundContact(position: &position,
+                                                   body: &body,
+                                                   controller: &controller,
+                                                   query: query,
+                                                   wasGrounded: wasGrounded,
+                                                   wasGroundedNear: wasGroundedNear,
+                                                   dt: dt)
 
-                if let hit = HitSelector.selectBestHit(staticHit: staticHit,
-                                                       agentHit: agentHit,
-                                                       controller: controller) {
-                    let hitNormal: SIMD3<Float>
-                    switch hit {
-                    case .staticHit(let sHit):
-                        hitNormal = sHit.normal
-                    case .agentHit(let aHit):
-                        hitNormal = aHit.normal
-                    }
-                    let options = SlideResolver.SlideOptions.kinematicMove
-                    let shouldBreak = SlideResolver.resolveHit(remaining: &remaining,
-                                                               len: len,
-                                                               hit: hit,
-                                                               controller: controller,
-                                                               wasGrounded: wasGrounded,
-                                                               wasGroundedNear: wasGroundedNear,
-                                                               body: &body,
-                                                               position: &position,
-                                                               options: options,
-                                                               debugLabel: "kinematic \(e.id)")
-                    if case .staticHit(let sHit) = hit, sHit.normal.y < controller.minGroundDot {
-                        ContactManifoldCache.update(controller: &controller,
-                                                    triangleIndex: sHit.triangleIndex,
-                                                    normal: sHit.normal)
-                        controller.sideContactNormal = simd_normalize(sHit.normal)
-                        controller.sideContactFrames = 3
-                    }
-                    if let last = lastSlideNormal {
-                        let dotN = simd_dot(last, hitNormal)
-                        if abs(dotN) < 0.98 {
-                            let axis = simd_cross(last, hitNormal)
-                            let axisLen = simd_length(axis)
-                            if axisLen > 1e-5 {
-                                let axisN = axis / axisLen
-                                remaining = axisN * simd_dot(remaining, axisN)
-                            }
-                        }
-                    }
-                    lastSlideNormal = hitNormal
-                    if shouldBreak {
-                        break
-                    }
-                } else {
-                    position += remaining
-                    remaining = .zero
-                    break
-                }
-            }
-
-            let groundState = GroundContactResolver.resolveSnap(position: &position,
-                                                                body: &body,
-                                                                controller: controller,
-                                                                query: query,
-                                                                wasGrounded: wasGrounded,
-                                                                wasGroundedNear: wasGroundedNear,
-                                                                prevNormal: controller.groundNormal,
-                                                                prevTriangleIndex: controller.groundTriangleIndex)
-            isGrounded = groundState.grounded
-            isGroundedNear = groundState.groundedNear
-
-            if groundState.grounded {
-                let normalUpDelta = groundState.normal.y - controller.groundNormal.y
-                if groundState.triangleIndex != controller.groundTriangleIndex && normalUpDelta > 0.02 {
-                    controller.groundTransitionFrames = 3
-                }
-            }
-
-            GroundContactResolver.applySlopeFriction(body: &body,
-                                                     controller: &controller,
-                                                     gravity: gravity,
-                                                     dt: dt,
-                                                     state: groundState)
-
-            body.position = position
-            pStore[e] = body
-            controller.grounded = isGrounded
-            controller.groundedNear = isGroundedNear
-            controller.groundNormal = groundState.grounded ? groundState.normal : SIMD3<Float>(0, 1, 0)
-            if groundState.grounded {
-                controller.groundTriangleIndex = groundState.triangleIndex
-            }
-            cStore[e] = controller
+            writeBack(entity: e,
+                      position: position,
+                      body: body,
+                      controller: controller,
+                      groundState: groundState,
+                      pStore: pStore,
+                      cStore: cStore)
 
         }
     }
@@ -1639,6 +1836,79 @@ public final class AgentSeparationSystem: FixedStepSystem {
         }
     }
 
+    private struct AgentSeparationPostProcessor {
+        static func apply(agent: Agent,
+                          startPosition: SIMD3<Float>,
+                          body: inout PhysicsBodyComponent,
+                          query: CollisionQuery?) -> (SIMD3<Float>, CharacterControllerComponent) {
+            var position = agent.position
+            var controller = agent.controller
+            guard let query = query else {
+                return (position, controller)
+            }
+
+            // Agent separation should not depenetrate against static world; kinematic handles that.
+            let delta = position - startPosition
+            let len = simd_length(delta)
+            var moved = false
+            if len > 1e-6 {
+                moved = true
+                let slideIterations = 2
+                var remaining = delta
+                position = startPosition
+                for _ in 0..<slideIterations {
+                    let segLen = simd_length(remaining)
+                    if segLen < 1e-6 { break }
+                    if let hit = query.capsuleCastBlocking(from: position,
+                                                           delta: remaining,
+                                                           radius: agent.radius,
+                                                           halfHeight: agent.halfHeight) {
+                        let options = SlideResolver.SlideOptions.agentSeparation
+                            let done = SlideResolver.resolveHit(remaining: &remaining,
+                                                                len: segLen,
+                                                                hit: .staticHit(hit),
+                                                                controller: agent.controller,
+                                                                wasGrounded: false,
+                                                                wasGroundedNear: false,
+                                                                body: &body,
+                                                                position: &position,
+                                                                options: options,
+                                                                cachedSideNormal: nil,
+                                                                debugLabel: "agent \(agent.entity.id)")
+                        if done { break }
+                    } else {
+                        position += remaining
+                        remaining = .zero
+                        break
+                    }
+                }
+            }
+
+            if moved && body.linearVelocity.y <= 0 {
+                if controller.snapDistance > 0 {
+                    let down = SIMD3<Float>(0, -1, 0)
+                    let snapDelta = down * controller.snapDistance
+                    if let hit = query.capsuleCastGround(from: position,
+                                                         delta: snapDelta,
+                                                         radius: agent.radius,
+                                                         halfHeight: agent.halfHeight,
+                                                         minNormalY: controller.minGroundDot),
+                       hit.toi <= controller.snapDistance {
+                        let rawMove = max(hit.toi - controller.groundSnapSkin, 0)
+                        let moveDist = min(rawMove, controller.groundSnapMaxStep)
+                        position += down * moveDist
+                        controller.grounded = true
+                        controller.groundedNear = hit.toi <= max(controller.groundSnapSkin, controller.skinWidth)
+                        controller.groundNormal = hit.triangleNormal
+                        controller.groundTriangleIndex = hit.triangleIndex
+                    }
+                }
+            }
+
+            return (position, controller)
+        }
+    }
+
     public var iterations: Int
     public var separationMargin: Float
     public var heightMargin: Float
@@ -1711,68 +1981,11 @@ public final class AgentSeparationSystem: FixedStepSystem {
         for idx in agents.indices {
             let agent = agents[idx]
             guard var body = pStore[agent.entity] else { continue }
-            var position = agent.position
-            var controller = agent.controller
-
-            if let query = query {
-                // Agent separation should not depenetrate against static world; kinematic handles that.
-                let start = originalPositions[idx]
-                let delta = position - start
-                let len = simd_length(delta)
-                var moved = false
-                if len > 1e-6 {
-                    moved = true
-                    let slideIterations = 2
-                    var remaining = delta
-                    position = start
-                    for _ in 0..<slideIterations {
-                        let segLen = simd_length(remaining)
-                        if segLen < 1e-6 { break }
-                        if let hit = query.capsuleCastBlocking(from: position,
-                                                               delta: remaining,
-                                                               radius: agent.radius,
-                                                               halfHeight: agent.halfHeight) {
-                            let options = SlideResolver.SlideOptions.agentSeparation
-                            let done = SlideResolver.resolveHit(remaining: &remaining,
-                                                                len: segLen,
-                                                                hit: .staticHit(hit),
-                                                                controller: agent.controller,
-                                                                wasGrounded: false,
-                                                                wasGroundedNear: false,
-                                                                body: &body,
-                                                                position: &position,
-                                                                options: options,
-                                                                debugLabel: "agent \(agent.entity.id)")
-                            if done { break }
-                        } else {
-                            position += remaining
-                            remaining = .zero
-                            break
-                        }
-                    }
-                }
-
-                if moved && body.linearVelocity.y <= 0 {
-                    if controller.snapDistance > 0 {
-                        let down = SIMD3<Float>(0, -1, 0)
-                        let snapDelta = down * controller.snapDistance
-                        if let hit = query.capsuleCastGround(from: position,
-                                                             delta: snapDelta,
-                                                             radius: agent.radius,
-                                                             halfHeight: agent.halfHeight,
-                                                             minNormalY: controller.minGroundDot),
-                           hit.toi <= controller.snapDistance {
-                            let rawMove = max(hit.toi - controller.groundSnapSkin, 0)
-                            let moveDist = min(rawMove, controller.groundSnapMaxStep)
-                            position += down * moveDist
-                            controller.grounded = true
-                            controller.groundedNear = hit.toi <= max(controller.groundSnapSkin, controller.skinWidth)
-                            controller.groundNormal = hit.triangleNormal
-                            controller.groundTriangleIndex = hit.triangleIndex
-                        }
-                    }
-                }
-            }
+            let start = originalPositions[idx]
+            let (position, controller) = AgentSeparationPostProcessor.apply(agent: agent,
+                                                                            startPosition: start,
+                                                                            body: &body,
+                                                                            query: query)
 
             body.position = position
             body.linearVelocity = agents[idx].velocity
