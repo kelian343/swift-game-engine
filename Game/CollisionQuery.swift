@@ -228,19 +228,36 @@ public struct StaticTriMesh {
                                   delta: SIMD3<Float>,
                                   radius: Float,
                                   halfHeight: Float) -> CapsuleCastHit? {
-        _ = halfHeight
         let len = simd_length(delta)
         if len < 1e-6 { return nil }
         let dir = delta / len
-        guard let hit = raycast(origin: from, direction: dir, maxDistance: len) else { return nil }
-        let toi = max(0, hit.distance - radius)
-        let position = from + dir * toi
-        return CapsuleCastHit(toi: toi,
-                              position: position,
-                              normal: hit.normal,
-                              triangleNormal: hit.normal,
-                              triangleIndex: hit.triangleIndex,
-                              material: hit.material)
+
+        var bestHit: CapsuleCastHit?
+        var bestT = len
+        var triIndex = 0
+        var i = 0
+        while i + 2 < indices.count {
+            let v0 = positions[Int(indices[i])]
+            let v1 = positions[Int(indices[i + 1])]
+            let v2 = positions[Int(indices[i + 2])]
+            if let hit = sweepCapsuleTriangle(from: from,
+                                              dir: dir,
+                                              maxDistance: len,
+                                              radius: radius,
+                                              halfHeight: halfHeight,
+                                              v0: v0,
+                                              v1: v1,
+                                              v2: v2,
+                                              triangleIndex: triIndex),
+               hit.toi < bestT {
+                bestT = hit.toi
+                bestHit = hit
+            }
+            i += 3
+            triIndex += 1
+        }
+
+        return bestHit
     }
 }
 
