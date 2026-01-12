@@ -41,6 +41,7 @@ public final class ProceduralPoseSystem: FixedStepSystem {
             let baseFreq: Float = 1.4
             let speedFreq: Float = 0.5
             pose.phase += dt * (baseFreq + speed * speedFreq) * 2.0 * .pi
+            pose.phase = pose.phase.truncatingRemainder(dividingBy: 2.0 * .pi)
 
             let phase = pose.phase
             let bobAmp: Float = 0.08
