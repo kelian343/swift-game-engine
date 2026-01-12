@@ -553,6 +553,7 @@ private struct PlatformCarryResolver {
 private struct DepenetrationResolver {
     static func resolve(position: inout SIMD3<Float>,
                         body: inout PhysicsBodyComponent,
+                        controller: inout CharacterControllerComponent,
                         radius: Float,
                         halfHeight: Float,
                         skinWidth: Float,
@@ -572,16 +573,40 @@ private struct DepenetrationResolver {
             if hits.isEmpty {
                 break
             }
-            var maxDepth: Float = 0
+            let sortedHits = hits.sorted { $0.depth > $1.depth }
+            guard let deepest = sortedHits.first else {
+                break
+            }
+            let sideContact = deepest.normal.y < controller.minGroundDot
+            let useCount = sideContact ? 1 : min(2, sortedHits.count)
+            var maxDepth = deepest.depth
             var frameNormal = SIMD3<Float>(repeating: 0)
-            for hit in hits {
+            for hit in sortedHits.prefix(useCount) {
                 maxDepth = max(maxDepth, hit.depth)
-                frameNormal += hit.normal * hit.depth
+                var n = hit.normal
+                if let cached = ContactManifoldCache.normalFor(controller: controller,
+                                                               triangleIndex: hit.triangleIndex) {
+                    if simd_dot(cached, n) < 0 {
+                        n = -n
+                    }
+                    n = cached
+                }
+                frameNormal += n * hit.depth
+                ContactManifoldCache.update(controller: &controller,
+                                            triangleIndex: hit.triangleIndex,
+                                            normal: n)
             }
             let frameNormalLen = simd_length(frameNormal)
             let depenNormal = frameNormalLen > 1e-6 ? frameNormal / frameNormalLen : frameNormal
-            let push = max(maxDepth + slop, 0)
+            var push = sideContact ? max(maxDepth, 0) : max(maxDepth + slop, 0)
+            if sideContact {
+                push = min(push, skinWidth)
+            }
             if push <= 1e-6 { break }
+            if CollisionDebug.logDepenetration, CollisionDebug.allows(debugLabel) {
+                let triPreview = hits.prefix(4).map { "\($0.triangleIndex)" }.joined(separator: ",")
+                print("[collision][depen] \(debugLabel) hits=\(hits.count) maxDepth=\(CollisionDebug.fmt(maxDepth)) push=\(CollisionDebug.fmt(push)) side=\(sideContact) n=\(CollisionDebug.fmt(depenNormal)) tris=[\(triPreview)]")
+            }
             position += depenNormal * push
             let vInto = simd_dot(body.linearVelocity, depenNormal)
             if vInto < 0 {
@@ -598,6 +623,32 @@ private struct DepenetrationResolver {
             return simd_normalize(normalSum / normalWeight)
         }
         return simd_normalize(normalSum)
+    }
+}
+
+private enum CollisionDebug {
+    static var enabled: Bool = true
+    static var entityId: Int? = 5
+    static var logDepenetration: Bool = true
+    static var logSlide: Bool = true
+    static var logManifold: Bool = true
+
+    static func allows(_ label: String) -> Bool {
+        guard enabled else { return false }
+        guard let entityId else { return true }
+        return label.contains(" \(entityId)")
+    }
+
+    static func fmt(_ value: Float) -> String {
+        let rounded = (value * 1000).rounded() / 1000
+        return "\(rounded)"
+    }
+
+    static func fmt(_ v: SIMD3<Float>) -> String {
+        let x = (v.x * 1000).rounded() / 1000
+        let y = (v.y * 1000).rounded() / 1000
+        let z = (v.z * 1000).rounded() / 1000
+        return "(\(x), \(y), \(z))"
     }
 }
 
@@ -846,6 +897,54 @@ private struct AgentSweepSolver {
     }
 }
 
+private struct ContactManifoldCache {
+    static let maxCount: Int = 4
+    static let maxFrames: Int = 8
+
+    static func reset(controller: inout CharacterControllerComponent) {
+        controller.contactManifoldTriangles.removeAll(keepingCapacity: true)
+        controller.contactManifoldNormals.removeAll(keepingCapacity: true)
+        controller.contactManifoldFrames = 0
+    }
+
+    static func normalFor(controller: CharacterControllerComponent,
+                          triangleIndex: Int) -> SIMD3<Float>? {
+        for (i, idx) in controller.contactManifoldTriangles.enumerated() where idx == triangleIndex {
+            return controller.contactManifoldNormals[i]
+        }
+        return nil
+    }
+
+    static func update(controller: inout CharacterControllerComponent,
+                       triangleIndex: Int,
+                       normal: SIMD3<Float>) {
+        var n = normal
+        if simd_length_squared(n) < 1e-8 {
+            return
+        }
+        controller.contactManifoldFrames = maxFrames
+        if let i = controller.contactManifoldTriangles.firstIndex(of: triangleIndex) {
+            let cached = controller.contactManifoldNormals[i]
+            if simd_dot(cached, n) < 0 {
+                n = -n
+            }
+            let blend: Float = 0.25
+            let combined = simd_normalize(cached * (1 - blend) + n * blend)
+            controller.contactManifoldNormals[i] = combined
+            controller.sideContactNormal = combined
+            return
+        }
+
+        if controller.contactManifoldTriangles.count >= maxCount {
+            controller.contactManifoldTriangles.removeLast()
+            controller.contactManifoldNormals.removeLast()
+        }
+        controller.contactManifoldTriangles.insert(triangleIndex, at: 0)
+        controller.contactManifoldNormals.insert(simd_normalize(n), at: 0)
+        controller.sideContactNormal = controller.contactManifoldNormals[0]
+    }
+}
+
 private struct SlideResolver {
     struct SlideOptions {
         let allowHorizontalGroundPass: Bool
@@ -891,6 +990,7 @@ private struct SlideResolver {
         var slideNormal: SIMD3<Float>
         let hitToi: Float
         var hitTriNormal: SIMD3<Float> = .zero
+        var hitTriangleIndex: Int = -1
         var hitIsStatic = false
         var hitIsGroundLike = false
         switch hit {
@@ -904,6 +1004,7 @@ private struct SlideResolver {
                 contactSkin = controller.skinWidth
             }
             hitTriNormal = sHit.triangleNormal
+            hitTriangleIndex = sHit.triangleIndex
             hitIsStatic = true
         case .agentHit(let aHit):
             hitToi = aHit.toi
@@ -912,15 +1013,34 @@ private struct SlideResolver {
         }
 
         if hitIsStatic && slideNormal.y < controller.minGroundDot && controller.sideContactFrames > 0 {
-            let cached = controller.sideContactNormal
-            let cachedLen = simd_length_squared(cached)
-            if cachedLen > 1e-6 {
-                let cachedN = cached / sqrt(cachedLen)
+            if hitTriangleIndex >= 0,
+               let cached = ContactManifoldCache.normalFor(controller: controller,
+                                                           triangleIndex: hitTriangleIndex) {
+                var cachedN = cached
                 let dotC = simd_dot(cachedN, slideNormal)
-                if abs(dotC) > 0.5 {
-                    slideNormal = dotC >= 0 ? cachedN : -cachedN
+                if dotC < 0 {
+                    cachedN = -cachedN
+                }
+                slideNormal = cachedN
+            } else {
+                let cached = controller.sideContactNormal
+                let cachedLen = simd_length_squared(cached)
+                if cachedLen > 1e-6 {
+                    let cachedN = cached / sqrt(cachedLen)
+                    let dotC = simd_dot(cachedN, slideNormal)
+                    if abs(dotC) > 0.5 {
+                        slideNormal = dotC >= 0 ? cachedN : -cachedN
+                    }
                 }
             }
+        }
+
+        if CollisionDebug.logSlide, CollisionDebug.allows(debugLabel), hitIsStatic {
+            let cached = hitTriangleIndex >= 0
+                ? ContactManifoldCache.normalFor(controller: controller, triangleIndex: hitTriangleIndex)
+                : nil
+            let cachedText = cached != nil ? CollisionDebug.fmt(cached!) : "nil"
+            print("[collision][slide] \(debugLabel) toi=\(CollisionDebug.fmt(hitToi)) rem=\(CollisionDebug.fmt(remaining)) n=\(CollisionDebug.fmt(slideNormal)) triN=\(CollisionDebug.fmt(hitTriNormal)) tri=\(hitTriangleIndex) cache=\(cachedText)")
         }
 
 
@@ -1251,6 +1371,16 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             if controller.sideContactFrames > 0 {
                 controller.sideContactFrames -= 1
             }
+            if controller.contactManifoldFrames > 0 {
+                controller.contactManifoldFrames -= 1
+                if controller.contactManifoldFrames == 0 {
+                    ContactManifoldCache.reset(controller: &controller)
+                    controller.sideContactNormal = .zero
+                    if CollisionDebug.logManifold, CollisionDebug.allows("kinematic \(e.id)") {
+                        print("[collision][manifold] kinematic \(e.id) reset")
+                    }
+                }
+            }
             let selfAgent = aStore[e]
             let selfRadius = selfAgent?.radiusOverride ?? controller.radius
             let selfFilter = selfAgent?.filter ?? .default
@@ -1271,6 +1401,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             }
             if let depenNormal = DepenetrationResolver.resolve(position: &position,
                                                                body: &body,
+                                                               controller: &controller,
                                                                radius: controller.radius,
                                                                halfHeight: controller.halfHeight,
                                                                skinWidth: controller.skinWidth,
@@ -1290,10 +1421,22 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 let len = simd_length(remaining)
                 if len < 1e-6 { break }
 
-                let staticHit = query.capsuleCastBlocking(from: position,
+                var staticHit = query.capsuleCastBlocking(from: position,
                                                           delta: remaining,
                                                           radius: controller.radius,
                                                           halfHeight: controller.halfHeight)
+                if var sHit = staticHit,
+                   sHit.normal.y < controller.minGroundDot,
+                   controller.sideContactFrames > 0,
+                   let cached = ContactManifoldCache.normalFor(controller: controller,
+                                                               triangleIndex: sHit.triangleIndex) {
+                    var cachedN = cached
+                    if simd_dot(cachedN, sHit.normal) < 0 {
+                        cachedN = -cachedN
+                    }
+                    sHit.normal = cachedN
+                    staticHit = sHit
+                }
                 let agentHit = AgentSweepSolver.bestHit(position: position,
                                                         remaining: remaining,
                                                         remainingLen: len,
@@ -1329,8 +1472,14 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                                options: options,
                                                                debugLabel: "kinematic \(e.id)")
                     if case .staticHit(let sHit) = hit, sHit.normal.y < controller.minGroundDot {
+                        ContactManifoldCache.update(controller: &controller,
+                                                    triangleIndex: sHit.triangleIndex,
+                                                    normal: sHit.normal)
                         controller.sideContactNormal = simd_normalize(sHit.normal)
-                        controller.sideContactFrames = 3
+                            controller.sideContactFrames = 3
+                        if CollisionDebug.logManifold, CollisionDebug.allows("kinematic \(e.id)") {
+                            print("[collision][manifold] kinematic \(e.id) tri=\(sHit.triangleIndex) n=\(CollisionDebug.fmt(sHit.normal))")
+                        }
                     }
                     if let last = lastSlideNormal {
                         let dotN = simd_dot(last, hitNormal)
@@ -1387,6 +1536,10 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                 controller.groundTriangleIndex = groundState.triangleIndex
             }
             cStore[e] = controller
+
+            if CollisionDebug.enabled, CollisionDebug.allows("kinematic \(e.id)") {
+                print("[collision][kinematic] kinematic \(e.id) pos=\(CollisionDebug.fmt(body.position)) vel=\(CollisionDebug.fmt(body.linearVelocity)) grounded=\(controller.grounded)")
+            }
 
         }
     }
@@ -1608,19 +1761,16 @@ public final class AgentSeparationSystem: FixedStepSystem {
             let agent = agents[idx]
             guard var body = pStore[agent.entity] else { continue }
             var position = agent.position
+            var controller = agent.controller
 
             if let query = query {
-                if let depenNormal = DepenetrationResolver.resolve(position: &position,
-                                                                   body: &body,
-                                                                   radius: agent.radius,
-                                                                   halfHeight: agent.halfHeight,
-                                                                   skinWidth: agent.controller.skinWidth,
-                                                                   query: query,
-                                                                   debugLabel: "agent \(agent.entity.id)") {
-                    let into = simd_dot(body.linearVelocity, depenNormal)
-                    if into < 0 {
-                        body.linearVelocity -= depenNormal * into
-                    }
+                let prePos = position
+                let preVel = body.linearVelocity
+                // Agent separation should not depenetrate against static world; kinematic handles that.
+                if CollisionDebug.enabled, CollisionDebug.allows("agent \(agent.entity.id)") {
+                    let delta = position - prePos
+                    let velDelta = body.linearVelocity - preVel
+                    print("[collision][agent] agent \(agent.entity.id) pos=\(CollisionDebug.fmt(position)) dPos=\(CollisionDebug.fmt(delta)) vel=\(CollisionDebug.fmt(body.linearVelocity)) dVel=\(CollisionDebug.fmt(velDelta))")
                 }
                 let start = originalPositions[idx]
                 let delta = position - start
@@ -1676,7 +1826,6 @@ public final class AgentSeparationSystem: FixedStepSystem {
                             controller.groundedNear = hit.toi <= max(controller.groundSnapSkin, controller.skinWidth)
                             controller.groundNormal = hit.triangleNormal
                             controller.groundTriangleIndex = hit.triangleIndex
-                            cStore[agent.entity] = controller
                         }
                     }
                 }
@@ -1685,6 +1834,7 @@ public final class AgentSeparationSystem: FixedStepSystem {
             body.position = position
             body.linearVelocity = agents[idx].velocity
             pStore[agent.entity] = body
+            cStore[agent.entity] = controller
         }
     }
 }

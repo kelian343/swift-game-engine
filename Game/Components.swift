@@ -141,6 +141,9 @@ public struct CharacterControllerComponent {
     public var groundTransitionFrames: Int
     public var sideContactNormal: SIMD3<Float>
     public var sideContactFrames: Int
+    public var contactManifoldTriangles: [Int]
+    public var contactManifoldNormals: [SIMD3<Float>]
+    public var contactManifoldFrames: Int
     public var uphillBoostScale: Float
     public var grounded: Bool
     public var groundedNear: Bool
@@ -162,6 +165,9 @@ public struct CharacterControllerComponent {
                 groundTransitionFrames: Int = 0,
                 sideContactNormal: SIMD3<Float> = .zero,
                 sideContactFrames: Int = 0,
+                contactManifoldTriangles: [Int] = [],
+                contactManifoldNormals: [SIMD3<Float>] = [],
+                contactManifoldFrames: Int = 0,
                 uphillBoostScale: Float = 1.0,
                 grounded: Bool = false,
                 groundedNear: Bool = false) {
@@ -182,6 +188,9 @@ public struct CharacterControllerComponent {
         self.groundTransitionFrames = groundTransitionFrames
         self.sideContactNormal = sideContactNormal
         self.sideContactFrames = sideContactFrames
+        self.contactManifoldTriangles = contactManifoldTriangles
+        self.contactManifoldNormals = contactManifoldNormals
+        self.contactManifoldFrames = contactManifoldFrames
         self.uphillBoostScale = uphillBoostScale
         self.grounded = grounded
         self.groundedNear = groundedNear
