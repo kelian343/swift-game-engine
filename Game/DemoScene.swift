@@ -244,7 +244,7 @@ public final class DemoScene: RenderScene {
             let playerHalfHeight: Float = 1.0
             let skeleton = Skeleton.humanoid8()
             let skinnedDesc = ProceduralMeshes.skeletonCapsules(skeleton: skeleton,
-                                                                SkeletonCapsuleParams(radius: 0.22,
+                                                                SkeletonCapsuleParams(radius: 0.03,
                                                                                       radialSegments: 12,
                                                                                       hemisphereSegments: 6))
             let baseColor = ProceduralTextureGenerator.checkerboard(width: 256,

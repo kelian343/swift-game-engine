@@ -116,7 +116,7 @@ public struct SkeletonCapsuleParams {
     public var radialSegments: Int
     public var hemisphereSegments: Int
 
-    public init(radius: Float = 0.18,
+    public init(radius: Float = 0.03,
                 radialSegments: Int = 10,
                 hemisphereSegments: Int = 6) {
         self.radius = radius
