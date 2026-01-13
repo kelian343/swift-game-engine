@@ -8,6 +8,7 @@
 import simd
 
 public final class PoseStackSystem: FixedStepSystem {
+
     public init() {}
 
     public func fixedUpdate(world: World, dt: Float) {
@@ -17,7 +18,7 @@ public final class PoseStackSystem: FixedStepSystem {
         let sStore = world.store(SkeletonComponent.self)
         let pStore = world.store(PoseComponent.self)
         let aStore = world.store(AnimationComponent.self)
-        let bodyStore = world.store(PhysicsBodyComponent.self)
+        let tStore = world.store(TransformComponent.self)
         let controllerStore = world.store(CharacterControllerComponent.self)
 
         for e in entities {
@@ -75,29 +76,29 @@ public final class PoseStackSystem: FixedStepSystem {
             }
 
             if let pelvis = skeleton.semantic(.pelvis) {
+                let forward = tStore[e].map { simd_act($0.rotation, SIMD3<Float>(0, 0, -1)) }
+                    ?? SIMD3<Float>(0, 0, -1)
+                let forwardHoriz = simd_length_squared(SIMD3<Float>(forward.x, 0, forward.z)) > 0.0001
+                    ? simd_normalize(SIMD3<Float>(forward.x, 0, forward.z))
+                    : SIMD3<Float>(0, 0, -1)
                 let groundNormal = controllerStore[e]?.groundNormal ?? SIMD3<Float>(0, 1, 0)
                 let useTilt = controllerStore[e]?.groundedNear ?? false
-                let rawAlignQuat = useTilt ? rotationFromUp(to: groundNormal)
-                                           : simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0))
                 let alignStrength: Float = 0.33
-                let alignQuat = simd_slerp(simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0)),
-                                           rawAlignQuat,
-                                           alignStrength)
-
-                let vel = bodyStore[e]?.linearVelocity ?? .zero
-                let horizontal = SIMD3<Float>(vel.x, 0, vel.z)
-                let speed = simd_length(horizontal)
-                let leanScale: Float = 0.015
-                let maxLean: Float = 0.25
-                let leanAngle = min(speed * leanScale, maxLean)
-                let leanAxis = speed > 0.001 ? simd_normalize(simd_cross(horizontal, SIMD3<Float>(0, 1, 0)))
-                                             : SIMD3<Float>(1, 0, 0)
-                let leanQuat = speed > 0.001 ? simd_quatf(angle: leanAngle, axis: leanAxis)
-                                             : simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0))
-
+                let alignQuat: simd_quatf = {
+                    guard useTilt else {
+                        return simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0))
+                    }
+                    // Pitch-only align: remove roll by projecting the normal into the forward/up plane.
+                    let up = SIMD3<Float>(0, 1, 0)
+                    let right = simd_normalize(simd_cross(up, forwardHoriz))
+                    let nProj = simd_normalize(groundNormal - right * simd_dot(groundNormal, right))
+                    let crossUp = simd_cross(up, nProj)
+                    let angle = atan2(simd_dot(crossUp, right), simd_dot(up, nProj)) * alignStrength
+                    return simd_quatf(angle: angle, axis: right)
+                }()
                 let alignMat = matrix_float4x4(alignQuat)
-                let leanMat = matrix_float4x4(leanQuat)
-                pose.local[pelvis] = simd_mul(pose.local[pelvis], simd_mul(alignMat, leanMat))
+                // Apply in parent space to avoid local-axis skew from pre-rotations.
+                pose.local[pelvis] = simd_mul(alignMat, pose.local[pelvis])
             }
 
             pose.model = Skeleton.buildModelTransforms(parent: skeleton.parent, local: pose.local)
