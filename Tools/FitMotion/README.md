@@ -6,7 +6,7 @@ Offline tool to fit ASCII FBX animation curves into Fourier series coefficients.
 
 ```sh
 python3 /Users/karpellus/Desktop/Game/Tools/FitMotion/fit_motion.py \
-  --fbx /Users/karpellus/Desktop/Game/Game/Walking.fbx \
+  --fbx /Users/karpellus/Desktop/Game/ExternalResources/Walking.fbx \
   --out /Users/karpellus/Desktop/Game/Game/Walking.motionProfile.json \
   --name Walking \
   --fps 60 \
