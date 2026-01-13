@@ -29,12 +29,15 @@ public final class ProceduralPoseSystem: FixedStepSystem {
                 pose = PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal)
             }
 
-            // Keep bind pose (T-pose) and skip procedural motion.
-            pose.local = skeleton.bindLocal
-            pose.model = Skeleton.buildModelTransforms(parent: skeleton.parent, local: pose.local)
-            pose.palette = zip(pose.model, skeleton.invBindModel).map { simd_mul($0, $1) }
-            pStore[e] = pose
-            continue
+            let freezePose = true
+            if freezePose {
+                // Keep bind pose (T-pose) and skip procedural motion.
+                pose.local = skeleton.bindLocal
+                pose.model = Skeleton.buildModelTransforms(parent: skeleton.parent, local: pose.local)
+                pose.palette = zip(pose.model, skeleton.invBindModel).map { simd_mul($0, $1) }
+                pStore[e] = pose
+                continue
+            }
 
             let body = bodyStore[e]
             let controller = controllerStore[e]
