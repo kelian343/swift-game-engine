@@ -42,7 +42,13 @@ public final class PoseStackSystem: FixedStepSystem {
                 let phase = max(0, min(profile.time / cycle, 1))
                 pose.phase = phase
 
-                var local = skeleton.bindLocal
+                // Reset local to bind pose without allocating a new array.
+                if pose.local.count != skeleton.boneCount {
+                    pose.local = Array(repeating: matrix_identity_float4x4, count: skeleton.boneCount)
+                }
+                for i in 0..<skeleton.boneCount {
+                    pose.local[i] = skeleton.bindLocal[i]
+                }
                 for i in 0..<skeleton.boneCount {
                     let name = skeleton.names[i]
                     guard let bone = profile.profile.bones[name] else {
@@ -74,12 +80,16 @@ public final class PoseStackSystem: FixedStepSystem {
                     }
 
                     let trans = matrix4x4_translation(t.x, t.y, t.z)
-                    local[i] = simd_mul(trans, rot)
+                    pose.local[i] = simd_mul(trans, rot)
                 }
-                pose.local = local
                 mStore[e] = profile
             } else {
-                pose.local = skeleton.bindLocal
+                if pose.local.count != skeleton.boneCount {
+                    pose.local = Array(repeating: matrix_identity_float4x4, count: skeleton.boneCount)
+                }
+                for i in 0..<skeleton.boneCount {
+                    pose.local[i] = skeleton.bindLocal[i]
+                }
             }
 
             if let pelvis = skeleton.semantic(.pelvis) {
@@ -108,8 +118,13 @@ public final class PoseStackSystem: FixedStepSystem {
                 pose.local[pelvis] = simd_mul(alignMat, pose.local[pelvis])
             }
 
-            pose.model = Skeleton.buildModelTransforms(parent: skeleton.parent, local: pose.local)
-            pose.palette = zip(pose.model, skeleton.invBindModel).map { simd_mul($0, $1) }
+            Skeleton.buildModelTransforms(parent: skeleton.parent, local: pose.local, into: &pose.model)
+            if pose.palette.count != skeleton.boneCount {
+                pose.palette = Array(repeating: matrix_identity_float4x4, count: skeleton.boneCount)
+            }
+            for i in 0..<skeleton.boneCount {
+                pose.palette[i] = simd_mul(pose.model[i], skeleton.invBindModel[i])
+            }
 
             pStore[e] = pose
         }

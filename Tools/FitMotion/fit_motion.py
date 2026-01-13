@@ -134,16 +134,16 @@ def build_bone_curves(text: str) -> Tuple[Dict[str, dict], float]:
     return bone_anims, max(max_time, 0.001)
 
 
-def parse_skeleton_humanoid8(swift_path: Path) -> dict:
+def parse_skeleton_mixamo_reference(swift_path: Path) -> dict:
     text = swift_path.read_text(encoding="utf-8")
-    start = text.find("public static func humanoid8()")
+    start = text.find("public static func mixamoReference()")
     if start < 0:
-        raise ValueError(f"Failed to find humanoid8() in {swift_path}")
+        raise ValueError(f"Failed to find mixamoReference() in {swift_path}")
     end = text.find("public static func rotationXYZDegrees", start)
     if end < 0:
         end = text.find("public static func translation", start)
     if end < 0:
-        raise ValueError(f"Failed to find humanoid8() end in {swift_path}")
+        raise ValueError(f"Failed to find mixamoReference() end in {swift_path}")
     text = text[start:end]
 
     def extract_block(label: str) -> str:
@@ -232,9 +232,14 @@ def translation_matrix(tx: float, ty: float, tz: float) -> List[List[float]]:
 
 def mat_mul(a: List[List[float]], b: List[List[float]]) -> List[List[float]]:
     out = [[0.0] * 4 for _ in range(4)]
-    for i in range(4):
-        for j in range(4):
-            out[i][j] = a[i][0] * b[0][j] + a[i][1] * b[1][j] + a[i][2] * b[2][j] + a[i][3] * b[3][j]
+    for c in range(4):
+        for r in range(4):
+            out[c][r] = (
+                a[0][r] * b[c][0]
+                + a[1][r] * b[c][1]
+                + a[2][r] * b[c][2]
+                + a[3][r] * b[c][3]
+            )
     return out
 
 
@@ -272,7 +277,7 @@ def compute_foot_contacts(bone_anims: Dict[str, dict],
     left_name = "mixamorig:LeftFoot"
     right_name = "mixamorig:RightFoot"
     if left_name not in name_to_index or right_name not in name_to_index:
-        return [], []
+        return [], [], [], []
     left_index = name_to_index[left_name]
     right_index = name_to_index[right_name]
 
@@ -582,7 +587,7 @@ def fit_fbx_to_fourier(fbx_path: Path,
     left_y: List[float] = []
     right_y: List[float] = []
     if skeleton_swift is not None and skeleton_swift.exists():
-        skeleton = parse_skeleton_humanoid8(skeleton_swift)
+        skeleton = parse_skeleton_mixamo_reference(skeleton_swift)
         contacts_left, contacts_right, left_y, right_y = compute_foot_contacts(
             bone_anims,
             skeleton,

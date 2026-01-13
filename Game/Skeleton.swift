@@ -186,7 +186,23 @@ public struct Skeleton {
         return model
     }
 
-    public static func humanoid8() -> Skeleton {
+    public static func buildModelTransforms(parent: [Int],
+                                            local: [matrix_float4x4],
+                                            into model: inout [matrix_float4x4]) {
+        if model.count != local.count {
+            model = Array(repeating: matrix_identity_float4x4, count: local.count)
+        }
+        for i in 0..<local.count {
+            let p = parent[i]
+            if p < 0 {
+                model[i] = local[i]
+            } else {
+                model[i] = simd_mul(model[p], local[i])
+            }
+        }
+    }
+
+    public static func mixamoReference() -> Skeleton {
         let names = [
             "mixamorig:Hips",
             "mixamorig:Spine",
