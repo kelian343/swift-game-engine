@@ -226,7 +226,21 @@ final class RTGeometryCache {
         instanceSlices.reserveCapacity(items.count)
         var staticSliceIndex = 0
         var dynamicKey: [DynamicKey] = []
-        var dynamicSlices: [RTGeometrySlice] = []
+        dynamicKey.reserveCapacity(items.count)
+        for item in items {
+            if let skinned = item.skinnedMesh {
+                dynamicKey.append(DynamicKey(vertexCount: skinned.streams.vertexCount,
+                                             indexCount: skinned.indexCount))
+            }
+        }
+        let dynamicChanged = dynamicKey != cachedDynamicKey
+            || dynamicVertexBuffer == nil
+            || dynamicIndexBuffer == nil
+            || dynamicUVBuffer == nil
+            || dynamicNormalBuffer == nil
+            || dynamicTangentBuffer == nil
+        var dynamicSlices: [RTGeometrySlice] = dynamicChanged ? [] : cachedDynamicSlices
+        var dynamicSliceIndex = 0
 
         func registerTexture(_ tex: MTLTexture?) -> UInt32 {
             guard let tex else { return UInt32.max }
@@ -251,39 +265,48 @@ final class RTGeometryCache {
 
             if let skinned = item.skinnedMesh, let palette = item.skinningPalette {
                 let vCount = skinned.streams.vertexCount
-                let tangents = MeshTangents.compute(positions: skinned.streams.positions,
-                                                    normals: skinned.streams.normals,
-                                                    uvs: skinned.streams.uvs,
-                                                    indices16: skinned.indices16,
-                                                    indices32: skinned.indices32)
-                dynamicVertices.reserveCapacity(dynamicVertices.count + vCount)
-                dynamicUVs.reserveCapacity(dynamicUVs.count + vCount)
-                dynamicNormals.reserveCapacity(dynamicNormals.count + vCount)
-                dynamicTangents.reserveCapacity(dynamicTangents.count + vCount)
-                baseVertex = UInt32(dynamicVertices.count)
-                baseIndex = UInt32(dynamicIndices.count)
-                for i in 0..<vCount {
-                    dynamicVertices.append(.zero)
-                    dynamicUVs.append(skinned.streams.uvs[i])
-                    dynamicNormals.append(skinned.streams.normals[i])
-                    let t = i < tangents.count ? tangents[i] : SIMD4<Float>(1, 0, 0, 1)
-                    dynamicTangents.append(t)
-                }
-
-                indexCount = skinned.indexCount
-                if let i16 = skinned.indices16 {
-                    for i in i16 {
-                        dynamicIndices.append(UInt32(i))
+                if dynamicChanged {
+                    let tangents = MeshTangents.compute(positions: skinned.streams.positions,
+                                                        normals: skinned.streams.normals,
+                                                        uvs: skinned.streams.uvs,
+                                                        indices16: skinned.indices16,
+                                                        indices32: skinned.indices32)
+                    dynamicVertices.reserveCapacity(dynamicVertices.count + vCount)
+                    dynamicUVs.reserveCapacity(dynamicUVs.count + vCount)
+                    dynamicNormals.reserveCapacity(dynamicNormals.count + vCount)
+                    dynamicTangents.reserveCapacity(dynamicTangents.count + vCount)
+                    baseVertex = UInt32(dynamicVertices.count)
+                    baseIndex = UInt32(dynamicIndices.count)
+                    for i in 0..<vCount {
+                        dynamicVertices.append(.zero)
+                        dynamicUVs.append(skinned.streams.uvs[i])
+                        dynamicNormals.append(skinned.streams.normals[i])
+                        let t = i < tangents.count ? tangents[i] : SIMD4<Float>(1, 0, 0, 1)
+                        dynamicTangents.append(t)
                     }
-                } else if let i32 = skinned.indices32 {
-                    dynamicIndices.append(contentsOf: i32)
+
+                    indexCount = skinned.indexCount
+                    if let i16 = skinned.indices16 {
+                        for i in i16 {
+                            dynamicIndices.append(UInt32(i))
+                        }
+                    } else if let i32 = skinned.indices32 {
+                        dynamicIndices.append(contentsOf: i32)
+                    }
+                    bufferIndex = 1
+                    dynamicSlices.append(RTGeometrySlice(baseVertex: Int(baseVertex),
+                                                         baseIndex: Int(baseIndex),
+                                                         indexCount: indexCount,
+                                                         bufferIndex: bufferIndex))
+                } else {
+                    if dynamicSliceIndex >= cachedDynamicSlices.count { return nil }
+                    let slice = cachedDynamicSlices[dynamicSliceIndex]
+                    dynamicSliceIndex += 1
+                    baseVertex = UInt32(slice.baseVertex)
+                    baseIndex = UInt32(slice.baseIndex)
+                    indexCount = slice.indexCount
+                    bufferIndex = slice.bufferIndex
                 }
-                bufferIndex = 1
-                dynamicKey.append(DynamicKey(vertexCount: vCount, indexCount: indexCount))
-                dynamicSlices.append(RTGeometrySlice(baseVertex: Int(baseVertex),
-                                                     baseIndex: Int(baseIndex),
-                                                     indexCount: indexCount,
-                                                     bufferIndex: bufferIndex))
 
                 if let job = makeSkinningJob(skinned: skinned,
                                              palette: palette,
@@ -336,9 +359,10 @@ final class RTGeometryCache {
                                                   bufferIndex: bufferIndex))
         }
 
-        let dynamicChanged = dynamicKey != cachedDynamicKey
         cachedDynamicKey = dynamicKey
-        cachedDynamicSlices = dynamicSlices
+        if dynamicChanged {
+            cachedDynamicSlices = dynamicSlices
+        }
 
         let vBytes = dynamicVertices.count * MemoryLayout<SIMD3<Float>>.stride
         let uvBytes = dynamicUVs.count * MemoryLayout<SIMD2<Float>>.stride
@@ -398,27 +422,27 @@ final class RTGeometryCache {
             geometryInstanceInfoBuffer?.label = "RTInstanceInfo"
         }
 
-        if let buf = dynamicVertexBuffer, !dynamicVertices.isEmpty, !useGPUSkinning {
+        if dynamicChanged, let buf = dynamicVertexBuffer, !dynamicVertices.isEmpty, !useGPUSkinning {
             _ = dynamicVertices.withUnsafeBytes { raw in
                 memcpy(buf.contents(), raw.baseAddress!, raw.count)
             }
         }
-        if let buf = dynamicUVBuffer, !dynamicUVs.isEmpty {
+        if dynamicChanged, let buf = dynamicUVBuffer, !dynamicUVs.isEmpty {
             _ = dynamicUVs.withUnsafeBytes { raw in
                 memcpy(buf.contents(), raw.baseAddress!, raw.count)
             }
         }
-        if let buf = dynamicNormalBuffer, !dynamicNormals.isEmpty, !useGPUSkinning {
+        if dynamicChanged, let buf = dynamicNormalBuffer, !dynamicNormals.isEmpty, !useGPUSkinning {
             _ = dynamicNormals.withUnsafeBytes { raw in
                 memcpy(buf.contents(), raw.baseAddress!, raw.count)
             }
         }
-        if let buf = dynamicTangentBuffer, !dynamicTangents.isEmpty, !useGPUSkinning {
+        if dynamicChanged, let buf = dynamicTangentBuffer, !dynamicTangents.isEmpty, !useGPUSkinning {
             _ = dynamicTangents.withUnsafeBytes { raw in
                 memcpy(buf.contents(), raw.baseAddress!, raw.count)
             }
         }
-        if let buf = dynamicIndexBuffer, !dynamicIndices.isEmpty {
+        if dynamicChanged, let buf = dynamicIndexBuffer, !dynamicIndices.isEmpty {
             _ = dynamicIndices.withUnsafeBytes { raw in
                 memcpy(buf.contents(), raw.baseAddress!, raw.count)
             }

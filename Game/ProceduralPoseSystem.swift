@@ -8,7 +8,6 @@
 import simd
 
 public final class PoseStackSystem: FixedStepSystem {
-
     public init() {}
 
     public func fixedUpdate(world: World, dt: Float) {
