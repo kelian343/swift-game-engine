@@ -101,6 +101,26 @@ public struct AnimationComponent {
     }
 }
 
+public struct MotionProfileComponent {
+    public var profile: MotionProfile
+    public var time: Float
+    public var playbackRate: Float
+    public var loop: Bool
+    public var inPlace: Bool
+
+    public init(profile: MotionProfile,
+                time: Float = 0,
+                playbackRate: Float = 1,
+                loop: Bool = true,
+                inPlace: Bool = true) {
+        self.profile = profile
+        self.time = time
+        self.playbackRate = playbackRate
+        self.loop = loop
+        self.inPlace = inPlace
+    }
+}
+
 public struct SkinnedMeshComponent {
     public var mesh: SkinnedMeshDescriptor
     public var material: Material

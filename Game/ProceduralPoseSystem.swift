@@ -17,6 +17,7 @@ public final class PoseStackSystem: FixedStepSystem {
         let sStore = world.store(SkeletonComponent.self)
         let pStore = world.store(PoseComponent.self)
         let aStore = world.store(AnimationComponent.self)
+        let mStore = world.store(MotionProfileComponent.self)
         let tStore = world.store(TransformComponent.self)
         let controllerStore = world.store(CharacterControllerComponent.self)
 
@@ -30,7 +31,55 @@ public final class PoseStackSystem: FixedStepSystem {
                 pose = PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal)
             }
 
-            if var anim = aStore[e] {
+            if var profile = mStore[e] {
+                let cycle = max(profile.profile.phase?.cycleDuration ?? profile.profile.duration, 0.001)
+                profile.time += dt * profile.playbackRate
+                if profile.loop {
+                    profile.time = profile.time.truncatingRemainder(dividingBy: cycle)
+                } else {
+                    profile.time = min(profile.time, cycle)
+                }
+
+                let phase = max(0, min(profile.time / cycle, 1))
+                pose.phase = phase
+
+                var local = skeleton.bindLocal
+                for i in 0..<skeleton.boneCount {
+                    let name = skeleton.names[i]
+                    guard let bone = profile.profile.bones[name] else {
+                        continue
+                    }
+
+                    let restScaled = skeleton.restTranslation[i]
+                    let restRaw = skeleton.rawRestTranslation[i]
+                    let animRaw = MotionProfileEvaluator.evaluateChannel(bone.translation,
+                                                                         phase: phase,
+                                                                         order: profile.profile.order,
+                                                                         defaultValue: restRaw)
+                    let delta = animRaw - restRaw
+                    var t = restScaled + (delta * skeleton.unitScale)
+
+                    if i == 0 && profile.inPlace {
+                        t.x = restScaled.x
+                        t.z = restScaled.z
+                    }
+
+                    let animR = MotionProfileEvaluator.evaluateChannel(bone.rotation,
+                                                                       phase: phase,
+                                                                       order: profile.profile.order,
+                                                                       defaultValue: SIMD3<Float>(0, 0, 0))
+                    var rot = simd_mul(Skeleton.rotationXYZDegrees(skeleton.preRotationDegrees[i]),
+                                       Skeleton.rotationXYZDegrees(animR))
+                    if i == 0 {
+                        rot = simd_mul(skeleton.rootRotationFix, rot)
+                    }
+
+                    let trans = matrix4x4_translation(t.x, t.y, t.z)
+                    local[i] = simd_mul(trans, rot)
+                }
+                pose.local = local
+                mStore[e] = profile
+            } else if var anim = aStore[e] {
                 let clip = anim.clip
                 anim.time += dt * anim.playbackRate
                 if anim.loop {
