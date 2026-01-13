@@ -307,7 +307,7 @@ public struct Skeleton {
             63
         ]
 
-        let scale: Float = 0.0351
+        let scale: Float = 0.026
         let translations: [SIMD3<Float>] = [
             SIMD3<Float>(-0.000007, 99.791939, 0.000048),
             SIMD3<Float>(0.000860, 9.923462, -1.227335),

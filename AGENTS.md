@@ -22,6 +22,8 @@
 - Pose system computes local/model transforms and palette per fixed step.
 - Procedural pose is speed-driven with ground-aware adjustments.
 - GPU skinning uses palette buffers to write skinned vertices each frame.
+- Skeleton replaced with Mixamo Y Bot (65 bones, mixamorig naming), pelvis-aligned root, FBX PreRotation/LclRotation applied, facing fix on root.
+- Procedural motion currently frozen to bind pose (T-pose) for FBX-matched reference posture.
 
 ## Physics System (Collision)
 - Kinematic capsule movement with sweep CCD against static TriMesh.
