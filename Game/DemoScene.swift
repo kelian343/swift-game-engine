@@ -31,7 +31,7 @@ public final class DemoScene: RenderScene {
     private let oscillateMoveSystem = OscillateMoveSystem()
     private let jumpSystem = JumpSystem()
     private let gravitySystem = GravitySystem()
-    private let proceduralPoseSystem = ProceduralPoseSystem()
+    private let poseStackSystem = PoseStackSystem()
     private let platformMotionSystem = KinematicPlatformMotionSystem()
     private let kinematicMoveSystem = KinematicMoveStopSystem()
     private let agentSeparationSystem = AgentSeparationSystem()
@@ -55,7 +55,7 @@ public final class DemoScene: RenderScene {
                     kinematicMoveSystem,
                     agentSeparationSystem,
                     physicsIntegrateSystem,
-                    proceduralPoseSystem],
+                    poseStackSystem],
             postFixed: [physicsWritebackSystem]
         )
     }
@@ -243,6 +243,13 @@ public final class DemoScene: RenderScene {
             let playerRadius: Float = 1.5
             let playerHalfHeight: Float = 1.0
             let skeleton = Skeleton.humanoid8()
+            let walkPath = Bundle.main.path(forResource: "Walking", ofType: "fbx")
+            let walkClip = walkPath.flatMap { FBXAnimationLoader.loadClip(path: $0) }
+            if let clip = walkClip {
+                print("Loaded walk clip:", clip.name, "duration:", clip.duration, "bones:", clip.boneAnimations.count)
+            } else {
+                print("Failed to load walk clip at:", walkPath ?? "missing bundle resource")
+            }
             let skinnedDesc = ProceduralMeshes.skeletonCapsules(skeleton: skeleton,
                                                                 SkeletonCapsuleParams(radius: 0.03,
                                                                                       radialSegments: 12,
@@ -286,6 +293,9 @@ public final class DemoScene: RenderScene {
 
             world.add(e, SkeletonComponent(skeleton: skeleton))
             world.add(e, PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal))
+            if let clip = walkClip {
+                world.add(e, AnimationComponent(clip: clip, playbackRate: 1.0, loop: true, inPlace: true))
+            }
             world.add(e, SkinnedMeshComponent(mesh: skinnedDesc, material: mat))
 
             let overlay = world.createEntity()

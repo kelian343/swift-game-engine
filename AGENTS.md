@@ -18,12 +18,12 @@
 - Render and RT instance data consume the same material descriptor layout.
 
 ## Procedural Pose System
-- Skeleton and pose components drive procedural animation.
+- Skeleton and pose components drive animation pose stacks.
 - Pose system computes local/model transforms and palette per fixed step.
-- Procedural pose is speed-driven with ground-aware adjustments.
+- Base layer now samples Walking.fbx animation (Mixamo bone names) with in-place root option.
+- Procedural corrections are reserved for follow-up layers (ground alignment/lean/IK).
 - GPU skinning uses palette buffers to write skinned vertices each frame.
 - Skeleton replaced with Mixamo Y Bot (65 bones, mixamorig naming), pelvis-aligned root, FBX PreRotation/LclRotation applied, facing fix on root.
-- Procedural motion currently frozen to bind pose (T-pose) for FBX-matched reference posture.
 
 ## Physics System (Collision)
 - Kinematic capsule movement with sweep CCD against static TriMesh.

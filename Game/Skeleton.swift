@@ -132,12 +132,22 @@ public struct Skeleton {
     public let names: [String]
     public let indexByName: [String: Int]
     public let semanticIndex: [SemanticBone: Int]
+    public let restTranslation: [SIMD3<Float>]
+    public let rawRestTranslation: [SIMD3<Float>]
+    public let preRotationDegrees: [SIMD3<Float>]
+    public let rootRotationFix: matrix_float4x4
+    public let unitScale: Float
 
     public init(parent: [Int],
                 bindLocal: [matrix_float4x4],
                 boneMap: BoneMap? = nil,
                 names: [String]? = nil,
-                semanticIndex: [SemanticBone: Int] = [:]) {
+                semanticIndex: [SemanticBone: Int] = [:],
+                restTranslation: [SIMD3<Float>]? = nil,
+                rawRestTranslation: [SIMD3<Float>]? = nil,
+                preRotationDegrees: [SIMD3<Float>]? = nil,
+                rootRotationFix: matrix_float4x4 = matrix_identity_float4x4,
+                unitScale: Float = 1.0) {
         precondition(parent.count == bindLocal.count, "Skeleton parent/bindLocal count mismatch")
         self.parent = parent
         self.bindLocal = bindLocal
@@ -154,6 +164,12 @@ public struct Skeleton {
         }
         self.indexByName = index
         self.semanticIndex = semanticIndex
+        let fallbackTranslation = bindLocal.map { Skeleton.translation($0) }
+        self.restTranslation = restTranslation ?? fallbackTranslation
+        self.rawRestTranslation = rawRestTranslation ?? restTranslation ?? fallbackTranslation
+        self.preRotationDegrees = preRotationDegrees ?? Array(repeating: SIMD3<Float>(0, 0, 0), count: parent.count)
+        self.rootRotationFix = rootRotationFix
+        self.unitScale = unitScale
     }
 
     public static func buildModelTransforms(parent: [Int],
@@ -447,15 +463,17 @@ public struct Skeleton {
         let localRotations: [SIMD3<Float>] = Array(repeating: SIMD3<Float>(0, 0, 0), count: names.count)
 
         let rootFacingFix = matrix4x4_rotation(radians: .pi, axis: SIMD3<Float>(0, 1, 0))
-        let bindLocal: [matrix_float4x4] = zip(zip(translations, preRotations), localRotations).enumerated().map { index, pair in
-            let ((t, pre), local) = pair
+        let restTranslation: [SIMD3<Float>] = translations.enumerated().map { index, t in
             let raw = index == 0 ? SIMD3<Float>(0, 0, 0) : t
-            let scaled = SIMD3<Float>(raw.x * scale, raw.y * scale, raw.z * scale)
+            return SIMD3<Float>(raw.x * scale, raw.y * scale, raw.z * scale)
+        }
+        let bindLocal: [matrix_float4x4] = zip(zip(restTranslation, preRotations), localRotations).enumerated().map { index, pair in
+            let ((t, pre), local) = pair
             var rot = simd_mul(rotationXYZDegrees(pre), rotationXYZDegrees(local))
             if index == 0 {
                 rot = simd_mul(rootFacingFix, rot)
             }
-            let trans = matrix4x4_translation(scaled.x, scaled.y, scaled.z)
+            let trans = matrix4x4_translation(t.x, t.y, t.z)
             return simd_mul(trans, rot)
         }
 
@@ -464,14 +482,23 @@ public struct Skeleton {
                         bindLocal: bindLocal,
                         boneMap: nil,
                         names: names,
-                        semanticIndex: semantic)
+                        semanticIndex: semantic,
+                        restTranslation: restTranslation,
+                        rawRestTranslation: translations,
+                        preRotationDegrees: preRotations,
+                        rootRotationFix: rootFacingFix,
+                        unitScale: scale)
     }
 
-    private static func rotationXYZDegrees(_ degrees: SIMD3<Float>) -> matrix_float4x4 {
+    public static func rotationXYZDegrees(_ degrees: SIMD3<Float>) -> matrix_float4x4 {
         let rx = matrix4x4_rotation(radians: radians_from_degrees(degrees.x), axis: SIMD3<Float>(1, 0, 0))
         let ry = matrix4x4_rotation(radians: radians_from_degrees(degrees.y), axis: SIMD3<Float>(0, 1, 0))
         let rz = matrix4x4_rotation(radians: radians_from_degrees(degrees.z), axis: SIMD3<Float>(0, 0, 1))
         return simd_mul(rz, simd_mul(ry, rx))
+    }
+
+    public static func translation(_ m: matrix_float4x4) -> SIMD3<Float> {
+        SIMD3<Float>(m.columns.3.x, m.columns.3.y, m.columns.3.z)
     }
 
     public func semantic(_ bone: SemanticBone) -> Int? {
