@@ -232,13 +232,13 @@ def translation_matrix(tx: float, ty: float, tz: float) -> List[List[float]]:
 
 def mat_mul(a: List[List[float]], b: List[List[float]]) -> List[List[float]]:
     out = [[0.0] * 4 for _ in range(4)]
-    for c in range(4):
-        for r in range(4):
-            out[c][r] = (
-                a[0][r] * b[c][0]
-                + a[1][r] * b[c][1]
-                + a[2][r] * b[c][2]
-                + a[3][r] * b[c][3]
+    for i in range(4):
+        for j in range(4):
+            out[i][j] = (
+                a[i][0] * b[0][j]
+                + a[i][1] * b[1][j]
+                + a[i][2] * b[2][j]
+                + a[i][3] * b[3][j]
             )
     return out
 
