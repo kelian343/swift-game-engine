@@ -77,14 +77,18 @@ public final class PoseStackSystem: FixedStepSystem {
             if let pelvis = skeleton.semantic(.pelvis) {
                 let groundNormal = controllerStore[e]?.groundNormal ?? SIMD3<Float>(0, 1, 0)
                 let useTilt = controllerStore[e]?.groundedNear ?? false
-                let alignQuat = useTilt ? rotationFromUp(to: groundNormal)
-                                        : simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0))
+                let rawAlignQuat = useTilt ? rotationFromUp(to: groundNormal)
+                                           : simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0))
+                let alignStrength: Float = 0.33
+                let alignQuat = simd_slerp(simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0)),
+                                           rawAlignQuat,
+                                           alignStrength)
 
                 let vel = bodyStore[e]?.linearVelocity ?? .zero
                 let horizontal = SIMD3<Float>(vel.x, 0, vel.z)
                 let speed = simd_length(horizontal)
-                let leanScale: Float = 0.005
-                let maxLean: Float = 0.0833
+                let leanScale: Float = 0.015
+                let maxLean: Float = 0.25
                 let leanAngle = min(speed * leanScale, maxLean)
                 let leanAxis = speed > 0.001 ? simd_normalize(simd_cross(horizontal, SIMD3<Float>(0, 1, 0)))
                                              : SIMD3<Float>(1, 0, 0)
