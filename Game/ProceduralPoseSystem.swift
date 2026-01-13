@@ -24,14 +24,17 @@ public final class ProceduralPoseSystem: FixedStepSystem {
                   var pose = pStore[e] else {
                 continue
             }
-            guard let boneMap = skeleton.boneMap,
-                  boneMap.isValid(for: skeleton.boneCount) else {
-                continue
-            }
 
             if pose.local.count != skeleton.boneCount {
                 pose = PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal)
             }
+
+            // Keep bind pose (T-pose) and skip procedural motion.
+            pose.local = skeleton.bindLocal
+            pose.model = Skeleton.buildModelTransforms(parent: skeleton.parent, local: pose.local)
+            pose.palette = zip(pose.model, skeleton.invBindModel).map { simd_mul($0, $1) }
+            pStore[e] = pose
+            continue
 
             let body = bodyStore[e]
             let controller = controllerStore[e]
@@ -53,9 +56,11 @@ public final class ProceduralPoseSystem: FixedStepSystem {
 
             var local = skeleton.bindLocal
             let yawFix = matrix4x4_rotation(radians: .pi, axis: SIMD3<Float>(0, 1, 0))
-            local[boneMap.pelvis] = simd_mul(local[boneMap.pelvis],
-                                simd_mul(matrix4x4_translation(0, pelvisBob, 0),
-                                         simd_mul(matrix_float4x4(tiltQuat), yawFix)))
+            if let pelvis = skeleton.semantic(.pelvis) {
+                local[pelvis] = simd_mul(local[pelvis],
+                                         simd_mul(matrix4x4_translation(0, pelvisBob, 0),
+                                                  simd_mul(matrix_float4x4(tiltQuat), yawFix)))
+            }
 
             let thighAmp: Float = 0.7
             let calfAmp: Float = 0.6
@@ -65,21 +70,35 @@ public final class ProceduralPoseSystem: FixedStepSystem {
             let s0 = sin(phase)
             let s1 = sin(phase + .pi)
 
-            local[boneMap.thighL] = simd_mul(local[boneMap.thighL],
-                                             matrix4x4_rotation(radians: s0 * thighAmp, axis: SIMD3<Float>(1, 0, 0)))
-            local[boneMap.calfL] = simd_mul(local[boneMap.calfL],
-                                            matrix4x4_rotation(radians: max(0, -s0) * calfAmp, axis: SIMD3<Float>(1, 0, 0)))
-            local[boneMap.thighR] = simd_mul(local[boneMap.thighR],
-                                             matrix4x4_rotation(radians: s1 * thighAmp, axis: SIMD3<Float>(1, 0, 0)))
-            local[boneMap.calfR] = simd_mul(local[boneMap.calfR],
-                                            matrix4x4_rotation(radians: max(0, -s1) * calfAmp, axis: SIMD3<Float>(1, 0, 0)))
+            if let thighL = skeleton.semantic(.thighL) {
+                local[thighL] = simd_mul(local[thighL],
+                                         matrix4x4_rotation(radians: s0 * thighAmp, axis: SIMD3<Float>(1, 0, 0)))
+            }
+            if let calfL = skeleton.semantic(.calfL) {
+                local[calfL] = simd_mul(local[calfL],
+                                        matrix4x4_rotation(radians: max(0, -s0) * calfAmp, axis: SIMD3<Float>(1, 0, 0)))
+            }
+            if let thighR = skeleton.semantic(.thighR) {
+                local[thighR] = simd_mul(local[thighR],
+                                         matrix4x4_rotation(radians: s1 * thighAmp, axis: SIMD3<Float>(1, 0, 0)))
+            }
+            if let calfR = skeleton.semantic(.calfR) {
+                local[calfR] = simd_mul(local[calfR],
+                                        matrix4x4_rotation(radians: max(0, -s1) * calfAmp, axis: SIMD3<Float>(1, 0, 0)))
+            }
 
-            local[boneMap.spine] = simd_mul(local[boneMap.spine],
-                                            matrix4x4_rotation(radians: -s0 * spineAmp, axis: SIMD3<Float>(1, 0, 0)))
-            local[boneMap.chest] = simd_mul(local[boneMap.chest],
-                                            matrix4x4_rotation(radians: s0 * chestTwist, axis: SIMD3<Float>(0, 1, 0)))
-            local[boneMap.head] = simd_mul(local[boneMap.head],
-                                           matrix4x4_rotation(radians: -pelvisBob * 0.5, axis: SIMD3<Float>(1, 0, 0)))
+            if let spine = skeleton.semantic(.spine1) {
+                local[spine] = simd_mul(local[spine],
+                                        matrix4x4_rotation(radians: -s0 * spineAmp, axis: SIMD3<Float>(1, 0, 0)))
+            }
+            if let chest = skeleton.semantic(.chest) ?? skeleton.semantic(.spine2) {
+                local[chest] = simd_mul(local[chest],
+                                        matrix4x4_rotation(radians: s0 * chestTwist, axis: SIMD3<Float>(0, 1, 0)))
+            }
+            if let head = skeleton.semantic(.head) {
+                local[head] = simd_mul(local[head],
+                                       matrix4x4_rotation(radians: -pelvisBob * 0.5, axis: SIMD3<Float>(1, 0, 0)))
+            }
 
             pose.local = local
             pose.model = Skeleton.buildModelTransforms(parent: skeleton.parent, local: pose.local)
