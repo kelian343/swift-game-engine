@@ -81,26 +81,6 @@ public struct PoseComponent {
     }
 }
 
-public struct AnimationComponent {
-    public var clip: AnimationClip
-    public var time: Float
-    public var playbackRate: Float
-    public var loop: Bool
-    public var inPlace: Bool
-
-    public init(clip: AnimationClip,
-                time: Float = 0,
-                playbackRate: Float = 1,
-                loop: Bool = true,
-                inPlace: Bool = true) {
-        self.clip = clip
-        self.time = time
-        self.playbackRate = playbackRate
-        self.loop = loop
-        self.inPlace = inPlace
-    }
-}
-
 public struct MotionProfileComponent {
     public var profile: MotionProfile
     public var time: Float

@@ -247,15 +247,7 @@ public final class DemoScene: RenderScene {
             let motionProfile = profilePath.flatMap { MotionProfileLoader.load(path: $0) }
             if motionProfile == nil {
                 print("Failed to load motion profile at:", profilePath ?? "missing bundle resource")
-            } else if let phase = motionProfile?.phase {
-                let cycle = phase.cycleDuration ?? motionProfile?.duration ?? 0
-                print("MotionProfile phase:", phase.mode, "cycle_duration:", cycle)
             }
-            // let walkPath = Bundle.main.path(forResource: "Walking", ofType: "fbx")
-            // let walkClip = walkPath.flatMap { FBXAnimationLoader.loadClip(path: $0) }
-            // if walkClip == nil {
-            //     print("Failed to load walk clip at:", walkPath ?? "missing bundle resource")
-            // }
             let skinnedDesc = ProceduralMeshes.skeletonCapsules(skeleton: skeleton,
                                                                 SkeletonCapsuleParams(radius: 0.03,
                                                                                       radialSegments: 12,
