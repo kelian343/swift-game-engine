@@ -11,7 +11,9 @@ python3 /Users/karpellus/Desktop/Game/Tools/FitMotion/fit_motion.py \
   --name Walking \
   --fps 60 \
   --order 4 \
-  --skeleton-swift /Users/karpellus/Desktop/Game/Game/Skeleton.swift
+  --smooth-window 5 \
+  --skeleton-swift /Users/karpellus/Desktop/Game/Game/Skeleton.swift \
+  --override /Users/karpellus/Desktop/Game/Tools/FitMotion/overrides.json
 ```
 
 ## Output format
@@ -28,3 +30,5 @@ All rotation values are in degrees, matching the FBX `Lcl Rotation` channel.
 If `--skeleton-swift` is provided and foot contacts are detected, the tool
 switches to `phase.mode = left_foot_contact` and emits `phase.cycle_duration`
 along with `contacts.left/right` curves.
+`--smooth-window` enables a moving average over sampled curves before fitting.
+`--override` lets you apply per-bone overrides (e.g., mirror right foot to left).

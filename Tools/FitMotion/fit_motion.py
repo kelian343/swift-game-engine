@@ -494,6 +494,32 @@ def compute_phase_from_autocorr(times: List[float], values: List[float]) -> Tupl
         phase.append(phi)
     return phase, period
 
+def smooth_values(values: List[float], window: int) -> List[float]:
+    if window <= 1 or len(values) <= 2:
+        return values
+    half = window // 2
+    out: List[float] = []
+    for i in range(len(values)):
+        start = max(0, i - half)
+        end = min(len(values), i + half + 1)
+        out.append(sum(values[start:end]) / (end - start))
+    return out
+
+
+def load_overrides(path: Optional[Path]) -> Dict[str, dict]:
+    if path is None or not path.exists():
+        return {}
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    overrides: Dict[str, dict] = {}
+    for item in payload.get("mirror", []):
+        target = item.get("target")
+        source = item.get("source")
+        if not target or not source:
+            continue
+        overrides[target] = item
+    return overrides
+
+
 def fit_fourier(phi: List[float], values: List[float], order: int) -> List[float]:
     count = len(phi)
     if count == 0:
@@ -521,14 +547,30 @@ def sample_curve(curve: Optional[AnimationCurve], t_samples: List[float], defaul
     return [curve.sample(float(t)) for t in t_samples]
 
 
+def sample_curve_shifted(curve: Optional[AnimationCurve],
+                         t_samples: List[float],
+                         default_value: float,
+                         duration: float,
+                         phase_offset: float) -> List[float]:
+    if curve is None:
+        return [default_value for _ in t_samples]
+    if duration <= 0 or phase_offset == 0:
+        return sample_curve(curve, t_samples, default_value)
+    shift = (phase_offset % 1.0) * duration
+    return [curve.sample(float((t + shift) % duration)) for t in t_samples]
+
+
 def fit_fbx_to_fourier(fbx_path: Path,
                        output_path: Path,
                        clip_name: str,
                        fps: int,
                        order: int,
-                       skeleton_swift: Optional[Path]) -> None:
+                       skeleton_swift: Optional[Path],
+                       smooth_window: int,
+                       overrides_path: Optional[Path]) -> None:
     text = fbx_path.read_text(encoding="utf-8")
     bone_anims, duration = build_bone_curves(text)
+    overrides = load_overrides(overrides_path)
 
     sample_count = max(2, int(duration * fps))
     t_samples = [(i / sample_count) * duration for i in range(sample_count)]
@@ -547,6 +589,9 @@ def fit_fbx_to_fourier(fbx_path: Path,
             t_samples,
             in_place=True
         )
+        if smooth_window > 1:
+            left_y = smooth_values(left_y, smooth_window)
+            right_y = smooth_values(right_y, smooth_window)
         contact_phase, period = compute_phase_from_contacts(t_samples, contacts_left)
         if contact_phase:
             phi = contact_phase
@@ -602,15 +647,36 @@ def fit_fbx_to_fourier(fbx_path: Path,
     for bone_name in sorted(bone_anims.keys()):
         anim = bone_anims[bone_name]
         entry = {}
+        override = overrides.get(bone_name)
+        phase_offset = 0.0
+        if override is not None:
+            phase_offset = float(override.get("phase_offset", 0.0))
         for channel in ("translation", "rotation"):
             axis_curves = anim.get(channel, {})
             channel_out = {}
             for axis in ("x", "y", "z"):
                 curve = axis_curves.get(axis)
+                mirror_sign = 1.0
+                if override is not None:
+                    source_name = override.get("source")
+                    mirror = override.get(channel, {})
+                    if source_name in bone_anims:
+                        source_anim = bone_anims[source_name]
+                        axis_curves = source_anim.get(channel, {})
+                        curve = axis_curves.get(axis)
+                        mirror_sign = float(mirror.get(axis, 1.0))
                 if curve is None:
                     channel_out[axis] = None
                     continue
-                values = sample_curve(curve, t_samples, default_value=0.0)
+                values = sample_curve_shifted(curve,
+                                              t_samples,
+                                              default_value=0.0,
+                                              duration=duration,
+                                              phase_offset=phase_offset)
+                if smooth_window > 1:
+                    values = smooth_values(values, smooth_window)
+                if mirror_sign != 1.0:
+                    values = [v * mirror_sign for v in values]
                 coeffs = fit_fourier(phi, values, order)
                 channel_out[axis] = coeffs
             entry[channel] = channel_out
@@ -647,11 +713,21 @@ def main() -> None:
     parser.add_argument("--name", default="Walking", help="Clip name")
     parser.add_argument("--fps", type=int, default=60, help="Sampling FPS")
     parser.add_argument("--order", type=int, default=4, help="Fourier order")
+    parser.add_argument("--smooth-window", type=int, default=1, help="Moving average window for smoothing")
     parser.add_argument("--skeleton-swift", default=None, help="Path to Skeleton.swift for phase/contact extraction")
+    parser.add_argument("--override", default=None, help="JSON file with per-bone overrides")
     args = parser.parse_args()
 
     swift_path = Path(args.skeleton_swift) if args.skeleton_swift else None
-    fit_fbx_to_fourier(Path(args.fbx), Path(args.out), args.name, args.fps, args.order, swift_path)
+    override_path = Path(args.override) if args.override else None
+    fit_fbx_to_fourier(Path(args.fbx),
+                       Path(args.out),
+                       args.name,
+                       args.fps,
+                       args.order,
+                       swift_path,
+                       args.smooth_window,
+                       override_path)
 
 
 if __name__ == "__main__":

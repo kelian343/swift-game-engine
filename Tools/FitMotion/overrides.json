@@ -1,0 +1,28 @@
+{
+  "mirror": [
+    {
+      "source": "mixamorig:RightUpLeg",
+      "target": "mixamorig:LeftUpLeg",
+      "phase_offset": 0.5,
+      "rotation": {"x": 1, "y": -1, "z": -1}
+    },
+    {
+      "source": "mixamorig:RightLeg",
+      "target": "mixamorig:LeftLeg",
+      "phase_offset": 0.5,
+      "rotation": {"x": 1, "y": -1, "z": -1}
+    },
+    {
+      "source": "mixamorig:RightFoot",
+      "target": "mixamorig:LeftFoot",
+      "phase_offset": 0.5,
+      "rotation": {"x": 1, "y": -1, "z": -1}
+    },
+    {
+      "source": "mixamorig:RightToeBase",
+      "target": "mixamorig:LeftToeBase",
+      "phase_offset": 0.5,
+      "rotation": {"x": 1, "y": -1, "z": -1}
+    }
+  ]
+}
