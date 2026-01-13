@@ -199,21 +199,22 @@ def rotation_xyz_degrees(rx: float, ry: float, rz: float) -> List[List[float]]:
     cy, sy = math.cos(ry), math.sin(ry)
     cz, sz = math.cos(rz), math.sin(rz)
 
+    # Column-major (m[col][row]) to match simd and transform_point.
     rot_x = [
         [1, 0, 0, 0],
-        [0, cx, -sx, 0],
-        [0, sx, cx, 0],
+        [0, cx, sx, 0],
+        [0, -sx, cx, 0],
         [0, 0, 0, 1],
     ]
     rot_y = [
-        [cy, 0, sy, 0],
+        [cy, 0, -sy, 0],
         [0, 1, 0, 0],
-        [-sy, 0, cy, 0],
+        [sy, 0, cy, 0],
         [0, 0, 0, 1],
     ]
     rot_z = [
-        [cz, -sz, 0, 0],
-        [sz, cz, 0, 0],
+        [cz, sz, 0, 0],
+        [-sz, cz, 0, 0],
         [0, 0, 1, 0],
         [0, 0, 0, 1],
     ]
@@ -232,13 +233,13 @@ def translation_matrix(tx: float, ty: float, tz: float) -> List[List[float]]:
 
 def mat_mul(a: List[List[float]], b: List[List[float]]) -> List[List[float]]:
     out = [[0.0] * 4 for _ in range(4)]
-    for i in range(4):
-        for j in range(4):
-            out[i][j] = (
-                a[i][0] * b[0][j]
-                + a[i][1] * b[1][j]
-                + a[i][2] * b[2][j]
-                + a[i][3] * b[3][j]
+    for c in range(4):
+        for r in range(4):
+            out[c][r] = (
+                a[0][r] * b[c][0]
+                + a[1][r] * b[c][1]
+                + a[2][r] * b[c][2]
+                + a[3][r] * b[c][3]
             )
     return out
 
@@ -587,6 +588,17 @@ def fit_fbx_to_fourier(fbx_path: Path,
     left_y: List[float] = []
     right_y: List[float] = []
     if skeleton_swift is not None and skeleton_swift.exists():
+        def accept_phase(candidate: List[float], period: float) -> bool:
+            if not candidate or period <= 0:
+                return False
+            ratio = period / max(duration, 1e-6)
+            # Accept near full-cycle or half-cycle (stride fix handles half-cycle later).
+            if 0.9 <= ratio <= 1.1:
+                return True
+            if 0.45 <= ratio <= 0.55:
+                return True
+            return False
+
         skeleton = parse_skeleton_mixamo_reference(skeleton_swift)
         contacts_left, contacts_right, left_y, right_y = compute_foot_contacts(
             bone_anims,
@@ -598,45 +610,45 @@ def fit_fbx_to_fourier(fbx_path: Path,
             left_y = smooth_values(left_y, smooth_window)
             right_y = smooth_values(right_y, smooth_window)
         contact_phase, period = compute_phase_from_contacts(t_samples, contacts_left)
-        if contact_phase:
+        if accept_phase(contact_phase, period):
             phi = contact_phase
             phase_mode = "left_foot_contact"
             cycle_duration = period
         else:
             contact_phase, period = compute_phase_from_contacts(t_samples, contacts_right)
-            if contact_phase:
+            if accept_phase(contact_phase, period):
                 phi = contact_phase
                 phase_mode = "right_foot_contact"
                 cycle_duration = period
             else:
                 events = detect_minima_events(t_samples, left_y)
                 contact_phase, period = compute_phase_from_events(t_samples, events)
-                if contact_phase:
+                if accept_phase(contact_phase, period):
                     phi = contact_phase
                     phase_mode = "left_foot_min"
                     cycle_duration = period
                     if cycle_duration < duration * 0.75:
                         contact_phase, period = compute_phase_from_autocorr(t_samples, left_y)
-                        if contact_phase:
+                        if accept_phase(contact_phase, period):
                             phi = contact_phase
                             phase_mode = "left_foot_auto"
                             cycle_duration = period
                 else:
                     events = detect_minima_events(t_samples, right_y)
                     contact_phase, period = compute_phase_from_events(t_samples, events)
-                    if contact_phase:
+                    if accept_phase(contact_phase, period):
                         phi = contact_phase
                         phase_mode = "right_foot_min"
                         cycle_duration = period
                         if cycle_duration < duration * 0.75:
                             contact_phase, period = compute_phase_from_autocorr(t_samples, right_y)
-                            if contact_phase:
+                            if accept_phase(contact_phase, period):
                                 phi = contact_phase
                                 phase_mode = "right_foot_auto"
                                 cycle_duration = period
                     else:
                         contact_phase, period = compute_phase_from_autocorr(t_samples, left_y)
-                        if contact_phase:
+                        if accept_phase(contact_phase, period):
                             phi = contact_phase
                             phase_mode = "left_foot_auto"
                             cycle_duration = period
