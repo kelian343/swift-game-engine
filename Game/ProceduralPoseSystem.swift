@@ -17,6 +17,8 @@ public final class PoseStackSystem: FixedStepSystem {
         let sStore = world.store(SkeletonComponent.self)
         let pStore = world.store(PoseComponent.self)
         let aStore = world.store(AnimationComponent.self)
+        let bodyStore = world.store(PhysicsBodyComponent.self)
+        let controllerStore = world.store(CharacterControllerComponent.self)
 
         for e in entities {
             guard let skeleton = sStore[e]?.skeleton,
@@ -72,10 +74,47 @@ public final class PoseStackSystem: FixedStepSystem {
                 pose.local = skeleton.bindLocal
             }
 
+            if let pelvis = skeleton.semantic(.pelvis) {
+                let groundNormal = controllerStore[e]?.groundNormal ?? SIMD3<Float>(0, 1, 0)
+                let useTilt = controllerStore[e]?.groundedNear ?? false
+                let alignQuat = useTilt ? rotationFromUp(to: groundNormal)
+                                        : simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0))
+
+                let vel = bodyStore[e]?.linearVelocity ?? .zero
+                let horizontal = SIMD3<Float>(vel.x, 0, vel.z)
+                let speed = simd_length(horizontal)
+                let leanScale: Float = 0.005
+                let maxLean: Float = 0.0833
+                let leanAngle = min(speed * leanScale, maxLean)
+                let leanAxis = speed > 0.001 ? simd_normalize(simd_cross(horizontal, SIMD3<Float>(0, 1, 0)))
+                                             : SIMD3<Float>(1, 0, 0)
+                let leanQuat = speed > 0.001 ? simd_quatf(angle: leanAngle, axis: leanAxis)
+                                             : simd_quatf(angle: 0, axis: SIMD3<Float>(0, 1, 0))
+
+                let alignMat = matrix_float4x4(alignQuat)
+                let leanMat = matrix_float4x4(leanQuat)
+                pose.local[pelvis] = simd_mul(pose.local[pelvis], simd_mul(alignMat, leanMat))
+            }
+
             pose.model = Skeleton.buildModelTransforms(parent: skeleton.parent, local: pose.local)
             pose.palette = zip(pose.model, skeleton.invBindModel).map { simd_mul($0, $1) }
 
             pStore[e] = pose
         }
     }
+}
+
+private func rotationFromUp(to normal: SIMD3<Float>) -> simd_quatf {
+    let up = SIMD3<Float>(0, 1, 0)
+    let n = simd_normalize(normal)
+    let d = max(-1.0, min(1.0, simd_dot(up, n)))
+    if d > 0.999 {
+        return simd_quatf(angle: 0, axis: up)
+    }
+    if d < -0.999 {
+        return simd_quatf(angle: .pi, axis: SIMD3<Float>(1, 0, 0))
+    }
+    let axis = simd_normalize(simd_cross(up, n))
+    let angle = acos(d)
+    return simd_quatf(angle: angle, axis: axis)
 }
