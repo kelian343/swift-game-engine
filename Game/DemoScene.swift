@@ -245,9 +245,7 @@ public final class DemoScene: RenderScene {
             let skeleton = Skeleton.humanoid8()
             let walkPath = Bundle.main.path(forResource: "Walking", ofType: "fbx")
             let walkClip = walkPath.flatMap { FBXAnimationLoader.loadClip(path: $0) }
-            if let clip = walkClip {
-                print("Loaded walk clip:", clip.name, "duration:", clip.duration, "bones:", clip.boneAnimations.count)
-            } else {
+            if walkClip == nil {
                 print("Failed to load walk clip at:", walkPath ?? "missing bundle resource")
             }
             let skinnedDesc = ProceduralMeshes.skeletonCapsules(skeleton: skeleton,

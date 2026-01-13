@@ -21,7 +21,7 @@
 - Skeleton and pose components drive animation pose stacks.
 - Pose system computes local/model transforms and palette per fixed step.
 - Base layer now samples Walking.fbx animation (Mixamo bone names) with in-place root option.
-- Procedural corrections are reserved for follow-up layers (ground alignment/lean/IK).
+- Procedural corrections now include Ground Align + speed-based Lean (reduced to ~1/3 strength); IK remains planned.
 - GPU skinning uses palette buffers to write skinned vertices each frame.
 - Skeleton replaced with Mixamo Y Bot (65 bones, mixamorig naming), pelvis-aligned root, FBX PreRotation/LclRotation applied, facing fix on root.
 
