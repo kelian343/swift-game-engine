@@ -35,14 +35,18 @@ public final class PoseStackSystem: FixedStepSystem {
                let profile = mStore[e] {
                 let idleCycle = max(locomotion.idleProfile.phase?.cycleDuration ?? locomotion.idleProfile.duration, 0.001)
                 let walkCycle = max(locomotion.walkProfile.phase?.cycleDuration ?? locomotion.walkProfile.duration, 0.001)
+                let runCycle = max(locomotion.runProfile.phase?.cycleDuration ?? locomotion.runProfile.duration, 0.001)
                 locomotion.idleTime += dt * profile.playbackRate
                 locomotion.walkTime += dt * profile.playbackRate
+                locomotion.runTime += dt * profile.playbackRate
                 if profile.loop {
                     locomotion.idleTime = locomotion.idleTime.truncatingRemainder(dividingBy: idleCycle)
                     locomotion.walkTime = locomotion.walkTime.truncatingRemainder(dividingBy: walkCycle)
+                    locomotion.runTime = locomotion.runTime.truncatingRemainder(dividingBy: runCycle)
                 } else {
                     locomotion.idleTime = min(locomotion.idleTime, idleCycle)
                     locomotion.walkTime = min(locomotion.walkTime, walkCycle)
+                    locomotion.runTime = min(locomotion.runTime, runCycle)
                 }
 
                 if locomotion.isBlending {
@@ -55,7 +59,15 @@ public final class PoseStackSystem: FixedStepSystem {
 
                 let phaseIdle = max(0, min(locomotion.idleTime / idleCycle, 1))
                 let phaseWalk = max(0, min(locomotion.walkTime / walkCycle, 1))
-                pose.phase = locomotion.isIdle ? phaseIdle : phaseWalk
+                let phaseRun = max(0, min(locomotion.runTime / runCycle, 1))
+                switch locomotion.state {
+                case .idle:
+                    pose.phase = phaseIdle
+                case .walk:
+                    pose.phase = phaseWalk
+                case .run:
+                    pose.phase = phaseRun
+                }
 
                 if pose.local.count != skeleton.boneCount {
                     pose.local = Array(repeating: matrix_identity_float4x4, count: skeleton.boneCount)
@@ -64,71 +76,88 @@ public final class PoseStackSystem: FixedStepSystem {
                     pose.local[i] = skeleton.bindLocal[i]
                 }
 
-                let weightWalk: Float = {
-                    if locomotion.isBlending {
-                        return locomotion.isIdle ? (1.0 - locomotion.blendT) : locomotion.blendT
+                let fromState = locomotion.isBlending ? locomotion.fromState : locomotion.state
+                let toState = locomotion.state
+                let weightTo: Float = locomotion.isBlending ? locomotion.blendT : 1.0
+
+                func profileFor(_ state: LocomotionState) -> MotionProfile {
+                    switch state {
+                    case .idle: return locomotion.idleProfile
+                    case .walk: return locomotion.walkProfile
+                    case .run: return locomotion.runProfile
                     }
-                    return locomotion.isIdle ? 0.0 : 1.0
-                }()
+                }
+
+                func phaseFor(_ state: LocomotionState) -> Float {
+                    switch state {
+                    case .idle: return phaseIdle
+                    case .walk: return phaseWalk
+                    case .run: return phaseRun
+                    }
+                }
 
                 for i in 0..<skeleton.boneCount {
                     let name = skeleton.names[i]
                     let restScaled = skeleton.restTranslation[i]
                     let restRaw = skeleton.rawRestTranslation[i]
 
-                    let idleBone = locomotion.idleProfile.bones[name]
-                    let walkBone = locomotion.walkProfile.bones[name]
+                    let fromProfile = profileFor(fromState)
+                    let toProfile = profileFor(toState)
+                    let fromPhase = phaseFor(fromState)
+                    let toPhase = phaseFor(toState)
+                    let fromBone = fromProfile.bones[name]
+                    let toBone = toProfile.bones[name]
 
-                    let idleRaw = idleBone.map {
+                    let fromRaw = fromBone.map {
                         MotionProfileEvaluator.evaluateChannel($0.translation,
-                                                               phase: phaseIdle,
-                                                               order: locomotion.idleProfile.order,
+                                                               phase: fromPhase,
+                                                               order: fromProfile.order,
                                                                defaultValue: restRaw)
                     } ?? restRaw
-                    let walkRaw = walkBone.map {
+                    let toRaw = toBone.map {
                         MotionProfileEvaluator.evaluateChannel($0.translation,
-                                                               phase: phaseWalk,
-                                                               order: locomotion.walkProfile.order,
+                                                               phase: toPhase,
+                                                               order: toProfile.order,
                                                                defaultValue: restRaw)
                     } ?? restRaw
 
-                    let idleDelta = idleRaw - restRaw
-                    let walkDelta = walkRaw - restRaw
-                    var idleT = restScaled + (idleDelta * skeleton.unitScale)
-                    var walkT = restScaled + (walkDelta * skeleton.unitScale)
+                    let fromDelta = fromRaw - restRaw
+                    let toDelta = toRaw - restRaw
+                    var fromT = restScaled + (fromDelta * skeleton.unitScale)
+                    var toT = restScaled + (toDelta * skeleton.unitScale)
 
                     if i == 0 && profile.inPlace {
-                        idleT.x = restScaled.x
-                        idleT.z = restScaled.z
-                        walkT.x = restScaled.x
-                        walkT.z = restScaled.z
+                        fromT.x = restScaled.x
+                        fromT.z = restScaled.z
+                        toT.x = restScaled.x
+                        toT.z = restScaled.z
                     }
 
-                    let idleR = idleBone.map {
+                    let fromR = fromBone.map {
                         MotionProfileEvaluator.evaluateChannel($0.rotation,
-                                                               phase: phaseIdle,
-                                                               order: locomotion.idleProfile.order,
+                                                               phase: fromPhase,
+                                                               order: fromProfile.order,
                                                                defaultValue: SIMD3<Float>(0, 0, 0))
                     } ?? SIMD3<Float>(0, 0, 0)
-                    let walkR = walkBone.map {
+                    let toR = toBone.map {
                         MotionProfileEvaluator.evaluateChannel($0.rotation,
-                                                               phase: phaseWalk,
-                                                               order: locomotion.walkProfile.order,
+                                                               phase: toPhase,
+                                                               order: toProfile.order,
                                                                defaultValue: SIMD3<Float>(0, 0, 0))
                     } ?? SIMD3<Float>(0, 0, 0)
-                    var idleRot = simd_mul(Skeleton.rotationXYZDegrees(skeleton.preRotationDegrees[i]),
-                                           Skeleton.rotationXYZDegrees(idleR))
-                    var walkRot = simd_mul(Skeleton.rotationXYZDegrees(skeleton.preRotationDegrees[i]),
-                                           Skeleton.rotationXYZDegrees(walkR))
+                    var fromRot = simd_mul(Skeleton.rotationXYZDegrees(skeleton.preRotationDegrees[i]),
+                                           Skeleton.rotationXYZDegrees(fromR))
+                    var toRot = simd_mul(Skeleton.rotationXYZDegrees(skeleton.preRotationDegrees[i]),
+                                         Skeleton.rotationXYZDegrees(toR))
                     if i == 0 {
-                        idleRot = simd_mul(skeleton.rootRotationFix, idleRot)
-                        walkRot = simd_mul(skeleton.rootRotationFix, walkRot)
+                        fromRot = simd_mul(skeleton.rootRotationFix, fromRot)
+                        toRot = simd_mul(skeleton.rootRotationFix, toRot)
                     }
 
-                    let t = idleT + (walkT - idleT) * weightWalk
-                    let idleQuat = simd_quaternion(idleRot)
-                    let walkQuat = simd_quaternion(walkRot)
-                    let rotQuat = simd_slerp(idleQuat, walkQuat, weightWalk)
+                    let t = fromT + (toT - fromT) * weightTo
+                    let fromQuat = simd_quaternion(fromRot)
+                    let toQuat = simd_quaternion(toRot)
+                    let rotQuat = simd_slerp(fromQuat, toQuat, weightTo)
                     let trans = matrix4x4_translation(t.x, t.y, t.z)
                     pose.local[i] = simd_mul(trans, matrix_float4x4(rotQuat))
                 }

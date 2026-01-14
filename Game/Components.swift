@@ -101,40 +101,58 @@ public struct MotionProfileComponent {
     }
 }
 
+public enum LocomotionState: Int {
+    case idle
+    case walk
+    case run
+}
+
 public struct LocomotionProfileComponent {
     public var idleProfile: MotionProfile
     public var walkProfile: MotionProfile
+    public var runProfile: MotionProfile
     public var idleEnterSpeed: Float
     public var idleExitSpeed: Float
     public var idleTime: Float
     public var walkTime: Float
+    public var runTime: Float
+    public var runEnterSpeed: Float
+    public var runExitSpeed: Float
     public var blendTime: Float
     public var blendT: Float
-    public var fromIsIdle: Bool
-    public var isIdle: Bool
+    public var fromState: LocomotionState
+    public var state: LocomotionState
     public var isBlending: Bool
 
     public init(idleProfile: MotionProfile,
                 walkProfile: MotionProfile,
+                runProfile: MotionProfile,
                 idleEnterSpeed: Float = 0.15,
                 idleExitSpeed: Float = 0.25,
                 idleTime: Float = 0,
                 walkTime: Float = 0,
+                runTime: Float = 0,
+                runEnterSpeed: Float = 6.0,
+                runExitSpeed: Float = 5.0,
                 blendTime: Float = 0.25,
                 blendT: Float = 1.0,
-                fromIsIdle: Bool = true,
-                isIdle: Bool = true,
+                fromState: LocomotionState = .idle,
+                state: LocomotionState = .idle,
                 isBlending: Bool = false) {
         self.idleProfile = idleProfile
         self.walkProfile = walkProfile
+        self.runProfile = runProfile
         self.idleEnterSpeed = idleEnterSpeed
         self.idleExitSpeed = idleExitSpeed
         self.idleTime = idleTime
         self.walkTime = walkTime
+        self.runTime = runTime
+        self.runEnterSpeed = runEnterSpeed
+        self.runExitSpeed = runExitSpeed
         self.blendTime = blendTime
         self.blendT = blendT
-        self.fromIsIdle = fromIsIdle
-        self.isIdle = isIdle
+        self.fromState = fromState
+        self.state = state
         self.isBlending = isBlending
     }
 }

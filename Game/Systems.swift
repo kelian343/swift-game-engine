@@ -273,16 +273,47 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                   var profile = mStore[e],
                   let body = pStore[e] else { continue }
             let speed = simd_length(SIMD3<Float>(body.linearVelocity.x, 0, body.linearVelocity.z))
-            let shouldIdle = locomotion.isIdle
-                ? speed < locomotion.idleExitSpeed
-                : speed < locomotion.idleEnterSpeed
-            if shouldIdle != locomotion.isIdle {
-                locomotion.fromIsIdle = locomotion.isIdle
-                locomotion.isIdle = shouldIdle
+            let nextState: LocomotionState
+            switch locomotion.state {
+            case .idle:
+                if speed >= locomotion.runEnterSpeed {
+                    nextState = .run
+                } else if speed >= locomotion.idleExitSpeed {
+                    nextState = .walk
+                } else {
+                    nextState = .idle
+                }
+            case .walk:
+                if speed >= locomotion.runEnterSpeed {
+                    nextState = .run
+                } else if speed < locomotion.idleEnterSpeed {
+                    nextState = .idle
+                } else {
+                    nextState = .walk
+                }
+            case .run:
+                if speed < locomotion.runExitSpeed {
+                    nextState = speed < locomotion.idleEnterSpeed ? .idle : .walk
+                } else {
+                    nextState = .run
+                }
+            }
+
+            if nextState != locomotion.state {
+                locomotion.fromState = locomotion.state
+                locomotion.state = nextState
                 locomotion.isBlending = true
                 locomotion.blendT = 0
             }
-            profile.time = locomotion.isIdle ? locomotion.idleTime : locomotion.walkTime
+
+            switch locomotion.state {
+            case .idle:
+                profile.time = locomotion.idleTime
+            case .walk:
+                profile.time = locomotion.walkTime
+            case .run:
+                profile.time = locomotion.runTime
+            }
             lStore[e] = locomotion
             mStore[e] = profile
         }
