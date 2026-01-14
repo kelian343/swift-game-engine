@@ -292,8 +292,10 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                     nextState = .walk
                 }
             case .run:
-                if speed < locomotion.runExitSpeed {
-                    nextState = speed < locomotion.idleEnterSpeed ? .idle : .walk
+                if speed < locomotion.idleEnterSpeed {
+                    nextState = .idle
+                } else if speed < locomotion.runExitSpeed {
+                    nextState = .walk
                 } else {
                     nextState = .run
                 }
