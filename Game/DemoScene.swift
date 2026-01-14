@@ -31,6 +31,7 @@ public final class DemoScene: RenderScene {
     private let oscillateMoveSystem = OscillateMoveSystem()
     private let jumpSystem = JumpSystem()
     private let gravitySystem = GravitySystem()
+    private let locomotionProfileSystem = LocomotionProfileSystem()
     private let poseStackSystem = PoseStackSystem()
     private let platformMotionSystem = KinematicPlatformMotionSystem()
     private let kinematicMoveSystem = KinematicMoveStopSystem()
@@ -55,6 +56,7 @@ public final class DemoScene: RenderScene {
                     kinematicMoveSystem,
                     agentSeparationSystem,
                     physicsIntegrateSystem,
+                    locomotionProfileSystem,
                     poseStackSystem],
             postFixed: [physicsWritebackSystem]
         )
@@ -246,10 +248,15 @@ public final class DemoScene: RenderScene {
             let playerHalfHeight: Float = 1.0
             let skeleton = Skeleton.mixamoReference()
             let enableMotionProfile = true
-            let profilePath = Bundle.main.path(forResource: "Walking.motionProfile", ofType: "json")
-            let motionProfile = profilePath.flatMap { MotionProfileLoader.load(path: $0) }
-            if motionProfile == nil && enableMotionProfile {
-                print("Failed to load motion profile at:", profilePath ?? "missing bundle resource")
+            let walkPath = Bundle.main.path(forResource: "Walking.motionProfile", ofType: "json")
+            let idlePath = Bundle.main.path(forResource: "Idle.motionProfile", ofType: "json")
+            let walkProfile = walkPath.flatMap { MotionProfileLoader.load(path: $0) }
+            let idleProfile = idlePath.flatMap { MotionProfileLoader.load(path: $0) }
+            if walkProfile == nil && enableMotionProfile {
+                print("Failed to load motion profile at:", walkPath ?? "missing bundle resource")
+            }
+            if idleProfile == nil && enableMotionProfile {
+                print("Failed to load motion profile at:", idlePath ?? "missing bundle resource")
             }
             guard let skinnedAsset = SkinnedMeshLoader.loadSkinnedMeshAsset(named: "YBot.skinned",
                                                                             skeleton: skeleton) else {
@@ -300,8 +307,13 @@ public final class DemoScene: RenderScene {
 
             world.add(e, SkeletonComponent(skeleton: skeleton))
             world.add(e, PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal))
-            if enableMotionProfile, let profile = motionProfile {
-                world.add(e, MotionProfileComponent(profile: profile, playbackRate: 1.0, loop: true, inPlace: true))
+            if enableMotionProfile, let walkProfile, let idleProfile {
+                world.add(e, MotionProfileComponent(profile: idleProfile, playbackRate: 1.0, loop: true, inPlace: true))
+                world.add(e, LocomotionProfileComponent(idleProfile: idleProfile,
+                                                        walkProfile: walkProfile,
+                                                        idleEnterSpeed: 0.15,
+                                                        idleExitSpeed: 0.3,
+                                                        isIdle: true))
             }
             world.add(e, SkinnedMeshGroupComponent(meshes: skinnedAsset.meshes,
                                                    materials: submeshMaterials))

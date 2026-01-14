@@ -253,6 +253,45 @@ public final class OscillateMoveSystem: FixedStepSystem {
     }
 }
 
+/// Switch between idle and walk motion profiles based on horizontal speed.
+public final class LocomotionProfileSystem: FixedStepSystem {
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = dt
+        let entities = world.query(LocomotionProfileComponent.self,
+                                   MotionProfileComponent.self,
+                                   PhysicsBodyComponent.self)
+        guard !entities.isEmpty else { return }
+
+        let lStore = world.store(LocomotionProfileComponent.self)
+        let mStore = world.store(MotionProfileComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+
+        for e in entities {
+            guard var locomotion = lStore[e],
+                  var profile = mStore[e],
+                  let body = pStore[e] else { continue }
+            let speed = simd_length(SIMD3<Float>(body.linearVelocity.x, 0, body.linearVelocity.z))
+            if locomotion.isIdle {
+                if speed > locomotion.idleExitSpeed {
+                    locomotion.isIdle = false
+                    profile.profile = locomotion.walkProfile
+                    profile.time = 0
+                }
+            } else {
+                if speed < locomotion.idleEnterSpeed {
+                    locomotion.isIdle = true
+                    profile.profile = locomotion.idleProfile
+                    profile.time = 0
+                }
+            }
+            lStore[e] = locomotion
+            mStore[e] = profile
+        }
+    }
+}
+
 private func approachVec(current: SIMD3<Float>, target: SIMD3<Float>, maxDelta: Float) -> SIMD3<Float> {
     let delta = target - current
     let len = simd_length(delta)

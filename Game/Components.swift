@@ -101,6 +101,26 @@ public struct MotionProfileComponent {
     }
 }
 
+public struct LocomotionProfileComponent {
+    public var idleProfile: MotionProfile
+    public var walkProfile: MotionProfile
+    public var idleEnterSpeed: Float
+    public var idleExitSpeed: Float
+    public var isIdle: Bool
+
+    public init(idleProfile: MotionProfile,
+                walkProfile: MotionProfile,
+                idleEnterSpeed: Float = 0.15,
+                idleExitSpeed: Float = 0.25,
+                isIdle: Bool = true) {
+        self.idleProfile = idleProfile
+        self.walkProfile = walkProfile
+        self.idleEnterSpeed = idleEnterSpeed
+        self.idleExitSpeed = idleExitSpeed
+        self.isIdle = isIdle
+    }
+}
+
 public struct SkinnedMeshComponent {
     public var mesh: SkinnedMeshDescriptor
     public var material: Material
