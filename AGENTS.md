@@ -21,19 +21,26 @@
 - Skeleton and pose components drive animation pose stacks.
 - Pose system computes local/model transforms and palette per fixed step.
 - Base layer now uses MotionProfile JSON (Fourier-fit curves) generated offline; runtime does not parse FBX.
-- Offline FitMotion tool converts ExternalResources/Walking.fbx into Walking.motionProfile.json with smoothing and per-bone overrides (left leg mirrored with half-cycle offset); phase detection is conservative and may fall back to normalized_time.
+- Offline FitMotion tool converts ASCII FBX into MotionProfile JSON (Walking/Idle/Running) with smoothing and per-bone overrides; phase detection is conservative and may fall back to normalized_time.
+- Locomotion now blends Idle/Walk/Run with cross-fade and hysteresis thresholds (no instant pose pop).
 - Procedural corrections now include Ground Align only; Lean removed. IK remains planned.
 - GPU skinning uses palette buffers to write skinned vertices each frame.
 - Skeleton replaced with Mixamo Y Bot (65 bones, mixamorig naming), pelvis-aligned root, preRotation applied, facing fix on root.
 
 ## External Resources
-- FBX sources moved to ExternalResources/ (Walking.fbx, Y Bot.fbx) for offline fitting only.
+- FBX sources moved to ExternalResources/ (Walking.fbx, Idle.fbx, Running.fbx, Y Bot.fbx) for offline fitting only.
 
 ## Physics System (Collision)
 - Kinematic capsule movement with sweep CCD against static TriMesh.
 - Uniform grid broadphase for triangle candidate queries.
 - Move-and-slide with ground probe/snap for stable terrain traversal.
 - Capsule-capsule CCD for agent interactions with separation and velocity correction.
+- BVH build uses in-place partitioning; refit deduplicates parent updates for better rebuild/refit performance.
+- Walkable ground flattening is material-driven (SurfaceMaterial.flattenGround) for slope-as-floor behavior.
+
+## Input / Character Setup
+- Gamepad movement uses two-speed walk/run based on stick magnitude threshold; acceleration/deceleration still smooths.
+- Player character creation (mesh/material/motion profiles/colliders) centralized in CharacterFactory.
 
 ## 2025-01-14 Update (Skin/Mesh/Material Pipeline)
 - Added offline Blender export tools to generate skinned mesh JSON from FBX, with vertex weld + multi-mesh merge and submesh (material slot) splitting.
