@@ -452,7 +452,7 @@ public struct MovementComponent {
     public var maxAcceleration: Float
     public var maxDeceleration: Float
 
-    public init(walkSpeed: Float = 2.5,
+    public init(walkSpeed: Float = 4.5,
                 runSpeed: Float = 12.5,
                 runThreshold: Float = 0.78,
                 maxAcceleration: Float = 20.0,
