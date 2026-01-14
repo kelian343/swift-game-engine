@@ -2107,9 +2107,15 @@ public final class RenderExtractSystem {
         for e in skinnedEntities {
             guard let sk = skStore[e], let pose = poseStore[e] else { continue }
             guard let modelMatrix = interpolatedModelMatrix(for: e) else { continue }
+            let palette: [matrix_float4x4]
+            if let invBind = sk.mesh.invBindModel, invBind.count == pose.model.count {
+                palette = zip(pose.model, invBind).map { simd_mul($0, $1) }
+            } else {
+                palette = pose.palette
+            }
             items.append(RenderItem(mesh: nil,
                                     skinnedMesh: sk.mesh,
-                                    skinningPalette: pose.palette,
+                                    skinningPalette: palette,
                                     material: sk.material,
                                     modelMatrix: modelMatrix))
         }

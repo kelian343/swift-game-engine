@@ -146,17 +146,20 @@ public struct SkinnedMeshDescriptor {
     public var indices16: [UInt16]?
     public var indices32: [UInt32]?
     public var name: String?
+    public var invBindModel: [matrix_float4x4]?
 
     public init(topology: MeshTopology = .triangles,
                 streams: SkinnedVertexStreams,
                 indices16: [UInt16]? = nil,
                 indices32: [UInt32]? = nil,
-                name: String? = nil) {
+                name: String? = nil,
+                invBindModel: [matrix_float4x4]? = nil) {
         self.topology = topology
         self.streams = streams
         self.indices16 = indices16
         self.indices32 = indices32
         self.name = name
+        self.invBindModel = invBindModel
     }
 
     public var indexCount: Int {
