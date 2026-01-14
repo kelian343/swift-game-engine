@@ -243,7 +243,7 @@ public final class DemoScene: RenderScene {
             let playerRadius: Float = 1.5
             let playerHalfHeight: Float = 1.0
             let skeleton = Skeleton.mixamoReference()
-            let enableMotionProfile = false
+            let enableMotionProfile = true
             let profilePath = Bundle.main.path(forResource: "Walking.motionProfile", ofType: "json")
             let motionProfile = profilePath.flatMap { MotionProfileLoader.load(path: $0) }
             if motionProfile == nil && enableMotionProfile {
