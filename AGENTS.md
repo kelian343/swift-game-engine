@@ -34,3 +34,10 @@
 - Uniform grid broadphase for triangle candidate queries.
 - Move-and-slide with ground probe/snap for stable terrain traversal.
 - Capsule-capsule CCD for agent interactions with separation and velocity correction.
+
+## 2025-01-14 Update (Skin/Mesh/Material Pipeline)
+- Added offline Blender export tools to generate skinned mesh JSON from FBX, with vertex weld + multi-mesh merge and submesh (material slot) splitting.
+- Added offline Blender export tool to generate materials JSON (procedural PBR parameters) from FBX.
+- Runtime now loads skinned mesh JSON assets, supports submeshes, and builds skinning palette using JSON inverse bind matrices with unit-scale + row/column correction.
+- Added JSON-driven material loader for procedural PBR generation and wired submesh materials in DemoScene.
+- DemoScene now uses YBot.skinned.json + YBot.materials.json for the player; animation re-enabled.
