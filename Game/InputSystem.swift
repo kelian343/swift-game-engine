@@ -22,7 +22,6 @@ final class InputSystem: System {
     private var lastJumpPressed: Bool = false
     public private(set) var exposureDelta: Float = 0
 
-    var moveSpeed: Float = 10.0
     var lookSpeed: Float = 2.5      // used for right stick rotation + pitch
     var turnSpeed: Float = 16.0
     var cameraDistance: Float = 8.0
@@ -74,6 +73,7 @@ final class InputSystem: System {
             controller = GCController.controllers().first
         }
         let mStore = world.store(MoveIntentComponent.self)
+        let mvStore = world.store(MovementComponent.self)
         guard let pad = controller?.extendedGamepad else {
             mStore[player] = MoveIntentComponent()
             lastJumpPressed = false
@@ -111,8 +111,11 @@ final class InputSystem: System {
 
         var intent = mStore[player] ?? MoveIntentComponent()
         if moveLen > deadzone {
+            let movement = mvStore[player] ?? MovementComponent()
             let dir = move / moveLen
-            intent.desiredVelocity = dir * moveSpeed
+            let runThreshold = max(movement.runThreshold, deadzone)
+            let speed = moveLen >= runThreshold ? movement.runSpeed : movement.walkSpeed
+            intent.desiredVelocity = dir * speed
 
             // Face toward left-stick move direction with turn speed limit.
             let targetYaw = wrapAngle(atan2f(-dir.x, -dir.z))

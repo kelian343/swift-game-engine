@@ -228,7 +228,7 @@ public final class DemoScene: RenderScene {
             world.add(e, ColliderComponent(shape: .capsule(halfHeight: capsuleHalfHeight,
                                                           radius: capsuleRadius)))
             world.add(e, MoveIntentComponent())
-            world.add(e, MovementComponent(maxAcceleration: 10.0, maxDeceleration: 12.0))
+            world.add(e, MovementComponent(maxAcceleration: 14.0, maxDeceleration: 28.0))
             world.add(e, CharacterControllerComponent(radius: capsuleRadius,
                                                       halfHeight: capsuleHalfHeight,
                                                       skinWidth: 0.3,
@@ -289,7 +289,7 @@ public final class DemoScene: RenderScene {
                                               position: t.translation,
                                               rotation: t.rotation))
             world.add(e, MoveIntentComponent())
-            world.add(e, MovementComponent(maxAcceleration: 16.0, maxDeceleration: 24.0))
+            world.add(e, MovementComponent(maxAcceleration: 20.0, maxDeceleration: 36.0))
             world.add(e, ColliderComponent(shape: .capsule(halfHeight: playerHalfHeight,
                                                           radius: playerRadius)))
             world.add(e, CharacterControllerComponent(radius: playerRadius,

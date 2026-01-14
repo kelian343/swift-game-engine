@@ -390,11 +390,20 @@ public struct MoveIntentComponent {
 }
 
 public struct MovementComponent {
+    public var walkSpeed: Float
+    public var runSpeed: Float
+    public var runThreshold: Float
     public var maxAcceleration: Float
     public var maxDeceleration: Float
 
-    public init(maxAcceleration: Float = 20.0,
+    public init(walkSpeed: Float = 2.5,
+                runSpeed: Float = 12.5,
+                runThreshold: Float = 0.78,
+                maxAcceleration: Float = 20.0,
                 maxDeceleration: Float = 30.0) {
+        self.walkSpeed = walkSpeed
+        self.runSpeed = runSpeed
+        self.runThreshold = runThreshold
         self.maxAcceleration = maxAcceleration
         self.maxDeceleration = maxDeceleration
     }
