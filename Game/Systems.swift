@@ -273,19 +273,16 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                   var profile = mStore[e],
                   let body = pStore[e] else { continue }
             let speed = simd_length(SIMD3<Float>(body.linearVelocity.x, 0, body.linearVelocity.z))
-            if locomotion.isIdle {
-                if speed > locomotion.idleExitSpeed {
-                    locomotion.isIdle = false
-                    profile.profile = locomotion.walkProfile
-                    profile.time = 0
-                }
-            } else {
-                if speed < locomotion.idleEnterSpeed {
-                    locomotion.isIdle = true
-                    profile.profile = locomotion.idleProfile
-                    profile.time = 0
-                }
+            let shouldIdle = locomotion.isIdle
+                ? speed < locomotion.idleExitSpeed
+                : speed < locomotion.idleEnterSpeed
+            if shouldIdle != locomotion.isIdle {
+                locomotion.fromIsIdle = locomotion.isIdle
+                locomotion.isIdle = shouldIdle
+                locomotion.isBlending = true
+                locomotion.blendT = 0
             }
+            profile.time = locomotion.isIdle ? locomotion.idleTime : locomotion.walkTime
             lStore[e] = locomotion
             mStore[e] = profile
         }

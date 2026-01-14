@@ -106,18 +106,36 @@ public struct LocomotionProfileComponent {
     public var walkProfile: MotionProfile
     public var idleEnterSpeed: Float
     public var idleExitSpeed: Float
+    public var idleTime: Float
+    public var walkTime: Float
+    public var blendTime: Float
+    public var blendT: Float
+    public var fromIsIdle: Bool
     public var isIdle: Bool
+    public var isBlending: Bool
 
     public init(idleProfile: MotionProfile,
                 walkProfile: MotionProfile,
                 idleEnterSpeed: Float = 0.15,
                 idleExitSpeed: Float = 0.25,
-                isIdle: Bool = true) {
+                idleTime: Float = 0,
+                walkTime: Float = 0,
+                blendTime: Float = 0.25,
+                blendT: Float = 1.0,
+                fromIsIdle: Bool = true,
+                isIdle: Bool = true,
+                isBlending: Bool = false) {
         self.idleProfile = idleProfile
         self.walkProfile = walkProfile
         self.idleEnterSpeed = idleEnterSpeed
         self.idleExitSpeed = idleExitSpeed
+        self.idleTime = idleTime
+        self.walkTime = walkTime
+        self.blendTime = blendTime
+        self.blendT = blendT
+        self.fromIsIdle = fromIsIdle
         self.isIdle = isIdle
+        self.isBlending = isBlending
     }
 }
 
