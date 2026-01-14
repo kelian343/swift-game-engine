@@ -174,7 +174,6 @@ public struct CharacterControllerComponent {
     public var contactManifoldTriangles: [Int]
     public var contactManifoldNormals: [SIMD3<Float>]
     public var contactManifoldFrames: Int
-    public var uphillBoostScale: Float
     public var grounded: Bool
     public var groundedNear: Bool
 
@@ -198,7 +197,6 @@ public struct CharacterControllerComponent {
                 contactManifoldTriangles: [Int] = [],
                 contactManifoldNormals: [SIMD3<Float>] = [],
                 contactManifoldFrames: Int = 0,
-                uphillBoostScale: Float = 1.0,
                 grounded: Bool = false,
                 groundedNear: Bool = false) {
         self.radius = radius
@@ -221,7 +219,6 @@ public struct CharacterControllerComponent {
         self.contactManifoldTriangles = contactManifoldTriangles
         self.contactManifoldNormals = contactManifoldNormals
         self.contactManifoldFrames = contactManifoldFrames
-        self.uphillBoostScale = uphillBoostScale
         self.grounded = grounded
         self.groundedNear = groundedNear
     }

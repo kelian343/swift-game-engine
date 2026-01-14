@@ -208,27 +208,8 @@ public final class PhysicsIntentSystem: FixedStepSystem {
             guard let intent = mStore[e] else { continue }
             if body.bodyType == .dynamic || body.bodyType == .kinematic {
                 let move = mvStore[e] ?? MovementComponent()
-                if let controller = cStore[e] {
-                    let input = SIMD3<Float>(intent.desiredVelocity.x, 0, intent.desiredVelocity.z)
-                    var target = input
-                    if controller.groundedNear {
-                        let n = simd_normalize(controller.groundNormal)
-                        let g = SIMD3<Float>(0, -1, 0)
-                        let gTan = g - n * simd_dot(g, n)
-                        let gTanLen = simd_length(gTan)
-                        if gTanLen > 1e-5 {
-                            let downhill = gTan / gTanLen
-                            var uphill2D = SIMD3<Float>(-downhill.x, 0, -downhill.z)
-                            let uphill2DLen = simd_length(uphill2D)
-                            if uphill2DLen > 1e-5 {
-                                uphill2D /= uphill2DLen
-                                let uphillSpeed = simd_dot(target, uphill2D)
-                                if uphillSpeed > 0 {
-                                    target += uphill2D * (uphillSpeed * controller.uphillBoostScale)
-                                }
-                            }
-                        }
-                    }
+                if cStore.contains(e) {
+                    let target = SIMD3<Float>(intent.desiredVelocity.x, 0, intent.desiredVelocity.z)
                     let current = SIMD3<Float>(body.linearVelocity.x, 0, body.linearVelocity.z)
                     let accel = simd_length(target) >= simd_length(current) ? move.maxAcceleration : move.maxDeceleration
                     let next = approachVec(current: current, target: target, maxDelta: accel * dt)
