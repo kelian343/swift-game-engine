@@ -134,7 +134,7 @@ public struct LocomotionProfileComponent {
                 runTime: Float = 0,
                 runEnterSpeed: Float = 6.0,
                 runExitSpeed: Float = 5.0,
-                blendTime: Float = 0.4,
+                blendTime: Float = 0.2,
                 blendT: Float = 1.0,
                 fromState: LocomotionState = .idle,
                 state: LocomotionState = .idle,
