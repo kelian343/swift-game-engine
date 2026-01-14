@@ -111,6 +111,16 @@ public struct SkinnedMeshComponent {
     }
 }
 
+public struct SkinnedMeshGroupComponent {
+    public var meshes: [SkinnedMeshDescriptor]
+    public var materials: [Material]
+
+    public init(meshes: [SkinnedMeshDescriptor], materials: [Material]) {
+        self.meshes = meshes
+        self.materials = materials
+    }
+}
+
 public struct FollowTargetComponent {
     public var target: Entity
 

@@ -8,6 +8,11 @@
 import Foundation
 import simd
 
+struct SkinnedMeshAsset {
+    let meshes: [SkinnedMeshDescriptor]
+    let materialNames: [String]
+}
+
 enum SkinnedMeshLoader {
     static func loadSkinnedMesh(named name: String, skeleton: Skeleton) -> SkinnedMeshDescriptor? {
         guard let path = Bundle.main.path(forResource: name, ofType: "json") else {
@@ -17,15 +22,30 @@ enum SkinnedMeshLoader {
         do {
             let data = try Data(contentsOf: URL(fileURLWithPath: path))
             let decoded = try JSONDecoder().decode(SkinnedMeshJSON.self, from: data)
-            return buildDescriptor(from: decoded, skeleton: skeleton)
+            return buildAsset(from: decoded, skeleton: skeleton).meshes.first
         } catch {
             print("SkinnedMeshLoader: failed to load json:", name, error)
             return nil
         }
     }
 
-    private static func buildDescriptor(from json: SkinnedMeshJSON,
-                                        skeleton: Skeleton) -> SkinnedMeshDescriptor? {
+    static func loadSkinnedMeshAsset(named name: String, skeleton: Skeleton) -> SkinnedMeshAsset? {
+        guard let path = Bundle.main.path(forResource: name, ofType: "json") else {
+            print("SkinnedMeshLoader: missing json:", name)
+            return nil
+        }
+        do {
+            let data = try Data(contentsOf: URL(fileURLWithPath: path))
+            let decoded = try JSONDecoder().decode(SkinnedMeshJSON.self, from: data)
+            return buildAsset(from: decoded, skeleton: skeleton)
+        } catch {
+            print("SkinnedMeshLoader: failed to load json:", name, error)
+            return nil
+        }
+    }
+
+    private static func buildAsset(from json: SkinnedMeshJSON,
+                                   skeleton: Skeleton) -> SkinnedMeshAsset {
         let mesh = json.mesh
         let vCount = mesh.positions.count / 3
         guard vCount > 0,
@@ -35,7 +55,7 @@ enum SkinnedMeshLoader {
               mesh.joints.count == vCount * 4,
               mesh.weights.count == vCount * 4 else {
             print("SkinnedMeshLoader: attribute counts do not match.")
-            return nil
+            return SkinnedMeshAsset(meshes: [], materialNames: [])
         }
 
         let boneMap = makeBoneRemap(skinBones: json.skin.bones, skeleton: skeleton)
@@ -95,22 +115,40 @@ enum SkinnedMeshLoader {
             boneWeights.append(weights)
         }
 
-        let indices32 = mesh.indices
-        let maxIndex = indices32.max() ?? 0
-        let indices16: [UInt16]? = maxIndex <= UInt32(UInt16.max) ? indices32.map { UInt16($0) } : nil
-        let indicesFinal32: [UInt32]? = indices16 == nil ? indices32 : nil
-
         let streams = SkinnedVertexStreams(positions: positions,
                                            normals: normals,
                                            uvs: uvs,
                                            boneIndices: boneIndices,
                                            boneWeights: boneWeights)
-        return SkinnedMeshDescriptor(topology: .triangles,
-                                     streams: streams,
-                                     indices16: indices16,
-                                     indices32: indicesFinal32,
-                                     name: "SkinnedMesh:\(json.skin.bones.count)",
-                                     invBindModel: invBindModel)
+
+        let submeshes = mesh.submeshes?.isEmpty == false ? mesh.submeshes! : [
+            SkinnedMeshSubmeshJSON(start: 0, count: mesh.indices.count, material: "Default")
+        ]
+
+        var descriptors: [SkinnedMeshDescriptor] = []
+        var materialNames: [String] = []
+        descriptors.reserveCapacity(submeshes.count)
+        materialNames.reserveCapacity(submeshes.count)
+
+        for sub in submeshes {
+            let start = max(sub.start, 0)
+            let end = min(start + sub.count, mesh.indices.count)
+            if start >= end { continue }
+            let slice = Array(mesh.indices[start..<end])
+            let maxIndex = slice.max() ?? 0
+            let indices16: [UInt16]? = maxIndex <= UInt32(UInt16.max) ? slice.map { UInt16($0) } : nil
+            let indicesFinal32: [UInt32]? = indices16 == nil ? slice : nil
+            let desc = SkinnedMeshDescriptor(topology: .triangles,
+                                             streams: streams,
+                                             indices16: indices16,
+                                             indices32: indicesFinal32,
+                                             name: "SkinnedMesh:\(sub.material)",
+                                             invBindModel: invBindModel)
+            descriptors.append(desc)
+            materialNames.append(sub.material)
+        }
+
+        return SkinnedMeshAsset(meshes: descriptors, materialNames: materialNames)
     }
 
     private static func makeBoneRemap(skinBones: [SkinnedMeshBoneJSON],
@@ -178,6 +216,7 @@ private struct SkinnedMeshDataJSON: Codable {
     let joints: [UInt16]
     let weights: [Float]
     let indices: [UInt32]
+    let submeshes: [SkinnedMeshSubmeshJSON]?
 }
 
 private struct SkinnedMeshSkinJSON: Codable {
@@ -187,4 +226,10 @@ private struct SkinnedMeshSkinJSON: Codable {
 private struct SkinnedMeshBoneJSON: Codable {
     let name: String
     let inverseBindMatrix: [Float]
+}
+
+private struct SkinnedMeshSubmeshJSON: Codable {
+    let start: Int
+    let count: Int
+    let material: String
 }

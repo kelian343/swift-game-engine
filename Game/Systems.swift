@@ -2057,6 +2057,7 @@ public final class RenderExtractSystem {
         let tStore = world.store(TransformComponent.self)
         let rStore = world.store(RenderComponent.self)
         let skStore = world.store(SkinnedMeshComponent.self)
+        let skGroupStore = world.store(SkinnedMeshGroupComponent.self)
         let poseStore = world.store(PoseComponent.self)
         let followStore = world.store(FollowTargetComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
@@ -2094,7 +2095,11 @@ public final class RenderExtractSystem {
             .query(TransformComponent.self, SkinnedMeshComponent.self, PoseComponent.self)
             .sorted { $0.id < $1.id }
 
-        let skinnedSet = Set(skinnedEntities)
+        let skinnedGroupEntities = world
+            .query(TransformComponent.self, SkinnedMeshGroupComponent.self, PoseComponent.self)
+            .sorted { $0.id < $1.id }
+
+        let skinnedSet = Set(skinnedEntities).union(skinnedGroupEntities)
 
         // ✅ Stable ordering for deterministic draw-call order (picking/debug/sorting friendly)
         let entities = world
@@ -2102,7 +2107,7 @@ public final class RenderExtractSystem {
             .sorted { $0.id < $1.id }
 
         var items: [RenderItem] = []
-        items.reserveCapacity(entities.count + skinnedEntities.count)
+        items.reserveCapacity(entities.count + skinnedEntities.count + skinnedGroupEntities.count)
 
         for e in skinnedEntities {
             guard let sk = skStore[e], let pose = poseStore[e] else { continue }
@@ -2118,6 +2123,26 @@ public final class RenderExtractSystem {
                                     skinningPalette: palette,
                                     material: sk.material,
                                     modelMatrix: modelMatrix))
+        }
+
+        for e in skinnedGroupEntities {
+            guard let sk = skGroupStore[e], let pose = poseStore[e] else { continue }
+            guard let modelMatrix = interpolatedModelMatrix(for: e) else { continue }
+            let palette: [matrix_float4x4] = {
+                if let invBind = sk.meshes.first?.invBindModel, invBind.count == pose.model.count {
+                    return zip(pose.model, invBind).map { simd_mul($0, $1) }
+                }
+                return pose.palette
+            }()
+            let count = min(sk.meshes.count, sk.materials.count)
+            if count == 0 { continue }
+            for i in 0..<count {
+                items.append(RenderItem(mesh: nil,
+                                        skinnedMesh: sk.meshes[i],
+                                        skinningPalette: palette,
+                                        material: sk.materials[i],
+                                        modelMatrix: modelMatrix))
+            }
         }
 
         for e in entities {

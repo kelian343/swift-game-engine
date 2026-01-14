@@ -249,10 +249,6 @@ public final class DemoScene: RenderScene {
             if motionProfile == nil && enableMotionProfile {
                 print("Failed to load motion profile at:", profilePath ?? "missing bundle resource")
             }
-            guard let skinnedDesc = SkinnedMeshLoader.loadSkinnedMesh(named: "YBot.skinned",
-                                                                      skeleton: skeleton) else {
-                fatalError("Failed to load YBot.skinned.json from bundle.")
-            }
             let baseColor = ProceduralTextureGenerator.checkerboard(width: 256,
                                                                      height: 256,
                                                                      cell: 48,
@@ -262,6 +258,14 @@ public final class DemoScene: RenderScene {
                                             metallic: 0.0,
                                             roughness: 0.4,
                                             alpha: 1.0)
+            guard let skinnedAsset = SkinnedMeshLoader.loadSkinnedMeshAsset(named: "YBot.skinned",
+                                                                            skeleton: skeleton) else {
+                fatalError("Failed to load YBot.skinned.json from bundle.")
+            }
+            let materialTable = MaterialLoader.loadMaterials(named: "YBot.materials", device: device)
+            let submeshMaterials = skinnedAsset.materialNames.map { name in
+                materialTable[name] ?? mat
+            }
             let capsuleMeshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: playerRadius,
                                                                          halfHeight: playerHalfHeight))
             let capsuleMesh = GPUMesh(device: device, descriptor: capsuleMeshDesc, label: "PlayerCapsuleOverlay")
@@ -295,7 +299,8 @@ public final class DemoScene: RenderScene {
             if enableMotionProfile, let profile = motionProfile {
                 world.add(e, MotionProfileComponent(profile: profile, playbackRate: 1.0, loop: true, inPlace: true))
             }
-            world.add(e, SkinnedMeshComponent(mesh: skinnedDesc, material: mat))
+            world.add(e, SkinnedMeshGroupComponent(meshes: skinnedAsset.meshes,
+                                                   materials: submeshMaterials))
 
             let overlay = world.createEntity()
             var to = TransformComponent()

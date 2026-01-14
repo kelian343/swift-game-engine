@@ -136,6 +136,8 @@ def main():
     weights = []
     indices = []
     vertex_map = {}
+    submesh_indices = {}
+    submesh_order = []
 
     def q(v):
         return int(round(v * 1000000.0))
@@ -156,11 +158,20 @@ def main():
                 idx = bone_name_to_index.get(key.split(":")[-1])
             group_index_to_bone[i] = idx
 
+        material_names = []
+        for slot in mesh_obj.material_slots:
+            mat = slot.material
+            material_names.append(mat.name if mat else "Default")
+
         mesh_to_arm = arm_inv @ mesh_obj.matrix_world
         normal_mat = mesh_to_arm.to_3x3()
 
         for tri in mesh.loop_triangles:
             loop_indices = tri.loops
+            mat_name = material_names[tri.material_index] if tri.material_index < len(material_names) else "Default"
+            if mat_name not in submesh_indices:
+                submesh_indices[mat_name] = []
+                submesh_order.append(mat_name)
             for li in loop_indices:
                 loop = mesh.loops[li]
                 v = mesh.vertices[loop.vertex_index]
@@ -188,6 +199,20 @@ def main():
                     weights.extend(j_w)
 
                 indices.append(idx)
+                submesh_indices[mat_name].append(idx)
+
+    submeshes = []
+    index_cursor = 0
+    indices = []
+    for name in submesh_order:
+        bucket = submesh_indices[name]
+        if not bucket:
+            continue
+        start = index_cursor
+        indices.extend(bucket)
+        count = len(bucket)
+        submeshes.append({"start": start, "count": count, "material": name})
+        index_cursor += count
 
     inv_bind = _inverse_bind_matrices(armature_obj, bone_names)
     bones = [{"name": name, "inverseBindMatrix": inv_bind[i]} for i, name in enumerate(bone_names)]
@@ -201,6 +226,7 @@ def main():
             "joints": joints,
             "weights": weights,
             "indices": indices,
+            "submeshes": submeshes,
         },
         "skin": {"bones": bones},
     }
