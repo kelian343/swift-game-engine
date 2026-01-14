@@ -78,7 +78,13 @@ public final class PoseStackSystem: FixedStepSystem {
 
                 let fromState = locomotion.isBlending ? locomotion.fromState : locomotion.state
                 let toState = locomotion.state
-                let weightTo: Float = locomotion.isBlending ? locomotion.blendT : 1.0
+                let weightTo: Float = {
+                    if locomotion.isBlending {
+                        let t = max(0, min(locomotion.blendT, 1))
+                        return t * t * (3 - 2 * t)
+                    }
+                    return 1.0
+                }()
 
                 func profileFor(_ state: LocomotionState) -> MotionProfile {
                     switch state {

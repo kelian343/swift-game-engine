@@ -268,6 +268,10 @@ public final class LocomotionProfileSystem: FixedStepSystem {
         let mStore = world.store(MotionProfileComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
 
+        func cycleDuration(for profile: MotionProfile) -> Float {
+            max(profile.phase?.cycleDuration ?? profile.duration, 0.001)
+        }
+
         for e in entities {
             guard var locomotion = lStore[e],
                   var profile = mStore[e],
@@ -300,6 +304,34 @@ public final class LocomotionProfileSystem: FixedStepSystem {
             }
 
             if nextState != locomotion.state {
+                let fromState = locomotion.state
+                let fromCycle: Float
+                let fromTime: Float
+                switch fromState {
+                case .idle:
+                    fromCycle = cycleDuration(for: locomotion.idleProfile)
+                    fromTime = locomotion.idleTime
+                case .walk:
+                    fromCycle = cycleDuration(for: locomotion.walkProfile)
+                    fromTime = locomotion.walkTime
+                case .run:
+                    fromCycle = cycleDuration(for: locomotion.runProfile)
+                    fromTime = locomotion.runTime
+                }
+                let fromPhase = max(0, min(fromTime / fromCycle, 1))
+                let toCycle: Float
+                switch nextState {
+                case .idle:
+                    toCycle = cycleDuration(for: locomotion.idleProfile)
+                    locomotion.idleTime = fromPhase * toCycle
+                case .walk:
+                    toCycle = cycleDuration(for: locomotion.walkProfile)
+                    locomotion.walkTime = fromPhase * toCycle
+                case .run:
+                    toCycle = cycleDuration(for: locomotion.runProfile)
+                    locomotion.runTime = fromPhase * toCycle
+                }
+
                 locomotion.fromState = locomotion.state
                 locomotion.state = nextState
                 locomotion.isBlending = true
