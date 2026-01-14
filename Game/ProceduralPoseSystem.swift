@@ -81,7 +81,7 @@ public final class PoseStackSystem: FixedStepSystem {
                 let weightTo: Float = {
                     if locomotion.isBlending {
                         let t = max(0, min(locomotion.blendT, 1))
-                        return t * t * (3 - 2 * t)
+                        return t * t * t * (t * (t * 6 - 15) + 10)
                     }
                     return 1.0
                 }()
