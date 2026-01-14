@@ -713,6 +713,9 @@ private struct GroundProbe {
                 state.normal = smoothed
             }
         }
+        if state.grounded && state.material.flattenGround {
+            state.normal = SIMD3<Float>(0, 1, 0)
+        }
 
         _ = wasGrounded
         _ = prevTriangleIndex
@@ -1880,7 +1883,9 @@ public final class AgentSeparationSystem: FixedStepSystem {
                         position += down * moveDist
                         controller.grounded = true
                         controller.groundedNear = hit.toi <= max(controller.groundSnapSkin, controller.skinWidth)
-                        controller.groundNormal = hit.triangleNormal
+                        controller.groundNormal = hit.material.flattenGround
+                            ? SIMD3<Float>(0, 1, 0)
+                            : hit.triangleNormal
                         controller.groundTriangleIndex = hit.triangleIndex
                     }
                 }

@@ -412,7 +412,9 @@ public final class DemoScene: RenderScene {
             world.add(e, t)
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, StaticMeshComponent(mesh: meshDesc,
-                                             material: SurfaceMaterial(muS: 0.35, muK: 0.25)))
+                                             material: SurfaceMaterial(muS: 0.35,
+                                                                       muK: 0.25,
+                                                                       flattenGround: true)))
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))

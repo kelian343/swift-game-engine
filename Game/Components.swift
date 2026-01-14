@@ -403,12 +403,14 @@ public struct MovementComponent {
 public struct SurfaceMaterial: Equatable {
     public var muS: Float
     public var muK: Float
+    public var flattenGround: Bool
 
-    public static let `default` = SurfaceMaterial(muS: 0.8, muK: 0.6)
+    public static let `default` = SurfaceMaterial(muS: 0.8, muK: 0.6, flattenGround: false)
 
-    public init(muS: Float = 0.8, muK: Float = 0.6) {
+    public init(muS: Float = 0.8, muK: Float = 0.6, flattenGround: Bool = false) {
         self.muS = muS
         self.muK = muK
+        self.flattenGround = flattenGround
     }
 }
 
