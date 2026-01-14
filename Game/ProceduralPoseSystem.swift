@@ -163,7 +163,20 @@ public final class PoseStackSystem: FixedStepSystem {
                     let t = fromT + (toT - fromT) * weightTo
                     let fromQuat = simd_quaternion(fromRot)
                     let toQuat = simd_quaternion(toRot)
-                    let rotQuat = simd_slerp(fromQuat, toQuat, weightTo)
+                    let rotQuat: simd_quatf
+                   if i == 0 && locomotion.isBlending {
+                        let zAxis = SIMD3<Float>(fromRot.columns.2.x,
+                                                fromRot.columns.2.y,
+                                                fromRot.columns.2.z)
+                       let yaw = atan2(zAxis.x, zAxis.z)
+                       let yawQuat = simd_quatf(angle: yaw, axis: SIMD3<Float>(0, 1, 0))
+                       let fromPR = simd_mul(simd_inverse(yawQuat), fromQuat)
+                       let toPR = simd_mul(simd_inverse(yawQuat), toQuat)
+                       let prQuat = simd_slerp(fromPR, toPR, weightTo)
+                       rotQuat = simd_mul(yawQuat, prQuat)
+                   } else {
+                       rotQuat = simd_slerp(fromQuat, toQuat, weightTo)
+                   }
                     let trans = matrix4x4_translation(t.x, t.y, t.z)
                     pose.local[i] = simd_mul(trans, matrix_float4x4(rotQuat))
                 }
