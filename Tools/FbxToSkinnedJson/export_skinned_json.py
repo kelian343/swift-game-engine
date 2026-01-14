@@ -52,13 +52,6 @@ def _find_armature_and_meshes():
     return armature, selected
 
 
-def _triangulate(mesh_obj):
-    bpy.context.view_layer.objects.active = mesh_obj
-    bpy.ops.object.modifier_add(type="TRIANGULATE")
-    mesh_obj.modifiers[-1].keep_custom_normals = True
-    bpy.ops.object.modifier_apply(modifier=mesh_obj.modifiers[-1].name)
-
-
 def _collect_bone_map(armature_obj):
     bones = list(armature_obj.data.bones)
     bone_names = [b.name for b in bones]

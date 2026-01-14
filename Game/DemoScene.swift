@@ -251,27 +251,13 @@ public final class DemoScene: RenderScene {
             if motionProfile == nil && enableMotionProfile {
                 print("Failed to load motion profile at:", profilePath ?? "missing bundle resource")
             }
-            let baseColor = ProceduralTextureGenerator.checkerboard(width: 256,
-                                                                     height: 256,
-                                                                     cell: 48,
-                                                                     format: .rgba8UnormSrgb)
-            let playerMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
-                                                                        height: 4,
-                                                                        metallic: 0.0,
-                                                                        roughness: 0.4)
-            let playerDesc = MaterialDescriptor(baseColor: baseColor,
-                                                metallicRoughness: playerMR,
-                                                metallicFactor: 1.0,
-                                                roughnessFactor: 1.0,
-                                                alpha: 1.0)
-            let mat = MaterialFactory.make(device: device, descriptor: playerDesc, label: "PlayerMat")
             guard let skinnedAsset = SkinnedMeshLoader.loadSkinnedMeshAsset(named: "YBot.skinned",
                                                                             skeleton: skeleton) else {
                 fatalError("Failed to load YBot.skinned.json from bundle.")
             }
             let materialTable = MaterialLoader.loadMaterials(named: "YBot.materials", device: device)
             let submeshMaterials = skinnedAsset.materialNames.map { name in
-                materialTable[name] ?? mat
+                materialTable[name] ?? Material()
             }
             let capsuleMeshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: playerRadius,
                                                                          halfHeight: playerHalfHeight))

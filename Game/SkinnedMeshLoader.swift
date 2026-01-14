@@ -14,21 +14,6 @@ struct SkinnedMeshAsset {
 }
 
 enum SkinnedMeshLoader {
-    static func loadSkinnedMesh(named name: String, skeleton: Skeleton) -> SkinnedMeshDescriptor? {
-        guard let path = Bundle.main.path(forResource: name, ofType: "json") else {
-            print("SkinnedMeshLoader: missing json:", name)
-            return nil
-        }
-        do {
-            let data = try Data(contentsOf: URL(fileURLWithPath: path))
-            let decoded = try JSONDecoder().decode(SkinnedMeshJSON.self, from: data)
-            return buildAsset(from: decoded, skeleton: skeleton).meshes.first
-        } catch {
-            print("SkinnedMeshLoader: failed to load json:", name, error)
-            return nil
-        }
-    }
-
     static func loadSkinnedMeshAsset(named name: String, skeleton: Skeleton) -> SkinnedMeshAsset? {
         guard let path = Bundle.main.path(forResource: name, ofType: "json") else {
             print("SkinnedMeshLoader: missing json:", name)
