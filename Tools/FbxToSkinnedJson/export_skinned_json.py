@@ -135,6 +135,10 @@ def main():
     joints = []
     weights = []
     indices = []
+    vertex_map = {}
+
+    def q(v):
+        return int(round(v * 1000000.0))
 
     arm_inv = armature_obj.matrix_world.inverted()
 
@@ -157,7 +161,6 @@ def main():
 
         for tri in mesh.loop_triangles:
             loop_indices = tri.loops
-            base = len(positions) // 3
             for li in loop_indices:
                 loop = mesh.loops[li]
                 v = mesh.vertices[loop.vertex_index]
@@ -166,15 +169,25 @@ def main():
                 n = loop.normal if hasattr(loop, "normal") else v.normal
                 n = normal_mat @ n
 
-                positions.extend([p.x, p.y, p.z])
-                normals.extend([n.x, n.y, n.z])
-                uvs.extend([uv[0], uv[1]])
-
                 j_idx, j_w = _vertex_weights(v, group_index_to_bone)
-                joints.extend(j_idx)
-                weights.extend(j_w)
+                key = (
+                    q(p.x), q(p.y), q(p.z),
+                    q(n.x), q(n.y), q(n.z),
+                    q(uv[0]), q(uv[1]),
+                    j_idx[0], j_idx[1], j_idx[2], j_idx[3],
+                    q(j_w[0]), q(j_w[1]), q(j_w[2]), q(j_w[3])
+                )
+                idx = vertex_map.get(key)
+                if idx is None:
+                    idx = len(positions) // 3
+                    vertex_map[key] = idx
+                    positions.extend([p.x, p.y, p.z])
+                    normals.extend([n.x, n.y, n.z])
+                    uvs.extend([uv[0], uv[1]])
+                    joints.extend(j_idx)
+                    weights.extend(j_w)
 
-            indices.extend([base, base + 1, base + 2])
+                indices.append(idx)
 
     inv_bind = _inverse_bind_matrices(armature_obj, bone_names)
     bones = [{"name": name, "inverseBindMatrix": inv_bind[i]} for i, name in enumerate(bone_names)]
