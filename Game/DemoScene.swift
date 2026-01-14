@@ -63,44 +63,6 @@ public final class DemoScene: RenderScene {
     public func build(context: SceneContext) {
         let device = context.device
 
-        func makeSolidMaterial(label: String,
-                               color: SIMD4<UInt8>,
-                               metallic: Float,
-                               roughness: Float,
-                               alpha: Float = 1.0) -> Material {
-            let base = ProceduralTextureGenerator.solid(width: 4,
-                                                        height: 4,
-                                                        color: color,
-                                                        format: .rgba8UnormSrgb)
-            let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
-                                                                  height: 4,
-                                                                  metallic: metallic,
-                                                                  roughness: roughness)
-            let desc = MaterialDescriptor(baseColor: base,
-                                          metallicRoughness: mr,
-                                          metallicFactor: 1.0,
-                                          roughnessFactor: 1.0,
-                                          alpha: alpha)
-            return MaterialFactory.make(device: device, descriptor: desc, label: label)
-        }
-
-        func makeBaseColorMaterial(label: String,
-                                   baseColor: ProceduralTexture,
-                                   metallic: Float,
-                                   roughness: Float,
-                                   alpha: Float = 1.0) -> Material {
-            let mr = ProceduralTextureGenerator.metallicRoughness(width: 4,
-                                                                  height: 4,
-                                                                  metallic: metallic,
-                                                                  roughness: roughness)
-            let desc = MaterialDescriptor(baseColor: baseColor,
-                                          metallicRoughness: mr,
-                                          metallicFactor: 1.0,
-                                          roughnessFactor: 1.0,
-                                          alpha: alpha)
-            return MaterialFactory.make(device: device, descriptor: desc, label: label)
-        }
-
 
         // Camera initial state
         camera.position = SIMD3<Float>(0, 0, 8)
@@ -125,10 +87,20 @@ public final class DemoScene: RenderScene {
         do {
             let meshDesc = ProceduralMeshes.plane(PlaneParams(size: 80.0))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "Ground")
-            let mat = makeSolidMaterial(label: "GroundMat",
-                                        color: SIMD4<UInt8>(80, 80, 80, 255),
-                                        metallic: 0.0,
-                                        roughness: 0.8)
+            let groundBase = ProceduralTextureGenerator.solid(width: 4,
+                                                              height: 4,
+                                                              color: SIMD4<UInt8>(80, 80, 80, 255),
+                                                              format: .rgba8UnormSrgb)
+            let groundMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                        height: 4,
+                                                                        metallic: 0.0,
+                                                                        roughness: 0.8)
+            let groundDesc = MaterialDescriptor(baseColor: groundBase,
+                                                metallicRoughness: groundMR,
+                                                metallicFactor: 1.0,
+                                                roughnessFactor: 1.0,
+                                                alpha: 1.0)
+            let mat = MaterialFactory.make(device: device, descriptor: groundDesc, label: "GroundMat")
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -147,14 +119,35 @@ public final class DemoScene: RenderScene {
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 4.0))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "Platform")
-            let matUp = makeSolidMaterial(label: "PlatformUpMat",
-                                          color: SIMD4<UInt8>(120, 200, 255, 255),
-                                          metallic: 0.0,
-                                          roughness: 0.6)
-            let matFlat = makeSolidMaterial(label: "PlatformFlatMat",
-                                            color: SIMD4<UInt8>(160, 255, 140, 255),
-                                            metallic: 0.0,
-                                            roughness: 0.6)
+            let platformUpBase = ProceduralTextureGenerator.solid(width: 4,
+                                                                  height: 4,
+                                                                  color: SIMD4<UInt8>(120, 200, 255, 255),
+                                                                  format: .rgba8UnormSrgb)
+            let platformUpMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                            height: 4,
+                                                                            metallic: 0.0,
+                                                                            roughness: 0.6)
+            let platformUpDesc = MaterialDescriptor(baseColor: platformUpBase,
+                                                    metallicRoughness: platformUpMR,
+                                                    metallicFactor: 1.0,
+                                                    roughnessFactor: 1.0,
+                                                    alpha: 1.0)
+            let matUp = MaterialFactory.make(device: device, descriptor: platformUpDesc, label: "PlatformUpMat")
+
+            let platformFlatBase = ProceduralTextureGenerator.solid(width: 4,
+                                                                    height: 4,
+                                                                    color: SIMD4<UInt8>(160, 255, 140, 255),
+                                                                    format: .rgba8UnormSrgb)
+            let platformFlatMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                              height: 4,
+                                                                              metallic: 0.0,
+                                                                              roughness: 0.6)
+            let platformFlatDesc = MaterialDescriptor(baseColor: platformFlatBase,
+                                                      metallicRoughness: platformFlatMR,
+                                                      metallicFactor: 1.0,
+                                                      roughnessFactor: 1.0,
+                                                      alpha: 1.0)
+            let matFlat = MaterialFactory.make(device: device, descriptor: platformFlatDesc, label: "PlatformFlatMat")
             let platformScale = SIMD3<Float>(1.5, 0.2, 1.5)
             let platformHalfExtents = SIMD3<Float>(3.0, 0.4, 3.0)
 
@@ -208,11 +201,20 @@ public final class DemoScene: RenderScene {
             let meshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: capsuleRadius,
                                                                   halfHeight: capsuleHalfHeight))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "KinematicCapsule")
-            let mat = makeSolidMaterial(label: "KinematicCapsuleMat",
-                                        color: SIMD4<UInt8>(220, 120, 255, 255),
-                                        metallic: 0.0,
-                                        roughness: 0.5,
-                                        alpha: 0.2)
+            let capsuleBase = ProceduralTextureGenerator.solid(width: 4,
+                                                               height: 4,
+                                                               color: SIMD4<UInt8>(220, 120, 255, 255),
+                                                               format: .rgba8UnormSrgb)
+            let capsuleMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                         height: 4,
+                                                                         metallic: 0.0,
+                                                                         roughness: 0.5)
+            let capsuleDesc = MaterialDescriptor(baseColor: capsuleBase,
+                                                 metallicRoughness: capsuleMR,
+                                                 metallicFactor: 1.0,
+                                                 roughnessFactor: 1.0,
+                                                 alpha: 0.2)
+            let mat = MaterialFactory.make(device: device, descriptor: capsuleDesc, label: "KinematicCapsuleMat")
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -253,11 +255,16 @@ public final class DemoScene: RenderScene {
                                                                      height: 256,
                                                                      cell: 48,
                                                                      format: .rgba8UnormSrgb)
-            let mat = makeBaseColorMaterial(label: "PlayerMat",
-                                            baseColor: baseColor,
-                                            metallic: 0.0,
-                                            roughness: 0.4,
-                                            alpha: 1.0)
+            let playerMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                        height: 4,
+                                                                        metallic: 0.0,
+                                                                        roughness: 0.4)
+            let playerDesc = MaterialDescriptor(baseColor: baseColor,
+                                                metallicRoughness: playerMR,
+                                                metallicFactor: 1.0,
+                                                roughnessFactor: 1.0,
+                                                alpha: 1.0)
+            let mat = MaterialFactory.make(device: device, descriptor: playerDesc, label: "PlayerMat")
             guard let skinnedAsset = SkinnedMeshLoader.loadSkinnedMeshAsset(named: "YBot.skinned",
                                                                             skeleton: skeleton) else {
                 fatalError("Failed to load YBot.skinned.json from bundle.")
@@ -269,11 +276,22 @@ public final class DemoScene: RenderScene {
             let capsuleMeshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: playerRadius,
                                                                          halfHeight: playerHalfHeight))
             let capsuleMesh = GPUMesh(device: device, descriptor: capsuleMeshDesc, label: "PlayerCapsuleOverlay")
-            let capsuleMat = makeSolidMaterial(label: "PlayerCapsuleOverlayMat",
-                                               color: SIMD4<UInt8>(120, 160, 255, 255),
-                                               metallic: 0.0,
-                                               roughness: 0.4,
-                                               alpha: 0.2)
+            let overlayBase = ProceduralTextureGenerator.solid(width: 4,
+                                                               height: 4,
+                                                               color: SIMD4<UInt8>(120, 160, 255, 255),
+                                                               format: .rgba8UnormSrgb)
+            let overlayMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                         height: 4,
+                                                                         metallic: 0.0,
+                                                                         roughness: 0.4)
+            let overlayDesc = MaterialDescriptor(baseColor: overlayBase,
+                                                 metallicRoughness: overlayMR,
+                                                 metallicFactor: 1.0,
+                                                 roughnessFactor: 1.0,
+                                                 alpha: 0.2)
+            let capsuleMat = MaterialFactory.make(device: device,
+                                                  descriptor: overlayDesc,
+                                                  label: "PlayerCapsuleOverlayMat")
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -317,11 +335,20 @@ public final class DemoScene: RenderScene {
             let meshDesc = ProceduralMeshes.capsule(CapsuleParams(radius: npcRadius,
                                                                   halfHeight: npcHalfHeight))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "NPCCapsule")
-            let mat = makeSolidMaterial(label: "NPCMat",
-                                        color: SIMD4<UInt8>(255, 180, 80, 255),
-                                        metallic: 0.0,
-                                        roughness: 0.5,
-                                        alpha: 0.2)
+            let npcBase = ProceduralTextureGenerator.solid(width: 4,
+                                                           height: 4,
+                                                           color: SIMD4<UInt8>(255, 180, 80, 255),
+                                                           format: .rgba8UnormSrgb)
+            let npcMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                     height: 4,
+                                                                     metallic: 0.0,
+                                                                     roughness: 0.5)
+            let npcDesc = MaterialDescriptor(baseColor: npcBase,
+                                             metallicRoughness: npcMR,
+                                             metallicFactor: 1.0,
+                                             roughnessFactor: 1.0,
+                                             alpha: 0.2)
+            let mat = MaterialFactory.make(device: device, descriptor: npcDesc, label: "NPCMat")
 
             let positions: [SIMD3<Float>] = [
                 SIMD3<Float>(-16.0, 0.9, 12.0),
@@ -352,10 +379,20 @@ public final class DemoScene: RenderScene {
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 6.0))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestWall")
-            let mat = makeSolidMaterial(label: "WallMat",
-                                        color: SIMD4<UInt8>(255, 80, 80, 255),
-                                        metallic: 0.0,
-                                        roughness: 0.02)
+            let wallBase = ProceduralTextureGenerator.solid(width: 4,
+                                                            height: 4,
+                                                            color: SIMD4<UInt8>(255, 80, 80, 255),
+                                                            format: .rgba8UnormSrgb)
+            let wallMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                      height: 4,
+                                                                      metallic: 0.0,
+                                                                      roughness: 0.02)
+            let wallDesc = MaterialDescriptor(baseColor: wallBase,
+                                              metallicRoughness: wallMR,
+                                              metallicFactor: 1.0,
+                                              roughnessFactor: 1.0,
+                                              alpha: 1.0)
+            let mat = MaterialFactory.make(device: device, descriptor: wallDesc, label: "WallMat")
 
             let e = world.createEntity()
             var t = TransformComponent()
@@ -402,10 +439,20 @@ public final class DemoScene: RenderScene {
                                                            radialSegments: 12,
                                                            ringSegments: 6))
             let mesh = GPUMesh(device: device, descriptor: meshDesc, label: "TestDome")
-            let mat = makeSolidMaterial(label: "DomeMat",
-                                        color: SIMD4<UInt8>(120, 200, 140, 255),
-                                        metallic: 0.0,
-                                        roughness: 0.5)
+            let domeBase = ProceduralTextureGenerator.solid(width: 4,
+                                                            height: 4,
+                                                            color: SIMD4<UInt8>(120, 200, 140, 255),
+                                                            format: .rgba8UnormSrgb)
+            let domeMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                      height: 4,
+                                                                      metallic: 0.0,
+                                                                      roughness: 0.5)
+            let domeDesc = MaterialDescriptor(baseColor: domeBase,
+                                              metallicRoughness: domeMR,
+                                              metallicFactor: 1.0,
+                                              roughnessFactor: 1.0,
+                                              alpha: 1.0)
+            let mat = MaterialFactory.make(device: device, descriptor: domeDesc, label: "DomeMat")
 
             let e = world.createEntity()
             var t = TransformComponent()
