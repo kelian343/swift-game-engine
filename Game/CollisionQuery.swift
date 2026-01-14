@@ -469,13 +469,35 @@ public struct StaticTriMesh {
                                             count: node.count)
                 nodes[leaf].bounds = bounds
             }
+            var dirtyParents: [Int] = []
+            dirtyParents.reserveCapacity(updatedLeaves.count * 2)
+            var dirtySet = Set<Int>()
             for leaf in updatedLeaves {
                 var parent = nodes[leaf].parent
                 while parent >= 0 {
+                    if dirtySet.insert(parent).inserted {
+                        dirtyParents.append(parent)
+                    }
+                    parent = nodes[parent].parent
+                }
+            }
+            if !dirtyParents.isEmpty {
+                var depths: [Int] = Array(repeating: 0, count: dirtyParents.count)
+                for i in dirtyParents.indices {
+                    var depth = 0
+                    var node = dirtyParents[i]
+                    while node >= 0 {
+                        depth += 1
+                        node = nodes[node].parent
+                    }
+                    depths[i] = depth
+                }
+                let order = dirtyParents.indices.sorted { depths[$0] > depths[$1] }
+                for i in order {
+                    let parent = dirtyParents[i]
                     let left = nodes[parent].left
                     let right = nodes[parent].right
                     nodes[parent].bounds = merge(nodes[left].bounds, nodes[right].bounds)
-                    parent = nodes[parent].parent
                 }
             }
         }
@@ -513,21 +535,52 @@ public struct StaticTriMesh {
                 axis = 2
             }
 
-            var slice = Array(triOrder[start..<start + count])
-            slice.sort { a, b in
-                let ca = centroid(triangleAABBs[a])
-                let cb = centroid(triangleAABBs[b])
-                switch axis {
-                case 0: return ca.x < cb.x
-                case 1: return ca.y < cb.y
-                default: return ca.z < cb.z
-                }
-            }
-            for i in 0..<count {
-                triOrder[start + i] = slice[i]
+            let pivot: Float
+            switch axis {
+            case 0: pivot = (centroidBounds.min.x + centroidBounds.max.x) * 0.5
+            case 1: pivot = (centroidBounds.min.y + centroidBounds.max.y) * 0.5
+            default: pivot = (centroidBounds.min.z + centroidBounds.max.z) * 0.5
             }
 
-            let mid = start + count / 2
+            var i = start
+            var j = start + count - 1
+            while i <= j {
+                let tri = triOrder[i]
+                let c = centroid(triangleAABBs[tri])
+                let value: Float
+                switch axis {
+                case 0: value = c.x
+                case 1: value = c.y
+                default: value = c.z
+                }
+                if value < pivot {
+                    i += 1
+                } else {
+                    triOrder.swapAt(i, j)
+                    j -= 1
+                }
+            }
+
+            let end = start + count
+            if i == start || i == end {
+                let sorted = triOrder[start..<end].sorted { a, b in
+                    let ca = centroid(triangleAABBs[a])
+                    let cb = centroid(triangleAABBs[b])
+                    switch axis {
+                    case 0: return ca.x < cb.x
+                    case 1: return ca.y < cb.y
+                    default: return ca.z < cb.z
+                    }
+                }
+                var idx = sorted.startIndex
+                for k in 0..<count {
+                    triOrder[start + k] = sorted[idx]
+                    idx = sorted.index(after: idx)
+                }
+                i = start + count / 2
+            }
+
+            let mid = i
             let left = build(triangleAABBs: triangleAABBs,
                              start: start,
                              count: mid - start,
