@@ -7,6 +7,11 @@
 
 import simd
 
+private enum LeanDebug {
+    static var frame = 0
+    static var enabled = true
+}
+
 public final class PoseStackSystem: FixedStepSystem {
     public init() {}
 
@@ -26,6 +31,8 @@ public final class PoseStackSystem: FixedStepSystem {
                   var pose = pStore[e] else {
                 continue
             }
+            var runLeanWeight: Float = 0
+            var locomotionStateForDebug: LocomotionState? = nil
 
             if pose.local.count != skeleton.boneCount {
                 pose = PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal)
@@ -85,6 +92,20 @@ public final class PoseStackSystem: FixedStepSystem {
                     }
                     return 1.0
                 }()
+                let runWeight: Float = {
+                    if locomotion.isBlending {
+                        if locomotion.state == .run {
+                            return weightTo
+                        }
+                        if locomotion.fromState == .run {
+                            return 1.0 - weightTo
+                        }
+                        return 0.0
+                    }
+                    return locomotion.state == .run ? 1.0 : 0.0
+                }()
+                runLeanWeight = runWeight
+                locomotionStateForDebug = locomotion.state
 
                 func profileFor(_ state: LocomotionState) -> MotionProfile {
                     switch state {
@@ -244,6 +265,10 @@ public final class PoseStackSystem: FixedStepSystem {
                 }
             }
 
+            if pose.model.count != skeleton.boneCount {
+                pose.model = Array(repeating: matrix_identity_float4x4, count: skeleton.boneCount)
+            }
+
             if let pelvis = skeleton.semantic(.pelvis) {
                 let forward = tStore[e].map { simd_act($0.rotation, SIMD3<Float>(0, 0, -1)) }
                     ?? SIMD3<Float>(0, 0, -1)
@@ -268,6 +293,43 @@ public final class PoseStackSystem: FixedStepSystem {
                 let alignMat = matrix_float4x4(alignQuat)
                 // Apply in parent space to avoid local-axis skew from pre-rotations.
                 pose.local[pelvis] = simd_mul(alignMat, pose.local[pelvis])
+
+                if runLeanWeight > 0.001 {
+                    Skeleton.buildModelTransforms(parent: skeleton.parent, local: pose.local, into: &pose.model)
+                    let leanBone = skeleton.semantic(.chest)
+                        ?? skeleton.semantic(.spine3)
+                        ?? skeleton.semantic(.spine2)
+                        ?? skeleton.semantic(.spine1)
+                    if let leanIndex = leanBone {
+                        let boneModel = pose.model[leanIndex]
+                        let rightWorld = simd_normalize(SIMD3<Float>(boneModel.columns.0.x,
+                                                                     boneModel.columns.0.y,
+                                                                     boneModel.columns.0.z))
+                        let parentIndex = skeleton.parent[leanIndex]
+                        let parentQuat: simd_quatf? = parentIndex >= 0 ? simd_quatf(pose.model[parentIndex]) : nil
+                        let rightLocal: SIMD3<Float> = {
+                            if parentIndex >= 0 {
+                                return parentQuat.map { simd_act(simd_inverse($0), rightWorld) } ?? rightWorld
+                            }
+                            return rightWorld
+                        }()
+                        if LeanDebug.enabled {
+                            LeanDebug.frame += 1
+                            if LeanDebug.frame % 30 == 0 {
+                                let rw = rightWorld
+                                let rl = rightLocal
+                                let fh = forwardHoriz
+                                let leanAxisWorld = parentQuat.map { simd_act($0, rl) } ?? rl
+                                let stateLabel = locomotionStateForDebug.map { "\($0)" } ?? "nil"
+                                print("LeanDebug e=\(e.id) state=\(stateLabel) runW=\(runLeanWeight) bone=\(leanIndex) parent=\(parentIndex) fh=\(fh) rw=\(rw) rl=\(rl) axisW=\(leanAxisWorld)")
+                            }
+                        }
+                        let leanAngle = radians_from_degrees(10.0) * runLeanWeight
+                        let leanQuat = simd_quatf(angle: leanAngle, axis: rightLocal)
+                        let leanMat = matrix_float4x4(leanQuat)
+                        pose.local[leanIndex] = simd_mul(leanMat, pose.local[leanIndex])
+                    }
+                }
             }
 
             Skeleton.buildModelTransforms(parent: skeleton.parent, local: pose.local, into: &pose.model)
