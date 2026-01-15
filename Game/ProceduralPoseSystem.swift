@@ -7,11 +7,6 @@
 
 import simd
 
-private enum LeanDebug {
-    static var frame = 0
-    static var enabled = true
-}
-
 public final class PoseStackSystem: FixedStepSystem {
     public init() {}
 
@@ -32,7 +27,6 @@ public final class PoseStackSystem: FixedStepSystem {
                 continue
             }
             var runLeanWeight: Float = 0
-            var locomotionStateForDebug: LocomotionState? = nil
 
             if pose.local.count != skeleton.boneCount {
                 pose = PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal)
@@ -105,7 +99,6 @@ public final class PoseStackSystem: FixedStepSystem {
                     return locomotion.state == .run ? 1.0 : 0.0
                 }()
                 runLeanWeight = runWeight
-                locomotionStateForDebug = locomotion.state
 
                 func profileFor(_ state: LocomotionState) -> MotionProfile {
                     switch state {
@@ -313,17 +306,6 @@ public final class PoseStackSystem: FixedStepSystem {
                             }
                             return rightWorld
                         }()
-                        if LeanDebug.enabled {
-                            LeanDebug.frame += 1
-                            if LeanDebug.frame % 30 == 0 {
-                                let rw = rightWorld
-                                let rl = rightLocal
-                                let fh = forwardHoriz
-                                let leanAxisWorld = parentQuat.map { simd_act($0, rl) } ?? rl
-                                let stateLabel = locomotionStateForDebug.map { "\($0)" } ?? "nil"
-                                print("LeanDebug e=\(e.id) state=\(stateLabel) runW=\(runLeanWeight) bone=\(leanIndex) parent=\(parentIndex) fh=\(fh) rw=\(rw) rl=\(rl) axisW=\(leanAxisWorld)")
-                            }
-                        }
                         let leanAngle = radians_from_degrees(10.0) * runLeanWeight
                         let leanQuat = simd_quatf(angle: leanAngle, axis: rightLocal)
                         let leanMat = matrix_float4x4(leanQuat)
