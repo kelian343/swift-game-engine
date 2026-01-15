@@ -24,7 +24,7 @@
 - Offline FitMotion tool converts ASCII FBX into MotionProfile JSON (Walking/Idle/Running) with smoothing and per-bone overrides; phase detection is conservative and may fall back to normalized_time.
 - Locomotion now blends Idle/Walk/Run with cross-fade and hysteresis thresholds, plus phase alignment and smoothstep blend curve.
 - Root bone blending keeps yaw stable and snaps root Y to target animation during blends to reduce jitter.
-- Procedural corrections now include Ground Align only; Lean removed. IK remains planned.
+- Procedural corrections include Ground Align plus Lean: run and idle add forward pitch on upper spine/chest, aligned to bone space; IK remains planned.
 - GPU skinning uses palette buffers to write skinned vertices each frame.
 - Skeleton replaced with Mixamo Y Bot (65 bones, mixamorig naming), pelvis-aligned root, preRotation applied, facing fix on root.
 
