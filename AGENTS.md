@@ -49,3 +49,6 @@
 - Runtime now loads skinned mesh JSON assets, supports submeshes, and builds skinning palette using JSON inverse bind matrices with unit-scale + row/column correction.
 - Added JSON-driven material loader for procedural PBR generation and wired submesh materials in DemoScene.
 - DemoScene now uses YBot.skinned.json + YBot.materials.json for the player; animation re-enabled.
+- Skeleton data for Mixamo Y Bot is now assetized as YBot.skeleton.json and loaded at runtime (no hardcoded skeleton arrays).
+- Skeleton JSON schema now supports rigProfile definitions and per-semantic alias overrides to map bones without code changes.
+- Skeleton root rules are JSON-driven (auto/zero/keep) with root rotation fix specified per asset.
