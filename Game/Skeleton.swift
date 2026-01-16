@@ -203,8 +203,7 @@ public struct Skeleton {
     }
 
     public static func mixamoReference() -> Skeleton {
-        if let skeleton = SkeletonLoader.loadSkeleton(named: "YBot.skeleton",
-                                                      rigProfile: RigProfile.mixamo()) {
+        if let skeleton = SkeletonLoader.loadSkeleton(named: "YBot.skeleton") {
             return skeleton
         }
         fatalError("Failed to load YBot.skeleton.json from bundle.")

@@ -2,12 +2,15 @@
   "version": 1,
   "name": "Mixamo Y Bot",
   "unitScale": 0.026,
-  "rootRotationFixDegrees": [
-    0.0,
-    180.0,
-    0.0
-  ],
-  "rootRestIsZero": true,
+  "rigProfile": "mixamo",
+  "root": {
+    "rule": "auto",
+    "rotationFixDegrees": [
+      0.0,
+      180.0,
+      0.0
+    ]
+  },
   "names": [
     "mixamorig:Hips",
     "mixamorig:Spine",

@@ -10,7 +10,7 @@ import simd
 
 enum SkeletonLoader {
     static func loadSkeleton(named name: String,
-                             rigProfile: Skeleton.RigProfile = .mixamo()) -> Skeleton? {
+                             rigProfile: Skeleton.RigProfile? = nil) -> Skeleton? {
         guard let path = Bundle.main.path(forResource: name, ofType: "json") else {
             print("SkeletonLoader: missing json:", name)
             return nil
@@ -18,7 +18,7 @@ enum SkeletonLoader {
         do {
             let data = try Data(contentsOf: URL(fileURLWithPath: path))
             let decoded = try JSONDecoder().decode(SkeletonJSON.self, from: data)
-            return buildSkeleton(from: decoded, rigProfile: rigProfile)
+            return buildSkeleton(from: decoded, rigProfileOverride: rigProfile)
         } catch {
             print("SkeletonLoader: failed to load json:", name, error)
             return nil
@@ -26,7 +26,7 @@ enum SkeletonLoader {
     }
 
     private static func buildSkeleton(from json: SkeletonJSON,
-                                      rigProfile: Skeleton.RigProfile) -> Skeleton? {
+                                      rigProfileOverride: Skeleton.RigProfile?) -> Skeleton? {
         let boneCount = json.names.count
         guard boneCount > 0,
               json.parent.count == boneCount,
@@ -46,15 +46,21 @@ enum SkeletonLoader {
             return nil
         }
 
-        let rootFixDegrees = json.rootRotationFixDegrees
-        let rootFix = Skeleton.rotationXYZDegrees(vec3(rootFixDegrees, fallback: SIMD3<Float>(0, 0, 0)))
-        let rootZero = json.rootRestIsZero ?? false
-        let scale = json.unitScale
+        let rigProfileName = json.rigProfile
+        let rigProfile = rigProfileOverride ?? rigProfileFrom(rigProfileName)
+        let overrideIsMixamo = rigProfileOverride?.resolve(names: ["mixamorig:Hips"]).isEmpty == false
+        let rootRule = resolveRootRule(root: json.root,
+                                       rigProfileName: rigProfileName,
+                                       overrideIsMixamo: overrideIsMixamo,
+                                       legacyRootZero: json.rootRestIsZero)
+        let rootFixDegrees = json.root?.rotationFixDegrees ?? json.rootRotationFixDegrees
+        let rootFix = Skeleton.rotationXYZDegrees(vec3(rootFixDegrees ?? [], fallback: SIMD3<Float>(0, 0, 0)))
+        let scale = json.unitScale ?? 1.0
 
         var restTranslation: [SIMD3<Float>] = []
         restTranslation.reserveCapacity(boneCount)
         for i in 0..<boneCount {
-            let raw = (rootZero && i == 0) ? SIMD3<Float>(0, 0, 0) : rawTranslations[i]
+            let raw = (rootRule == .zeroRoot && i == 0) ? SIMD3<Float>(0, 0, 0) : rawTranslations[i]
             restTranslation.append(raw * scale)
         }
 
@@ -85,14 +91,59 @@ enum SkeletonLoader {
 
 private struct SkeletonJSON: Codable {
     let version: Int
-    let name: String
-    let unitScale: Float
-    let rootRotationFixDegrees: [Float]
+    let name: String?
+    let unitScale: Float?
+    let rigProfile: String?
+    let root: SkeletonRootJSON?
+    let rootRotationFixDegrees: [Float]?
     let rootRestIsZero: Bool?
     let names: [String]
     let parent: [Int]
     let translations: [[Float]]
     let preRotationDegrees: [[Float]]
+}
+
+private struct SkeletonRootJSON: Codable {
+    let rule: String?
+    let rotationFixDegrees: [Float]?
+}
+
+private enum RootRule {
+    case keep
+    case zeroRoot
+}
+
+private func rigProfileFrom(_ name: String?) -> Skeleton.RigProfile {
+    switch name?.lowercased() {
+    case "mixamo":
+        return .mixamo()
+    case "generic", "none", "default", nil:
+        return Skeleton.RigProfile(aliases: [:])
+    default:
+        return Skeleton.RigProfile(aliases: [:])
+    }
+}
+
+private func resolveRootRule(root: SkeletonRootJSON?,
+                             rigProfileName: String?,
+                             overrideIsMixamo: Bool,
+                             legacyRootZero: Bool?) -> RootRule {
+    if let legacyRootZero, legacyRootZero {
+        return .zeroRoot
+    }
+    switch root?.rule?.lowercased() {
+    case "zero", "zero_root", "zero-root":
+        return .zeroRoot
+    case "keep", "preserve":
+        return .keep
+    case "auto", nil:
+        if rigProfileName?.lowercased() == "mixamo" || overrideIsMixamo {
+            return .zeroRoot
+        }
+        return .keep
+    default:
+        return .keep
+    }
 }
 
 private func vec3Array(_ values: [[Float]], fallback: SIMD3<Float>) -> [SIMD3<Float>] {
