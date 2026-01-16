@@ -15,7 +15,9 @@ enum CharacterFactory {
                            groundY: Float) -> Entity {
         let playerRadius: Float = 1.5
         let playerHalfHeight: Float = 1.0
-        let skeleton = Skeleton.mixamoReference()
+        guard let skeleton = SkeletonLoader.loadSkeleton(named: "YBot.skeleton") else {
+            fatalError("Failed to load YBot.skeleton.json from bundle.")
+        }
         let enableMotionProfile = true
         let walkPath = Bundle.main.path(forResource: "Walking.motionProfile", ofType: "json")
         let idlePath = Bundle.main.path(forResource: "Idle.motionProfile", ofType: "json")
