@@ -51,11 +51,9 @@ enum SkeletonLoader {
         let overrideIsMixamo = rigProfileOverride?.resolve(names: ["mixamorig:Hips"]).isEmpty == false
         let rootRule = resolveRootRule(root: json.root,
                                        rigProfileName: rigProfileName,
-                                       overrideIsMixamo: overrideIsMixamo,
-                                       legacyRootZero: json.rootRestIsZero)
-        let rootFixDegrees = json.root?.rotationFixDegrees ?? json.rootRotationFixDegrees
-        let rootFix = Skeleton.rotationXYZDegrees(vec3(rootFixDegrees ?? [], fallback: SIMD3<Float>(0, 0, 0)))
-        let scale = json.unitScale ?? 1.0
+                                       overrideIsMixamo: overrideIsMixamo)
+        let rootFix = Skeleton.rotationXYZDegrees(vec3(json.root.rotationFixDegrees, fallback: SIMD3<Float>(0, 0, 0)))
+        let scale = json.unitScale
 
         var restTranslation: [SIMD3<Float>] = []
         restTranslation.reserveCapacity(boneCount)
@@ -91,12 +89,10 @@ enum SkeletonLoader {
 
 private struct SkeletonJSON: Codable {
     let version: Int
-    let name: String?
-    let unitScale: Float?
-    let rigProfile: String?
-    let root: SkeletonRootJSON?
-    let rootRotationFixDegrees: [Float]?
-    let rootRestIsZero: Bool?
+    let name: String
+    let unitScale: Float
+    let rigProfile: String
+    let root: SkeletonRootJSON
     let names: [String]
     let parent: [Int]
     let translations: [[Float]]
@@ -104,8 +100,8 @@ private struct SkeletonJSON: Codable {
 }
 
 private struct SkeletonRootJSON: Codable {
-    let rule: String?
-    let rotationFixDegrees: [Float]?
+    let rule: String
+    let rotationFixDegrees: [Float]
 }
 
 private enum RootRule {
@@ -113,31 +109,28 @@ private enum RootRule {
     case zeroRoot
 }
 
-private func rigProfileFrom(_ name: String?) -> Skeleton.RigProfile {
-    switch name?.lowercased() {
+private func rigProfileFrom(_ name: String) -> Skeleton.RigProfile {
+    switch name.lowercased() {
     case "mixamo":
         return .mixamo()
-    case "generic", "none", "default", nil:
+    case "generic", "none", "default":
         return Skeleton.RigProfile(aliases: [:])
     default:
         return Skeleton.RigProfile(aliases: [:])
     }
 }
 
-private func resolveRootRule(root: SkeletonRootJSON?,
-                             rigProfileName: String?,
+private func resolveRootRule(root: SkeletonRootJSON,
+                             rigProfileName: String,
                              overrideIsMixamo: Bool,
-                             legacyRootZero: Bool?) -> RootRule {
-    if let legacyRootZero, legacyRootZero {
-        return .zeroRoot
-    }
-    switch root?.rule?.lowercased() {
+                             ) -> RootRule {
+    switch root.rule.lowercased() {
     case "zero", "zero_root", "zero-root":
         return .zeroRoot
     case "keep", "preserve":
         return .keep
-    case "auto", nil:
-        if rigProfileName?.lowercased() == "mixamo" || overrideIsMixamo {
+    case "auto":
+        if rigProfileName.lowercased() == "mixamo" || overrideIsMixamo {
             return .zeroRoot
         }
         return .keep
