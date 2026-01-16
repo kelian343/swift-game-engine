@@ -2,7 +2,9 @@
   "version": 1,
   "name": "Mixamo Y Bot",
   "unitScale": 0.026,
-  "rigProfile": "mixamo",
+  "rigProfile": {
+    "name": "mixamo"
+  },
   "root": {
     "rule": "auto",
     "rotationFixDegrees": [

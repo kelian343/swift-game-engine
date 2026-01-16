@@ -46,8 +46,8 @@ enum SkeletonLoader {
             return nil
         }
 
-        let rigProfileName = json.rigProfile
-        let rigProfile = rigProfileOverride ?? rigProfileFrom(rigProfileName)
+        let rigProfileName = json.rigProfile.name
+        let rigProfile = rigProfileOverride ?? rigProfileFrom(json.rigProfile)
         let overrideIsMixamo = rigProfileOverride?.resolve(names: ["mixamorig:Hips"]).isEmpty == false
         let rootRule = resolveRootRule(root: json.root,
                                        rigProfileName: rigProfileName,
@@ -91,12 +91,17 @@ private struct SkeletonJSON: Codable {
     let version: Int
     let name: String
     let unitScale: Float
-    let rigProfile: String
+    let rigProfile: SkeletonRigProfileJSON
     let root: SkeletonRootJSON
     let names: [String]
     let parent: [Int]
     let translations: [[Float]]
     let preRotationDegrees: [[Float]]
+}
+
+private struct SkeletonRigProfileJSON: Codable {
+    let name: String
+    let aliases: [String: [String]]?
 }
 
 private struct SkeletonRootJSON: Codable {
@@ -109,15 +114,28 @@ private enum RootRule {
     case zeroRoot
 }
 
-private func rigProfileFrom(_ name: String) -> Skeleton.RigProfile {
-    switch name.lowercased() {
+private func rigProfileFrom(_ rig: SkeletonRigProfileJSON) -> Skeleton.RigProfile {
+    let base: Skeleton.RigProfile
+    switch rig.name.lowercased() {
     case "mixamo":
-        return .mixamo()
+        base = .mixamo()
     case "generic", "none", "default":
-        return Skeleton.RigProfile(aliases: [:])
+        base = Skeleton.RigProfile(aliases: [:])
     default:
-        return Skeleton.RigProfile(aliases: [:])
+        base = Skeleton.RigProfile(aliases: [:])
     }
+    guard let overrides = rig.aliases, overrides.isEmpty == false else {
+        return base
+    }
+    var merged = base.aliases
+    for (key, list) in overrides {
+        if let semantic = Skeleton.SemanticBone(rawValue: key) {
+            merged[semantic] = list
+        } else {
+            print("SkeletonLoader: unknown semantic alias key:", key)
+        }
+    }
+    return Skeleton.RigProfile(aliases: merged)
 }
 
 private func resolveRootRule(root: SkeletonRootJSON,
