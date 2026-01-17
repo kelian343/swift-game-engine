@@ -2246,6 +2246,7 @@ public final class WorldPositionSyncSystem: FixedStepSystem {
             let (chunk, local) = WorldPosition.fromWorld(worldPos)
             w.chunk = chunk
             w.local = local
+            WorldPosition.canonicalize(chunk: &w.chunk, local: &w.local)
             wStore[e] = w
         }
     }
