@@ -321,17 +321,20 @@ public struct StaticMeshComponent {
     public var material: SurfaceMaterial
     public var triangleMaterials: [SurfaceMaterial]?
     public var dirty: Bool
+    public var collides: Bool
 
     public init(mesh: ProceduralMeshDescriptor,
                 collisionMesh: ProceduralMeshDescriptor? = nil,
                 material: SurfaceMaterial = .default,
                 triangleMaterials: [SurfaceMaterial]? = nil,
-                dirty: Bool = false) {
+                dirty: Bool = false,
+                collides: Bool = true) {
         self.mesh = mesh
         self.collisionMesh = collisionMesh
         self.material = material
         self.triangleMaterials = triangleMaterials
         self.dirty = dirty
+        self.collides = collides
     }
 
     public mutating func markDirty() {

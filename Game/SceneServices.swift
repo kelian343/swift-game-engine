@@ -83,6 +83,7 @@ public final class CollisionQueryService {
         let vertexCount: Int
         let indexCount: Int
         let bodyType: BodyType?
+        let collides: Bool
     }
 
     private struct StaticMeshChangeSet {
@@ -119,6 +120,11 @@ public final class CollisionQueryService {
             }
             let bodyType = pStore[e]?.bodyType
             if snapshot.bodyType != bodyType {
+                return StaticMeshChangeSet(structuralChange: true,
+                                           staticTransforms: [],
+                                           dynamicTransforms: [])
+            }
+            if snapshot.collides != m.collides {
                 return StaticMeshChangeSet(structuralChange: true,
                                            staticTransforms: [],
                                            dynamicTransforms: [])
@@ -178,7 +184,8 @@ public final class CollisionQueryService {
                                                     scale: t.scale,
                                                     vertexCount: collisionMesh.streams.positions.count,
                                                     indexCount: collisionMesh.indexCount,
-                                                    bodyType: bodyType)
+                                                    bodyType: bodyType,
+                                                    collides: m.collides)
             if m.dirty {
                 m.dirty = false
                 mStore[e] = m
@@ -188,7 +195,13 @@ public final class CollisionQueryService {
 
     private func filterEntities(world: World, activeEntityIDs: Set<UInt32>?) -> [Entity] {
         let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
-        guard let activeEntityIDs else { return entities }
-        return entities.filter { activeEntityIDs.contains($0.id) }
+        let mStore = world.store(StaticMeshComponent.self)
+        let activeIDs = activeEntityIDs
+        return entities.filter { e in
+            if let activeIDs, !activeIDs.contains(e.id) {
+                return false
+            }
+            return mStore[e]?.collides ?? false
+        }
     }
 }

@@ -9,7 +9,14 @@ import simd
 
 private func filteredEntities(world: World, activeEntityIDs: Set<UInt32>?) -> [Entity] {
     let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
-    return filteredEntities(entities: entities, activeEntityIDs: activeEntityIDs)
+    let mStore = world.store(StaticMeshComponent.self)
+    let activeIDs = activeEntityIDs
+    return entities.filter { e in
+        if let activeIDs, !activeIDs.contains(e.id) {
+            return false
+        }
+        return mStore[e]?.collides ?? false
+    }
 }
 
 private func filteredEntities(entities: [Entity],
