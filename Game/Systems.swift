@@ -2230,24 +2230,74 @@ public final class WorldPositionSyncSystem: FixedStepSystem {
         let wStore = world.store(WorldPositionComponent.self)
         let tStore = world.store(TransformComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
+        let originWorld = active.map { WorldPosition.toWorld(chunk: $0.originChunk, local: $0.originLocal) }
+            ?? SIMD3<Double>(0, 0, 0)
 
         for e in entities {
             guard var w = wStore[e], let t = tStore[e] else { continue }
             w.prevChunk = w.chunk
             w.prevLocal = w.local
-            let worldPos: SIMD3<Double> = {
-                if let p = pStore[e] {
-                    return p.position
-                }
-                return SIMD3<Double>(Double(t.translation.x),
-                                     Double(t.translation.y),
-                                     Double(t.translation.z))
-            }()
-            let (chunk, local) = WorldPosition.fromWorld(worldPos)
-            w.chunk = chunk
-            w.local = local
+            if let p = pStore[e] {
+                let worldPos = originWorld + p.position
+                let (chunk, local) = WorldPosition.fromWorld(worldPos)
+                w.chunk = chunk
+                w.local = local
+            } else {
+                let worldPos = WorldPosition.toWorld(chunk: w.chunk, local: w.local)
+                let localPos = worldPos - originWorld
+                var tLocal = t
+                tLocal.translation = SIMD3<Float>(Float(localPos.x),
+                                                  Float(localPos.y),
+                                                  Float(localPos.z))
+                tStore[e] = tLocal
+            }
             WorldPosition.canonicalize(chunk: &w.chunk, local: &w.local)
             wStore[e] = w
+        }
+    }
+}
+
+/// Convert world positions into physics-local space (relative to active origin).
+public final class PhysicsLocalizeSystem: FixedStepSystem {
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = dt
+        let entities = world.query(WorldPositionComponent.self, TransformComponent.self)
+        guard !entities.isEmpty else { return }
+
+        let wStore = world.store(WorldPositionComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let tStore = world.store(TransformComponent.self)
+        let kStore = world.store(KinematicPlatformComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
+        let originWorld = active.map { WorldPosition.toWorld(chunk: $0.originChunk, local: $0.originLocal) }
+            ?? SIMD3<Double>(0, 0, 0)
+
+        for e in entities {
+            guard let w = wStore[e], var t = tStore[e] else { continue }
+            let worldPos = WorldPosition.toWorld(chunk: w.chunk, local: w.local)
+            let localPos = worldPos - originWorld
+            t.translation = SIMD3<Float>(Float(localPos.x),
+                                         Float(localPos.y),
+                                         Float(localPos.z))
+            tStore[e] = t
+            if var p = pStore[e] {
+                p.position = localPos
+                pStore[e] = p
+            }
+            if var k = kStore[e] {
+                let axisLen = simd_length(k.axis)
+                let axis = axisLen > 1e-4 ? k.axis / axisLen : SIMD3<Float>(0, 1, 0)
+                let offset = sin(k.time * k.speed + k.phase) * k.amplitude
+                let originWorldPos = worldPos - d3(axis * offset)
+                let localOrigin = originWorldPos - originWorld
+                k.origin = SIMD3<Float>(Float(localOrigin.x),
+                                        Float(localOrigin.y),
+                                        Float(localOrigin.z))
+                kStore[e] = k
+            }
         }
     }
 }
@@ -2292,6 +2342,8 @@ public final class ActiveChunkSystem: FixedStepSystem {
 
         var next = active
         next.centerChunk = center
+        next.originChunk = center
+        next.originLocal = SIMD3<Double>(0, 0, 0)
         next.activeEntityIDs = activeEntityIDs
         next.activeStaticEntityIDs = activeStaticIDs
         world.store(ActiveChunkComponent.self)[activeEntity!] = next

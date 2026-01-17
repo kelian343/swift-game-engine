@@ -133,15 +133,21 @@ public struct WorldPositionComponent {
 
 public struct ActiveChunkComponent {
     public var centerChunk: SIMD3<Int64>
+    public var originChunk: SIMD3<Int64>
+    public var originLocal: SIMD3<Double>
     public var radiusChunks: Int
     public var activeEntityIDs: Set<UInt32>
     public var activeStaticEntityIDs: Set<UInt32>
 
     public init(centerChunk: SIMD3<Int64> = SIMD3<Int64>(0, 0, 0),
+                originChunk: SIMD3<Int64> = SIMD3<Int64>(0, 0, 0),
+                originLocal: SIMD3<Double> = SIMD3<Double>(0, 0, 0),
                 radiusChunks: Int = 2,
                 activeEntityIDs: Set<UInt32> = [],
                 activeStaticEntityIDs: Set<UInt32> = []) {
         self.centerChunk = centerChunk
+        self.originChunk = originChunk
+        self.originLocal = originLocal
         self.radiusChunks = radiusChunks
         self.activeEntityIDs = activeEntityIDs
         self.activeStaticEntityIDs = activeStaticEntityIDs
