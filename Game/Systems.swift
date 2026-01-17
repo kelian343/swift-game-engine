@@ -282,6 +282,7 @@ public final class LocomotionProfileSystem: FixedStepSystem {
         let mStore = world.store(MotionProfileComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
+        let wStore = world.store(WorldPositionComponent.self)
         let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
 
         func cycleDuration(for profile: MotionProfile) -> Float {
@@ -323,11 +324,21 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                   var profile = mStore[e],
                   let body = pStore[e],
                   let controller = cStore[e] else { continue }
+            let worldY: Double = {
+                if let w = wStore[e] {
+                    return WorldPosition.toWorld(chunk: w.chunk, local: w.local).y
+                }
+                return body.position.y
+            }()
             let speed = Float(simd_length(SIMD3<Double>(body.linearVelocity.x, 0, body.linearVelocity.z)))
             let isAirborne = !controller.groundedNear
             let nextState: LocomotionState
             if isAirborne {
-                let highFall = body.linearVelocity.y <= -Double(locomotion.fallMinDownSpeed)
+                if locomotion.wasGroundedNear {
+                    locomotion.fallStartWorldY = worldY
+                }
+                let drop = locomotion.fallStartWorldY - worldY
+                let highFall = drop >= Double(locomotion.fallMinDropHeight)
                 if locomotion.state == .falling || highFall {
                     nextState = .falling
                 } else {
@@ -336,6 +347,7 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                                                   locomotion: locomotion)
                 }
             } else {
+                locomotion.fallStartWorldY = worldY
                 nextState = groundedNextState(current: locomotion.state,
                                               speed: speed,
                                               locomotion: locomotion)
@@ -395,6 +407,7 @@ public final class LocomotionProfileSystem: FixedStepSystem {
             case .falling:
                 profile.time = locomotion.fallTime
             }
+            locomotion.wasGroundedNear = controller.groundedNear
             lStore[e] = locomotion
             mStore[e] = profile
         }
