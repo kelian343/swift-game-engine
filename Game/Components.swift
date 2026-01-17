@@ -121,6 +121,7 @@ public struct LocomotionProfileComponent {
     public var fallTime: Float
     public var runEnterSpeed: Float
     public var runExitSpeed: Float
+    public var fallMinDownSpeed: Float
     public var blendTime: Float
     public var blendT: Float
     public var idleInertiaHalfLife: Float
@@ -141,6 +142,7 @@ public struct LocomotionProfileComponent {
                 fallTime: Float = 0,
                 runEnterSpeed: Float = 6.0,
                 runExitSpeed: Float = 5.0,
+                fallMinDownSpeed: Float = 18.0,
                 blendTime: Float = 0.2,
                 blendT: Float = 1.0,
                 idleInertiaHalfLife: Float = 0.18,
@@ -160,6 +162,7 @@ public struct LocomotionProfileComponent {
         self.fallTime = fallTime
         self.runEnterSpeed = runEnterSpeed
         self.runExitSpeed = runExitSpeed
+        self.fallMinDownSpeed = fallMinDownSpeed
         self.blendTime = blendTime
         self.blendT = blendT
         self.idleInertiaHalfLife = idleInertiaHalfLife

@@ -274,6 +274,35 @@ public final class LocomotionProfileSystem: FixedStepSystem {
             max(profile.phase?.cycleDuration ?? profile.duration, 0.001)
         }
 
+        func groundedNextState(current: LocomotionState,
+                               speed: Float,
+                               locomotion: LocomotionProfileComponent) -> LocomotionState {
+            let groundedState: LocomotionState = current == .falling ? .idle : current
+            switch groundedState {
+            case .idle:
+                if speed >= locomotion.runEnterSpeed {
+                    return .run
+                } else if speed >= locomotion.idleExitSpeed {
+                    return .walk
+                }
+                return .idle
+            case .walk:
+                if speed >= locomotion.runEnterSpeed {
+                    return .run
+                } else if speed < locomotion.idleEnterSpeed {
+                    return .idle
+                }
+                return .walk
+            case .run:
+                if speed < locomotion.runExitSpeed {
+                    return speed < locomotion.idleEnterSpeed ? .idle : .walk
+                }
+                return .run
+            case .falling:
+                return .falling
+            }
+        }
+
         for e in entities {
             guard var locomotion = lStore[e],
                   var profile = mStore[e],
@@ -283,37 +312,18 @@ public final class LocomotionProfileSystem: FixedStepSystem {
             let isAirborne = !controller.groundedNear
             let nextState: LocomotionState
             if isAirborne {
-                nextState = LocomotionState.falling
-            } else {
-                let groundedState: LocomotionState = locomotion.state == LocomotionState.falling
-                    ? .idle
-                    : locomotion.state
-                switch groundedState {
-                case .idle:
-                    if speed >= locomotion.runEnterSpeed {
-                        nextState = .run
-                    } else if speed >= locomotion.idleExitSpeed {
-                        nextState = .walk
-                    } else {
-                        nextState = .idle
-                    }
-                case .walk:
-                    if speed >= locomotion.runEnterSpeed {
-                        nextState = .run
-                    } else if speed < locomotion.idleEnterSpeed {
-                        nextState = .idle
-                    } else {
-                        nextState = .walk
-                    }
-                case .run:
-                    if speed < locomotion.runExitSpeed {
-                        nextState = speed < locomotion.idleEnterSpeed ? .idle : .walk
-                    } else {
-                        nextState = .run
-                    }
-                case .falling:
-                    nextState = LocomotionState.falling
+                let highFall = body.linearVelocity.y <= -locomotion.fallMinDownSpeed
+                if locomotion.state == .falling || highFall {
+                    nextState = .falling
+                } else {
+                    nextState = groundedNextState(current: locomotion.state,
+                                                  speed: speed,
+                                                  locomotion: locomotion)
                 }
+            } else {
+                nextState = groundedNextState(current: locomotion.state,
+                                              speed: speed,
+                                              locomotion: locomotion)
             }
 
             if nextState != locomotion.state {
