@@ -336,6 +336,9 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                 locomotion.state = nextState
                 locomotion.isBlending = true
                 locomotion.blendT = 0
+                if nextState == .idle {
+                    locomotion.idleInertia = 1.0
+                }
             }
 
             switch locomotion.state {

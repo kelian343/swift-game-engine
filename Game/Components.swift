@@ -120,6 +120,8 @@ public struct LocomotionProfileComponent {
     public var runExitSpeed: Float
     public var blendTime: Float
     public var blendT: Float
+    public var idleInertiaHalfLife: Float
+    public var idleInertia: Float
     public var fromState: LocomotionState
     public var state: LocomotionState
     public var isBlending: Bool
@@ -136,6 +138,8 @@ public struct LocomotionProfileComponent {
                 runExitSpeed: Float = 5.0,
                 blendTime: Float = 0.2,
                 blendT: Float = 1.0,
+                idleInertiaHalfLife: Float = 0.18,
+                idleInertia: Float = 0,
                 fromState: LocomotionState = .idle,
                 state: LocomotionState = .idle,
                 isBlending: Bool = false) {
@@ -151,6 +155,8 @@ public struct LocomotionProfileComponent {
         self.runExitSpeed = runExitSpeed
         self.blendTime = blendTime
         self.blendT = blendT
+        self.idleInertiaHalfLife = idleInertiaHalfLife
+        self.idleInertia = idleInertia
         self.fromState = fromState
         self.state = state
         self.isBlending = isBlending

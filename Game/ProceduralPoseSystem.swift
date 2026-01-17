@@ -51,10 +51,21 @@ public final class PoseStackSystem: FixedStepSystem {
                 }
 
                 if locomotion.isBlending {
-                    let blendDuration = max(locomotion.blendTime, 0.001)
-                    locomotion.blendT = min(locomotion.blendT + dt / blendDuration, 1.0)
-                    if locomotion.blendT >= 1.0 {
-                        locomotion.isBlending = false
+                    if locomotion.state == .idle {
+                        let halfLife = max(locomotion.idleInertiaHalfLife, 0.001)
+                        let decay = pow(0.5, dt / halfLife)
+                        locomotion.idleInertia *= decay
+                        if locomotion.idleInertia <= 0.001 {
+                            locomotion.idleInertia = 0
+                            locomotion.blendT = 1.0
+                            locomotion.isBlending = false
+                        }
+                    } else {
+                        let blendDuration = max(locomotion.blendTime, 0.001)
+                        locomotion.blendT = min(locomotion.blendT + dt / blendDuration, 1.0)
+                        if locomotion.blendT >= 1.0 {
+                            locomotion.isBlending = false
+                        }
                     }
                 }
 
@@ -81,6 +92,10 @@ public final class PoseStackSystem: FixedStepSystem {
                 let toState = locomotion.state
                 let weightTo: Float = {
                     if locomotion.isBlending {
+                        if locomotion.state == .idle {
+                            let inertia = max(0, min(locomotion.idleInertia, 1))
+                            return 1.0 - inertia
+                        }
                         let t = max(0, min(locomotion.blendT, 1))
                         return t * t * t * (t * (t * 6 - 15) + 10)
                     }
