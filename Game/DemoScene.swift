@@ -33,7 +33,7 @@ public final class DemoScene: RenderScene {
     private let activeChunkSystem = ActiveChunkSystem()
     private let physicsLocalizeSystem = PhysicsLocalizeSystem()
     private let gravitySystem = GravitySystem()
-    private let locomotionProfileSystem: LocomotionProfileSystem
+    private let locomotionProfileSystem = LocomotionProfileSystem()
     private let poseStackSystem = PoseStackSystem()
     private let platformMotionSystem = KinematicPlatformMotionSystem()
     private let kinematicMoveSystem = KinematicMoveStopSystem()
@@ -51,7 +51,6 @@ public final class DemoScene: RenderScene {
         self.collisionQueryRefreshSystem = CollisionQueryRefreshSystem(kinematicMoveSystem: kinematicMoveSystem,
                                                                        agentSeparationSystem: agentSeparationSystem,
                                                                        services: sceneServices)
-        self.locomotionProfileSystem = LocomotionProfileSystem(services: sceneServices)
         self.fixedRunner = FixedStepRunner(
             preFixed: [spinSystem,
                        oscillateMoveSystem,

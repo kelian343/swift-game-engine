@@ -268,11 +268,7 @@ public final class OscillateMoveSystem: FixedStepSystem {
 
 /// Switch between idle and walk motion profiles based on horizontal speed.
 public final class LocomotionProfileSystem: FixedStepSystem {
-    private let services: SceneServices?
-
-    public init(services: SceneServices? = nil) {
-        self.services = services
-    }
+    public init() {}
 
     public func fixedUpdate(world: World, dt: Float) {
         _ = dt
@@ -286,13 +282,7 @@ public final class LocomotionProfileSystem: FixedStepSystem {
         let mStore = world.store(MotionProfileComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
-        let wStore = world.store(WorldPositionComponent.self)
         let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
-        let queryService: CollisionQueryService? = {
-            guard let services else { return nil }
-            return services.resolve() ?? services.collisionQuery
-        }()
-        let query = queryService?.query
 
         func cycleDuration(for profile: MotionProfile) -> Float {
             max(profile.phase?.cycleDuration ?? profile.duration, 0.001)
@@ -333,36 +323,11 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                   var profile = mStore[e],
                   let body = pStore[e],
                   let controller = cStore[e] else { continue }
-            let worldY: Double = {
-                if let w = wStore[e] {
-                    return WorldPosition.toWorld(chunk: w.chunk, local: w.local).y
-                }
-                return body.position.y
-            }()
             let speed = Float(simd_length(SIMD3<Double>(body.linearVelocity.x, 0, body.linearVelocity.z)))
             let isAirborne = !controller.groundedNear
             let nextState: LocomotionState
             if isAirborne {
-                let highFall: Bool = {
-                    if let query {
-                        let probeDistance = max(locomotion.fallMinDropHeight * 2, 200)
-                        let delta = SIMD3<Float>(0, -probeDistance, 0)
-                        let hit = query.capsuleCastGround(from: body.positionF,
-                                                          delta: delta,
-                                                          radius: controller.radius,
-                                                          halfHeight: controller.halfHeight,
-                                                          minNormalY: controller.minGroundDot)
-                        if let hit {
-                            return hit.toi >= locomotion.fallMinDropHeight
-                        }
-                        return true
-                    }
-                    if locomotion.wasGroundedNear {
-                        locomotion.fallStartWorldY = worldY
-                    }
-                    let drop = locomotion.fallStartWorldY - worldY
-                    return drop >= Double(locomotion.fallMinDropHeight)
-                }()
+                let highFall = controller.groundDistance >= locomotion.fallMinDropHeight
                 if locomotion.state == .falling || highFall {
                     nextState = .falling
                 } else {
@@ -371,7 +336,6 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                                                   locomotion: locomotion)
                 }
             } else {
-                locomotion.fallStartWorldY = worldY
                 nextState = groundedNextState(current: locomotion.state,
                                               speed: speed,
                                               locomotion: locomotion)
@@ -431,7 +395,6 @@ public final class LocomotionProfileSystem: FixedStepSystem {
             case .falling:
                 profile.time = locomotion.fallTime
             }
-            locomotion.wasGroundedNear = controller.groundedNear
             lStore[e] = locomotion
             mStore[e] = profile
         }
@@ -821,6 +784,7 @@ private struct GroundContactState {
     var normal: SIMD3<Float>
     var material: SurfaceMaterial
     var triangleIndex: Int
+    var distance: Float
 }
 
 private struct GroundProbeResult {
@@ -843,19 +807,33 @@ private struct GroundProbe {
                                        groundedNear: false,
                                        normal: SIMD3<Float>(0, 1, 0),
                                        material: .default,
-                                       triangleIndex: -1)
-        if controller.snapDistance <= 0 {
-            return GroundProbeResult(state: state, canSnap: false, nearGround: false, hit: nil)
+                                       triangleIndex: -1,
+                                       distance: Float.greatestFiniteMagnitude)
+        let down = SIMD3<Float>(0, -1, 0)
+
+        let snapDelta = down * controller.snapDistance
+        let centerHit: CapsuleCastHit? = {
+            guard controller.snapDistance > 0 else { return nil }
+            query.resetStats()
+            return query.capsuleCastGround(from: position,
+                                           delta: snapDelta,
+                                           radius: controller.radius,
+                                           halfHeight: controller.halfHeight,
+                                           minNormalY: controller.minGroundDot)
+        }()
+
+        if controller.fallProbeDistance > 0 {
+            let fallDelta = down * controller.fallProbeDistance
+            query.resetStats()
+            if let fallHit = query.capsuleCastGround(from: position,
+                                                     delta: fallDelta,
+                                                     radius: controller.radius,
+                                                     halfHeight: controller.halfHeight,
+                                                     minNormalY: controller.minGroundDot) {
+                state.distance = fallHit.toi
+            }
         }
 
-        let down = SIMD3<Float>(0, -1, 0)
-        let snapDelta = down * controller.snapDistance
-        query.resetStats()
-        let centerHit = query.capsuleCastGround(from: position,
-                                                delta: snapDelta,
-                                                radius: controller.radius,
-                                                halfHeight: controller.halfHeight,
-                                                minNormalY: controller.minGroundDot)
         guard let centerHit,
               centerHit.toi <= controller.snapDistance else {
             return GroundProbeResult(state: state, canSnap: false, nearGround: false, hit: nil)
@@ -868,6 +846,7 @@ private struct GroundProbe {
         let groundNearThreshold = max(controller.groundSnapSkin, controller.skinWidth)
         let nearGround = centerHit.toi <= groundNearThreshold
         state.groundedNear = nearGround
+        state.distance = centerHit.toi
         let groundGateVel = body.linearVelocity.y <= 0
         let vInto = simd_dot(body.linearVelocity, d3(centerHit.normal))
         let groundGateSpeed = vInto >= -Double(controller.groundSnapMaxSpeed)
@@ -1804,6 +1783,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
         nextController.grounded = groundState.grounded
         nextController.groundedNear = groundState.groundedNear
         nextController.groundNormal = groundState.grounded ? groundState.normal : SIMD3<Float>(0, 1, 0)
+        nextController.groundDistance = groundState.distance
         if groundState.grounded {
             nextController.groundTriangleIndex = groundState.triangleIndex
         }

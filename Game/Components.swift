@@ -236,8 +236,6 @@ public struct LocomotionProfileComponent {
     public var runEnterSpeed: Float
     public var runExitSpeed: Float
     public var fallMinDropHeight: Float
-    public var fallStartWorldY: Double
-    public var wasGroundedNear: Bool
     public var blendTime: Float
     public var blendT: Float
     public var idleInertiaHalfLife: Float
@@ -259,8 +257,6 @@ public struct LocomotionProfileComponent {
                 runEnterSpeed: Float = 6.0,
                 runExitSpeed: Float = 5.0,
                 fallMinDropHeight: Float = 10.0,
-                fallStartWorldY: Double = 0,
-                wasGroundedNear: Bool = false,
                 blendTime: Float = 0.2,
                 blendT: Float = 1.0,
                 idleInertiaHalfLife: Float = 0.18,
@@ -281,8 +277,6 @@ public struct LocomotionProfileComponent {
         self.runEnterSpeed = runEnterSpeed
         self.runExitSpeed = runExitSpeed
         self.fallMinDropHeight = fallMinDropHeight
-        self.fallStartWorldY = fallStartWorldY
-        self.wasGroundedNear = wasGroundedNear
         self.blendTime = blendTime
         self.blendT = blendT
         self.idleInertiaHalfLife = idleInertiaHalfLife
@@ -351,6 +345,7 @@ public struct CharacterControllerComponent {
     public var skinWidth: Float
     public var groundSnapSkin: Float
     public var snapDistance: Float
+    public var fallProbeDistance: Float
     public var groundSnapMaxSpeed: Float
     public var groundSnapMaxToi: Float
     public var groundSnapMaxStep: Float
@@ -368,12 +363,14 @@ public struct CharacterControllerComponent {
     public var contactManifoldFrames: Int
     public var grounded: Bool
     public var groundedNear: Bool
+    public var groundDistance: Float
 
     public init(radius: Float = 1.5,
                 halfHeight: Float = 1.0,
                 skinWidth: Float = 0.3,
                 groundSnapSkin: Float = 0.05,
                 snapDistance: Float = 0.8,
+                fallProbeDistance: Float = 200.0,
                 groundSnapMaxSpeed: Float = 5.0,
                 groundSnapMaxToi: Float = 0.1,
                 groundSnapMaxStep: Float = 0.1,
@@ -390,12 +387,14 @@ public struct CharacterControllerComponent {
                 contactManifoldNormals: [SIMD3<Float>] = [],
                 contactManifoldFrames: Int = 0,
                 grounded: Bool = false,
-                groundedNear: Bool = false) {
+                groundedNear: Bool = false,
+                groundDistance: Float = Float.greatestFiniteMagnitude) {
         self.radius = radius
         self.halfHeight = halfHeight
         self.skinWidth = skinWidth
         self.groundSnapSkin = groundSnapSkin
         self.snapDistance = snapDistance
+        self.fallProbeDistance = fallProbeDistance
         self.groundSnapMaxSpeed = groundSnapMaxSpeed
         self.groundSnapMaxToi = groundSnapMaxToi
         self.groundSnapMaxStep = groundSnapMaxStep
@@ -413,6 +412,7 @@ public struct CharacterControllerComponent {
         self.contactManifoldFrames = contactManifoldFrames
         self.grounded = grounded
         self.groundedNear = groundedNear
+        self.groundDistance = groundDistance
     }
 }
 
