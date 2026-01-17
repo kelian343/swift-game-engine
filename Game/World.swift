@@ -123,4 +123,11 @@ public final class World {
         let sc = store(C.self)
         return ab.filter { sc.contains($0) && isAlive($0) }
     }
+
+    /// Query entities that have components A, B, C, D
+    public func query<A, B, C, D>(_ a: A.Type, _ b: B.Type, _ c: C.Type, _ d: D.Type) -> [Entity] {
+        let abc = query(A.self, B.self, C.self)
+        let sd = store(D.self)
+        return abc.filter { sd.contains($0) && isAlive($0) }
+    }
 }

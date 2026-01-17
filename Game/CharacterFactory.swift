@@ -22,9 +22,11 @@ enum CharacterFactory {
         let walkPath = Bundle.main.path(forResource: "Walking.motionProfile", ofType: "json")
         let idlePath = Bundle.main.path(forResource: "Idle.motionProfile", ofType: "json")
         let runPath = Bundle.main.path(forResource: "Running.motionProfile", ofType: "json")
+        let fallPath = Bundle.main.path(forResource: "FallingIdle.motionProfile", ofType: "json")
         let walkProfile = walkPath.flatMap { MotionProfileLoader.load(path: $0) }
         let idleProfile = idlePath.flatMap { MotionProfileLoader.load(path: $0) }
         let runProfile = runPath.flatMap { MotionProfileLoader.load(path: $0) }
+        let fallProfile = fallPath.flatMap { MotionProfileLoader.load(path: $0) }
         if walkProfile == nil && enableMotionProfile {
             print("Failed to load motion profile at:", walkPath ?? "missing bundle resource")
         }
@@ -33,6 +35,9 @@ enum CharacterFactory {
         }
         if runProfile == nil && enableMotionProfile {
             print("Failed to load motion profile at:", runPath ?? "missing bundle resource")
+        }
+        if fallProfile == nil && enableMotionProfile {
+            print("Failed to load motion profile at:", fallPath ?? "missing bundle resource")
         }
         guard let skinnedAsset = SkinnedMeshLoader.loadSkinnedMeshAsset(named: "YBot.skinned",
                                                                         skeleton: skeleton) else {
@@ -83,11 +88,12 @@ enum CharacterFactory {
 
         world.add(e, SkeletonComponent(skeleton: skeleton))
         world.add(e, PoseComponent(boneCount: skeleton.boneCount, local: skeleton.bindLocal))
-        if enableMotionProfile, let walkProfile, let idleProfile, let runProfile {
+        if enableMotionProfile, let walkProfile, let idleProfile, let runProfile, let fallProfile {
             world.add(e, MotionProfileComponent(profile: idleProfile, playbackRate: 1.0, loop: true, inPlace: true))
             world.add(e, LocomotionProfileComponent(idleProfile: idleProfile,
                                                     walkProfile: walkProfile,
                                                     runProfile: runProfile,
+                                                    fallProfile: fallProfile,
                                                     idleEnterSpeed: 0.15,
                                                     idleExitSpeed: 0.3,
                                                     runEnterSpeed: 6.0,

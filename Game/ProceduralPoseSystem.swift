@@ -37,17 +37,21 @@ public final class PoseStackSystem: FixedStepSystem {
                 let idleCycle = max(locomotion.idleProfile.phase?.cycleDuration ?? locomotion.idleProfile.duration, 0.001)
                 let walkCycle = max(locomotion.walkProfile.phase?.cycleDuration ?? locomotion.walkProfile.duration, 0.001)
                 let runCycle = max(locomotion.runProfile.phase?.cycleDuration ?? locomotion.runProfile.duration, 0.001)
+                let fallCycle = max(locomotion.fallProfile.phase?.cycleDuration ?? locomotion.fallProfile.duration, 0.001)
                 locomotion.idleTime += dt * profile.playbackRate
                 locomotion.walkTime += dt * profile.playbackRate
                 locomotion.runTime += dt * profile.playbackRate
+                locomotion.fallTime += dt * profile.playbackRate
                 if profile.loop {
                     locomotion.idleTime = locomotion.idleTime.truncatingRemainder(dividingBy: idleCycle)
                     locomotion.walkTime = locomotion.walkTime.truncatingRemainder(dividingBy: walkCycle)
                     locomotion.runTime = locomotion.runTime.truncatingRemainder(dividingBy: runCycle)
+                    locomotion.fallTime = locomotion.fallTime.truncatingRemainder(dividingBy: fallCycle)
                 } else {
                     locomotion.idleTime = min(locomotion.idleTime, idleCycle)
                     locomotion.walkTime = min(locomotion.walkTime, walkCycle)
                     locomotion.runTime = min(locomotion.runTime, runCycle)
+                    locomotion.fallTime = min(locomotion.fallTime, fallCycle)
                 }
 
                 if locomotion.isBlending {
@@ -72,6 +76,7 @@ public final class PoseStackSystem: FixedStepSystem {
                 let phaseIdle = max(0, min(locomotion.idleTime / idleCycle, 1))
                 let phaseWalk = max(0, min(locomotion.walkTime / walkCycle, 1))
                 let phaseRun = max(0, min(locomotion.runTime / runCycle, 1))
+                let phaseFall = max(0, min(locomotion.fallTime / fallCycle, 1))
                 switch locomotion.state {
                 case .idle:
                     pose.phase = phaseIdle
@@ -79,6 +84,8 @@ public final class PoseStackSystem: FixedStepSystem {
                     pose.phase = phaseWalk
                 case .run:
                     pose.phase = phaseRun
+                case .falling:
+                    pose.phase = phaseFall
                 }
 
                 if pose.local.count != skeleton.boneCount {
@@ -120,6 +127,7 @@ public final class PoseStackSystem: FixedStepSystem {
                     case .idle: return locomotion.idleProfile
                     case .walk: return locomotion.walkProfile
                     case .run: return locomotion.runProfile
+                    case .falling: return locomotion.fallProfile
                     }
                 }
 
@@ -128,6 +136,7 @@ public final class PoseStackSystem: FixedStepSystem {
                     case .idle: return phaseIdle
                     case .walk: return phaseWalk
                     case .run: return phaseRun
+                    case .falling: return phaseFall
                     }
                 }
 

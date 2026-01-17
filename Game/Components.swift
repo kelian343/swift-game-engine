@@ -105,17 +105,20 @@ public enum LocomotionState: Int {
     case idle
     case walk
     case run
+    case falling
 }
 
 public struct LocomotionProfileComponent {
     public var idleProfile: MotionProfile
     public var walkProfile: MotionProfile
     public var runProfile: MotionProfile
+    public var fallProfile: MotionProfile
     public var idleEnterSpeed: Float
     public var idleExitSpeed: Float
     public var idleTime: Float
     public var walkTime: Float
     public var runTime: Float
+    public var fallTime: Float
     public var runEnterSpeed: Float
     public var runExitSpeed: Float
     public var blendTime: Float
@@ -129,11 +132,13 @@ public struct LocomotionProfileComponent {
     public init(idleProfile: MotionProfile,
                 walkProfile: MotionProfile,
                 runProfile: MotionProfile,
+                fallProfile: MotionProfile,
                 idleEnterSpeed: Float = 0.15,
                 idleExitSpeed: Float = 0.25,
                 idleTime: Float = 0,
                 walkTime: Float = 0,
                 runTime: Float = 0,
+                fallTime: Float = 0,
                 runEnterSpeed: Float = 6.0,
                 runExitSpeed: Float = 5.0,
                 blendTime: Float = 0.2,
@@ -146,11 +151,13 @@ public struct LocomotionProfileComponent {
         self.idleProfile = idleProfile
         self.walkProfile = walkProfile
         self.runProfile = runProfile
+        self.fallProfile = fallProfile
         self.idleEnterSpeed = idleEnterSpeed
         self.idleExitSpeed = idleExitSpeed
         self.idleTime = idleTime
         self.walkTime = walkTime
         self.runTime = runTime
+        self.fallTime = fallTime
         self.runEnterSpeed = runEnterSpeed
         self.runExitSpeed = runExitSpeed
         self.blendTime = blendTime

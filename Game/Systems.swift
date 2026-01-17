@@ -261,12 +261,14 @@ public final class LocomotionProfileSystem: FixedStepSystem {
         _ = dt
         let entities = world.query(LocomotionProfileComponent.self,
                                    MotionProfileComponent.self,
-                                   PhysicsBodyComponent.self)
+                                   PhysicsBodyComponent.self,
+                                   CharacterControllerComponent.self)
         guard !entities.isEmpty else { return }
 
         let lStore = world.store(LocomotionProfileComponent.self)
         let mStore = world.store(MotionProfileComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
+        let cStore = world.store(CharacterControllerComponent.self)
 
         func cycleDuration(for profile: MotionProfile) -> Float {
             max(profile.phase?.cycleDuration ?? profile.duration, 0.001)
@@ -275,31 +277,42 @@ public final class LocomotionProfileSystem: FixedStepSystem {
         for e in entities {
             guard var locomotion = lStore[e],
                   var profile = mStore[e],
-                  let body = pStore[e] else { continue }
+                  let body = pStore[e],
+                  let controller = cStore[e] else { continue }
             let speed = simd_length(SIMD3<Float>(body.linearVelocity.x, 0, body.linearVelocity.z))
+            let isAirborne = !controller.groundedNear
             let nextState: LocomotionState
-            switch locomotion.state {
-            case .idle:
-                if speed >= locomotion.runEnterSpeed {
-                    nextState = .run
-                } else if speed >= locomotion.idleExitSpeed {
-                    nextState = .walk
-                } else {
-                    nextState = .idle
-                }
-            case .walk:
-                if speed >= locomotion.runEnterSpeed {
-                    nextState = .run
-                } else if speed < locomotion.idleEnterSpeed {
-                    nextState = .idle
-                } else {
-                    nextState = .walk
-                }
-            case .run:
-                if speed < locomotion.runExitSpeed {
-                    nextState = speed < locomotion.idleEnterSpeed ? .idle : .walk
-                } else {
-                    nextState = .run
+            if isAirborne {
+                nextState = LocomotionState.falling
+            } else {
+                let groundedState: LocomotionState = locomotion.state == LocomotionState.falling
+                    ? .idle
+                    : locomotion.state
+                switch groundedState {
+                case .idle:
+                    if speed >= locomotion.runEnterSpeed {
+                        nextState = .run
+                    } else if speed >= locomotion.idleExitSpeed {
+                        nextState = .walk
+                    } else {
+                        nextState = .idle
+                    }
+                case .walk:
+                    if speed >= locomotion.runEnterSpeed {
+                        nextState = .run
+                    } else if speed < locomotion.idleEnterSpeed {
+                        nextState = .idle
+                    } else {
+                        nextState = .walk
+                    }
+                case .run:
+                    if speed < locomotion.runExitSpeed {
+                        nextState = speed < locomotion.idleEnterSpeed ? .idle : .walk
+                    } else {
+                        nextState = .run
+                    }
+                case .falling:
+                    nextState = LocomotionState.falling
                 }
             }
 
@@ -317,6 +330,9 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                 case .run:
                     fromCycle = cycleDuration(for: locomotion.runProfile)
                     fromTime = locomotion.runTime
+                case .falling:
+                    fromCycle = cycleDuration(for: locomotion.fallProfile)
+                    fromTime = locomotion.fallTime
                 }
                 let fromPhase = max(0, min(fromTime / fromCycle, 1))
                 let toCycle: Float
@@ -330,6 +346,9 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                 case .run:
                     toCycle = cycleDuration(for: locomotion.runProfile)
                     locomotion.runTime = fromPhase * toCycle
+                case .falling:
+                    toCycle = cycleDuration(for: locomotion.fallProfile)
+                    locomotion.fallTime = fromPhase * toCycle
                 }
 
                 locomotion.fromState = locomotion.state
@@ -348,6 +367,8 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                 profile.time = locomotion.walkTime
             case .run:
                 profile.time = locomotion.runTime
+            case .falling:
+                profile.time = locomotion.fallTime
             }
             lStore[e] = locomotion
             mStore[e] = profile

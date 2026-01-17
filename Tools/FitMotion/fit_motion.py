@@ -134,47 +134,14 @@ def build_bone_curves(text: str) -> Tuple[Dict[str, dict], float]:
     return bone_anims, max(max_time, 0.001)
 
 
-def parse_skeleton_mixamo_reference(swift_path: Path) -> dict:
-    text = swift_path.read_text(encoding="utf-8")
-    start = text.find("public static func mixamoReference()")
-    if start < 0:
-        raise ValueError(f"Failed to find mixamoReference() in {swift_path}")
-    end = text.find("public static func rotationXYZDegrees", start)
-    if end < 0:
-        end = text.find("public static func translation", start)
-    if end < 0:
-        raise ValueError(f"Failed to find mixamoReference() end in {swift_path}")
-    text = text[start:end]
-
-    def extract_block(label: str) -> str:
-        pattern = rf"{label}\s*=\s*\[(.*?)\]"
-        match = re.search(pattern, text, flags=re.S)
-        if not match:
-            raise ValueError(f"Failed to find {label} block in {swift_path}")
-        return match.group(1)
-
-    names_block = extract_block("let names")
-    names = re.findall(r"\"([^\"]+)\"", names_block)
-
-    parent_block = extract_block("let parent: \\[Int\\]")
-    parent = [int(x.strip()) for x in parent_block.replace("\\n", "").split(",") if x.strip()]
-
-    translations_block = extract_block("let translations: \\[SIMD3<Float>\\]")
-    translations = []
-    for match in re.finditer(r"SIMD3<Float>\(([^)]+)\)", translations_block):
-        parts = [float(x.strip()) for x in match.group(1).split(",")]
-        translations.append(parts)
-
-    pre_rot_block = extract_block("let preRotations: \\[SIMD3<Float>\\]")
-    pre_rotations = []
-    for match in re.finditer(r"SIMD3<Float>\(([^)]+)\)", pre_rot_block):
-        parts = [float(x.strip()) for x in match.group(1).split(",")]
-        pre_rotations.append(parts)
-
-    scale_match = re.search(r"let scale: Float = ([0-9.\\-eE]+)", text)
-    if not scale_match:
-        raise ValueError(f"Failed to find scale in {swift_path}")
-    scale = float(scale_match.group(1))
+def parse_skeleton_json(json_path: Path) -> dict:
+    payload = json.loads(json_path.read_text(encoding="utf-8"))
+    names = payload.get("names", [])
+    parent = payload.get("parent", [])
+    translations = payload.get("translations", [])
+    pre_rotations = payload.get("preRotationDegrees", payload.get("pre_rotations", []))
+    scale = float(payload.get("unitScale", 1.0))
+    root_fix = payload.get("root", {}).get("rotationFixDegrees", [0.0, 0.0, 0.0])
 
     if len(names) != len(parent) or len(names) != len(translations) or len(names) != len(pre_rotations):
         raise ValueError(
@@ -188,7 +155,20 @@ def parse_skeleton_mixamo_reference(swift_path: Path) -> dict:
         "translations": translations,
         "pre_rotations": pre_rotations,
         "scale": scale,
+        "root_rotation_fix": root_fix,
     }
+
+
+def resolve_skeleton_json_from_swift(swift_path: Path) -> Path:
+    text = swift_path.read_text(encoding="utf-8")
+    match = re.search(r'loadSkeleton\\(named:\\s*"([^"]+)"\\)', text)
+    if not match:
+        raise ValueError(f"Failed to find loadSkeleton(named:) in {swift_path}")
+    resource_name = match.group(1)
+    candidate = swift_path.parent / f"{resource_name}.json"
+    if not candidate.exists():
+        raise ValueError(f"Missing skeleton JSON for {resource_name} at {candidate}")
+    return candidate
 
 
 def rotation_xyz_degrees(rx: float, ry: float, rz: float) -> List[List[float]]:
@@ -282,7 +262,8 @@ def compute_foot_contacts(bone_anims: Dict[str, dict],
     left_index = name_to_index[left_name]
     right_index = name_to_index[right_name]
 
-    root_fix = rotation_xyz_degrees(0.0, 180.0, 0.0)
+    root_fix_deg = skeleton.get("root_rotation_fix", [0.0, 0.0, 0.0])
+    root_fix = rotation_xyz_degrees(root_fix_deg[0], root_fix_deg[1], root_fix_deg[2])
 
     left_positions: List[List[float]] = []
     right_positions: List[List[float]] = []
@@ -572,6 +553,7 @@ def fit_fbx_to_fourier(fbx_path: Path,
                        fps: int,
                        order: int,
                        skeleton_swift: Optional[Path],
+                       skeleton_json: Optional[Path],
                        smooth_window: int,
                        overrides_path: Optional[Path]) -> None:
     text = fbx_path.read_text(encoding="utf-8")
@@ -587,7 +569,15 @@ def fit_fbx_to_fourier(fbx_path: Path,
     contacts_right: List[float] = []
     left_y: List[float] = []
     right_y: List[float] = []
-    if skeleton_swift is not None and skeleton_swift.exists():
+    skeleton_path: Optional[Path] = None
+    if skeleton_json is not None:
+        if not skeleton_json.exists():
+            raise ValueError(f"Missing skeleton JSON at {skeleton_json}")
+        skeleton_path = skeleton_json
+    elif skeleton_swift is not None and skeleton_swift.exists():
+        skeleton_path = resolve_skeleton_json_from_swift(skeleton_swift)
+
+    if skeleton_path is not None and skeleton_path.exists():
         def accept_phase(candidate: List[float], period: float) -> bool:
             if not candidate or period <= 0:
                 return False
@@ -599,7 +589,7 @@ def fit_fbx_to_fourier(fbx_path: Path,
                 return True
             return False
 
-        skeleton = parse_skeleton_mixamo_reference(skeleton_swift)
+        skeleton = parse_skeleton_json(skeleton_path)
         contacts_left, contacts_right, left_y, right_y = compute_foot_contacts(
             bone_anims,
             skeleton,
@@ -732,10 +722,12 @@ def main() -> None:
     parser.add_argument("--order", type=int, default=4, help="Fourier order")
     parser.add_argument("--smooth-window", type=int, default=1, help="Moving average window for smoothing")
     parser.add_argument("--skeleton-swift", default=None, help="Path to Skeleton.swift for phase/contact extraction")
+    parser.add_argument("--skeleton-json", default=None, help="Path to skeleton JSON for phase/contact extraction")
     parser.add_argument("--override", default=None, help="JSON file with per-bone overrides")
     args = parser.parse_args()
 
     swift_path = Path(args.skeleton_swift) if args.skeleton_swift else None
+    skeleton_json = Path(args.skeleton_json) if args.skeleton_json else None
     override_path = Path(args.override) if args.override else None
     fit_fbx_to_fourier(Path(args.fbx),
                        Path(args.out),
@@ -743,6 +735,7 @@ def main() -> None:
                        args.fps,
                        args.order,
                        swift_path,
+                       skeleton_json,
                        args.smooth_window,
                        override_path)
 

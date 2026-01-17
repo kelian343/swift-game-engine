@@ -12,7 +12,7 @@ python3 /Users/karpellus/Desktop/Game/Tools/FitMotion/fit_motion.py \
   --fps 60 \
   --order 4 \
   --smooth-window 5 \
-  --skeleton-swift /Users/karpellus/Desktop/Game/Game/Skeleton.swift \
+  --skeleton-json /Users/karpellus/Desktop/Game/Game/YBot.skeleton.json \
   --override /Users/karpellus/Desktop/Game/Tools/FitMotion/overrides.json
 ```
 
@@ -27,8 +27,10 @@ Coefficients are stored as:
 
 All rotation values are in degrees, matching the FBX `Lcl Rotation` channel.
 `phase.mode` is `normalized_time` (φ = t / duration) for now.
-If `--skeleton-swift` is provided and foot contacts are detected, the tool
+If `--skeleton-json` is provided and foot contacts are detected, the tool
 switches to `phase.mode = left_foot_contact` and emits `phase.cycle_duration`
 along with `contacts.left/right` curves.
+`--skeleton-swift` is still supported and resolves the JSON resource referenced
+by `Skeleton.swift`.
 `--smooth-window` enables a moving average over sampled curves before fitting.
 `--override` lets you apply per-bone overrides (e.g., mirror right foot to left).
