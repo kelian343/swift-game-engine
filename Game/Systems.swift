@@ -268,7 +268,11 @@ public final class OscillateMoveSystem: FixedStepSystem {
 
 /// Switch between idle and walk motion profiles based on horizontal speed.
 public final class LocomotionProfileSystem: FixedStepSystem {
-    public init() {}
+    private let services: SceneServices?
+
+    public init(services: SceneServices? = nil) {
+        self.services = services
+    }
 
     public func fixedUpdate(world: World, dt: Float) {
         _ = dt
@@ -284,6 +288,11 @@ public final class LocomotionProfileSystem: FixedStepSystem {
         let cStore = world.store(CharacterControllerComponent.self)
         let wStore = world.store(WorldPositionComponent.self)
         let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
+        let queryService: CollisionQueryService? = {
+            guard let services else { return nil }
+            return services.resolve() ?? services.collisionQuery
+        }()
+        let query = queryService?.query
 
         func cycleDuration(for profile: MotionProfile) -> Float {
             max(profile.phase?.cycleDuration ?? profile.duration, 0.001)
@@ -334,11 +343,26 @@ public final class LocomotionProfileSystem: FixedStepSystem {
             let isAirborne = !controller.groundedNear
             let nextState: LocomotionState
             if isAirborne {
-                if locomotion.wasGroundedNear {
-                    locomotion.fallStartWorldY = worldY
-                }
-                let drop = locomotion.fallStartWorldY - worldY
-                let highFall = drop >= Double(locomotion.fallMinDropHeight)
+                let highFall: Bool = {
+                    if let query {
+                        let probeDistance = max(locomotion.fallMinDropHeight * 2, 200)
+                        let delta = SIMD3<Float>(0, -probeDistance, 0)
+                        let hit = query.capsuleCastGround(from: body.positionF,
+                                                          delta: delta,
+                                                          radius: controller.radius,
+                                                          halfHeight: controller.halfHeight,
+                                                          minNormalY: controller.minGroundDot)
+                        if let hit {
+                            return hit.toi >= locomotion.fallMinDropHeight
+                        }
+                        return true
+                    }
+                    if locomotion.wasGroundedNear {
+                        locomotion.fallStartWorldY = worldY
+                    }
+                    let drop = locomotion.fallStartWorldY - worldY
+                    return drop >= Double(locomotion.fallMinDropHeight)
+                }()
                 if locomotion.state == .falling || highFall {
                     nextState = .falling
                 } else {

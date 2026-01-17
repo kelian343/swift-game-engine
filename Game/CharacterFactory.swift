@@ -100,7 +100,7 @@ enum CharacterFactory {
                                                     idleExitSpeed: 0.3,
                                                     runEnterSpeed: 6.0,
                                                     runExitSpeed: 5.0,
-                                                    fallMinDropHeight: 12.0,
+                                                    fallMinDropHeight: 50.0,
                                                     state: .idle))
         }
         world.add(e, SkinnedMeshGroupComponent(meshes: skinnedAsset.meshes,
