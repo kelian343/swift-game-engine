@@ -34,6 +34,7 @@ public final class CollisionQueryService {
     public private(set) var query: CollisionQuery?
     private var dirty: Bool = true
     private var staticMeshCache: [Entity: StaticMeshSnapshot] = [:]
+    private var lastActiveEntityIDs: Set<UInt32>?
 
     public init() {}
 
@@ -41,29 +42,38 @@ public final class CollisionQueryService {
         dirty = true
     }
 
-    public func rebuild(world: World) {
-        query = CollisionQuery(world: world)
+    public func rebuild(world: World, activeEntityIDs: Set<UInt32>? = nil) {
+        query = CollisionQuery(world: world, activeEntityIDs: activeEntityIDs)
         dirty = false
-        refreshStaticMeshCache(world: world)
+        lastActiveEntityIDs = activeEntityIDs
+        refreshStaticMeshCache(world: world, activeEntityIDs: activeEntityIDs)
     }
 
-    public func update(world: World) {
-        if dirty || query == nil {
-            rebuild(world: world)
+    public func update(world: World, activeEntityIDs: Set<UInt32>? = nil) {
+        if activeEntityIDs != lastActiveEntityIDs {
+            rebuild(world: world, activeEntityIDs: activeEntityIDs)
             return
         }
-        let changeSet = staticMeshChanges(world: world)
+        if dirty || query == nil {
+            rebuild(world: world, activeEntityIDs: activeEntityIDs)
+            return
+        }
+        let changeSet = staticMeshChanges(world: world, activeEntityIDs: activeEntityIDs)
         if changeSet.structuralChange {
-            rebuild(world: world)
+            rebuild(world: world, activeEntityIDs: activeEntityIDs)
             return
         }
         if !changeSet.staticTransforms.isEmpty {
-            query?.updateStaticTransforms(world: world, entities: changeSet.staticTransforms)
+            query?.updateStaticTransforms(world: world,
+                                          entities: changeSet.staticTransforms,
+                                          activeEntityIDs: activeEntityIDs)
         }
         if !changeSet.dynamicTransforms.isEmpty {
-            query?.updateDynamicTransforms(world: world, entities: changeSet.dynamicTransforms)
+            query?.updateDynamicTransforms(world: world,
+                                           entities: changeSet.dynamicTransforms,
+                                           activeEntityIDs: activeEntityIDs)
         }
-        refreshStaticMeshCache(world: world)
+        refreshStaticMeshCache(world: world, activeEntityIDs: activeEntityIDs)
     }
 
     private struct StaticMeshSnapshot {
@@ -81,8 +91,8 @@ public final class CollisionQueryService {
         var dynamicTransforms: [Entity]
     }
 
-    private func staticMeshChanges(world: World) -> StaticMeshChangeSet {
-        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+    private func staticMeshChanges(world: World, activeEntityIDs: Set<UInt32>?) -> StaticMeshChangeSet {
+        let entities = filterEntities(world: world, activeEntityIDs: activeEntityIDs)
         let tStore = world.store(TransformComponent.self)
         let mStore = world.store(StaticMeshComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
@@ -152,8 +162,8 @@ public final class CollisionQueryService {
                                    dynamicTransforms: Array(dynamicTransformSet))
     }
 
-    private func refreshStaticMeshCache(world: World) {
-        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+    private func refreshStaticMeshCache(world: World, activeEntityIDs: Set<UInt32>?) {
+        let entities = filterEntities(world: world, activeEntityIDs: activeEntityIDs)
         let tStore = world.store(TransformComponent.self)
         let mStore = world.store(StaticMeshComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
@@ -174,5 +184,11 @@ public final class CollisionQueryService {
                 mStore[e] = m
             }
         }
+    }
+
+    private func filterEntities(world: World, activeEntityIDs: Set<UInt32>?) -> [Entity] {
+        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+        guard let activeEntityIDs else { return entities }
+        return entities.filter { activeEntityIDs.contains($0.id) }
     }
 }

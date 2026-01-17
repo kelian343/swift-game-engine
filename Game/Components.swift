@@ -129,6 +129,29 @@ public struct WorldPositionComponent {
     }
 }
 
+// MARK: - Active Chunk Set
+
+public struct ActiveChunkComponent {
+    public var centerChunk: SIMD3<Int64>
+    public var radiusChunks: Int
+    public var activeEntityIDs: Set<UInt32>
+    public var activeStaticEntityIDs: Set<UInt32>
+
+    public init(centerChunk: SIMD3<Int64> = SIMD3<Int64>(0, 0, 0),
+                radiusChunks: Int = 2,
+                activeEntityIDs: Set<UInt32> = [],
+                activeStaticEntityIDs: Set<UInt32> = []) {
+        self.centerChunk = centerChunk
+        self.radiusChunks = radiusChunks
+        self.activeEntityIDs = activeEntityIDs
+        self.activeStaticEntityIDs = activeStaticEntityIDs
+    }
+}
+
+public struct PlayerTagComponent {
+    public init() {}
+}
+
 // MARK: - Render
 
 public struct RenderComponent {

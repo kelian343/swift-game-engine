@@ -7,6 +7,17 @@
 
 import simd
 
+private func filteredEntities(world: World, activeEntityIDs: Set<UInt32>?) -> [Entity] {
+    let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+    return filteredEntities(entities: entities, activeEntityIDs: activeEntityIDs)
+}
+
+private func filteredEntities(entities: [Entity],
+                              activeEntityIDs: Set<UInt32>?) -> [Entity] {
+    guard let activeEntityIDs else { return entities }
+    return entities.filter { activeEntityIDs.contains($0.id) }
+}
+
 public struct RaycastHit {
     public var distance: Float
     public var position: SIMD3<Float>
@@ -36,8 +47,8 @@ public struct CapsuleOverlapHit {
 public final class CollisionQuery {
     private var snapshot: CollisionWorldSnapshot
 
-    public init(world: World) {
-        self.snapshot = CollisionWorldSnapshot(world: world)
+    public init(world: World, activeEntityIDs: Set<UInt32>? = nil) {
+        self.snapshot = CollisionWorldSnapshot(world: world, activeEntityIDs: activeEntityIDs)
     }
 
     public var stats: CollisionQueryStats {
@@ -48,12 +59,20 @@ public final class CollisionQuery {
         snapshot.resetStats()
     }
 
-    public func updateStaticTransforms(world: World, entities: [Entity]) {
-        snapshot.updateStaticTransforms(world: world, entities: entities)
+    public func updateStaticTransforms(world: World,
+                                       entities: [Entity],
+                                       activeEntityIDs: Set<UInt32>? = nil) {
+        snapshot.updateStaticTransforms(world: world,
+                                        entities: entities,
+                                        activeEntityIDs: activeEntityIDs)
     }
 
-    public func updateDynamicTransforms(world: World, entities: [Entity]) {
-        snapshot.updateDynamicTransforms(world: world, entities: entities)
+    public func updateDynamicTransforms(world: World,
+                                        entities: [Entity],
+                                        activeEntityIDs: Set<UInt32>? = nil) {
+        snapshot.updateDynamicTransforms(world: world,
+                                         entities: entities,
+                                         activeEntityIDs: activeEntityIDs)
     }
 
     public func raycast(origin: SIMD3<Float>,
@@ -124,8 +143,8 @@ public final class CollisionQuery {
 public struct CollisionWorldSnapshot {
     fileprivate var staticMesh: StaticTriMesh
 
-    public init(world: World) {
-        self.staticMesh = StaticTriMesh(world: world)
+    public init(world: World, activeEntityIDs: Set<UInt32>? = nil) {
+        self.staticMesh = StaticTriMesh(world: world, activeEntityIDs: activeEntityIDs)
     }
 
     public var stats: CollisionQueryStats {
@@ -136,20 +155,28 @@ public struct CollisionWorldSnapshot {
         staticMesh.resetStats()
     }
 
-    public mutating func rebuildStatic(world: World) {
-        staticMesh.rebuildStatic(world: world)
+    public mutating func rebuildStatic(world: World, activeEntityIDs: Set<UInt32>? = nil) {
+        staticMesh.rebuildStatic(world: world, activeEntityIDs: activeEntityIDs)
     }
 
-    public mutating func rebuildDynamic(world: World) {
-        staticMesh.rebuildDynamic(world: world)
+    public mutating func rebuildDynamic(world: World, activeEntityIDs: Set<UInt32>? = nil) {
+        staticMesh.rebuildDynamic(world: world, activeEntityIDs: activeEntityIDs)
     }
 
-    public mutating func updateStaticTransforms(world: World, entities: [Entity]) {
-        staticMesh.updateStaticTransforms(world: world, entities: entities)
+    public mutating func updateStaticTransforms(world: World,
+                                                entities: [Entity],
+                                                activeEntityIDs: Set<UInt32>? = nil) {
+        staticMesh.updateStaticTransforms(world: world,
+                                          entities: entities,
+                                          activeEntityIDs: activeEntityIDs)
     }
 
-    public mutating func updateDynamicTransforms(world: World, entities: [Entity]) {
-        staticMesh.updateDynamicTransforms(world: world, entities: entities)
+    public mutating func updateDynamicTransforms(world: World,
+                                                 entities: [Entity],
+                                                 activeEntityIDs: Set<UInt32>? = nil) {
+        staticMesh.updateDynamicTransforms(world: world,
+                                           entities: entities,
+                                           activeEntityIDs: activeEntityIDs)
     }
 }
 
@@ -642,11 +669,11 @@ public struct StaticTriMesh {
         stats.publicStats
     }
 
-    public init(world: World) {
+    public init(world: World, activeEntityIDs: Set<UInt32>? = nil) {
         let tStore = world.store(TransformComponent.self)
         let mStore = world.store(StaticMeshComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
-        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+        let entities = filteredEntities(world: world, activeEntityIDs: activeEntityIDs)
         let (staticEntities, dynamicEntities) = StaticTriMesh.partitionEntities(entities: entities,
                                                                                pStore: pStore)
         staticSet.rebuild(entities: staticEntities, tStore: tStore, mStore: mStore)
@@ -657,34 +684,40 @@ public struct StaticTriMesh {
         stats.reset()
     }
 
-    public mutating func rebuildStatic(world: World) {
+    public mutating func rebuildStatic(world: World, activeEntityIDs: Set<UInt32>? = nil) {
         let tStore = world.store(TransformComponent.self)
         let mStore = world.store(StaticMeshComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
-        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+        let entities = filteredEntities(world: world, activeEntityIDs: activeEntityIDs)
         let (staticEntities, _) = StaticTriMesh.partitionEntities(entities: entities, pStore: pStore)
         staticSet.rebuild(entities: staticEntities, tStore: tStore, mStore: mStore)
     }
 
-    public mutating func rebuildDynamic(world: World) {
+    public mutating func rebuildDynamic(world: World, activeEntityIDs: Set<UInt32>? = nil) {
         let tStore = world.store(TransformComponent.self)
         let mStore = world.store(StaticMeshComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
-        let entities = world.query(TransformComponent.self, StaticMeshComponent.self)
+        let entities = filteredEntities(world: world, activeEntityIDs: activeEntityIDs)
         let (_, dynamicEntities) = StaticTriMesh.partitionEntities(entities: entities, pStore: pStore)
         dynamicSet.rebuild(entities: dynamicEntities, tStore: tStore, mStore: mStore)
     }
 
-    public mutating func updateStaticTransforms(world: World, entities: [Entity]) {
+    public mutating func updateStaticTransforms(world: World,
+                                                entities: [Entity],
+                                                activeEntityIDs: Set<UInt32>? = nil) {
         let tStore = world.store(TransformComponent.self)
         let mStore = world.store(StaticMeshComponent.self)
-        _ = staticSet.updateTransforms(entities: entities, tStore: tStore, mStore: mStore)
+        let filtered = filteredEntities(entities: entities, activeEntityIDs: activeEntityIDs)
+        _ = staticSet.updateTransforms(entities: filtered, tStore: tStore, mStore: mStore)
     }
 
-    public mutating func updateDynamicTransforms(world: World, entities: [Entity]) {
+    public mutating func updateDynamicTransforms(world: World,
+                                                 entities: [Entity],
+                                                 activeEntityIDs: Set<UInt32>? = nil) {
         let tStore = world.store(TransformComponent.self)
         let mStore = world.store(StaticMeshComponent.self)
-        _ = dynamicSet.updateTransforms(entities: entities, tStore: tStore, mStore: mStore)
+        let filtered = filteredEntities(entities: entities, activeEntityIDs: activeEntityIDs)
+        _ = dynamicSet.updateTransforms(entities: filtered, tStore: tStore, mStore: mStore)
     }
 
     public func raycast(origin: SIMD3<Float>,

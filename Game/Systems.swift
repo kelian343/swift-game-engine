@@ -16,6 +16,10 @@ public protocol FixedStepSystem {
     func fixedUpdate(world: World, dt: Float)
 }
 
+private func isActive(_ e: Entity, _ active: ActiveChunkComponent?) -> Bool {
+    active?.activeEntityIDs.contains(e.id) ?? true
+}
+
 /// Tracks global time inside ECS via a singleton TimeComponent.
 public final class TimeSystem: System {
     private var timeEntity: Entity?
@@ -125,8 +129,10 @@ public final class KinematicPlatformMotionSystem: FixedStepSystem {
         let tStore = world.store(TransformComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let kStore = world.store(KinematicPlatformComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
 
         for e in entities {
+            if !isActive(e, active) { continue }
             guard var t = tStore[e], var p = pStore[e], var k = kStore[e] else { continue }
             if p.bodyType == .static { continue }
 
@@ -164,7 +170,8 @@ public final class CollisionQueryRefreshSystem: FixedStepSystem {
     public func fixedUpdate(world: World, dt: Float) {
         _ = dt
         let queryService: CollisionQueryService = services.resolve() ?? services.collisionQuery
-        queryService.update(world: world)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
+        queryService.update(world: world, activeEntityIDs: active?.activeStaticEntityIDs)
         guard let query = queryService.query else { return }
         query.resetStats()
         kinematicMoveSystem.setQuery(query)
@@ -180,8 +187,10 @@ public final class PhysicsBeginStepSystem: FixedStepSystem {
         _ = dt
         let bodies = world.query(PhysicsBodyComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
 
         for e in bodies {
+            if !isActive(e, active) { continue }
             guard var body = pStore[e] else { continue }
             if body.bodyType == .dynamic || body.bodyType == .kinematic {
                 body.prevPosition = body.position
@@ -202,8 +211,10 @@ public final class PhysicsIntentSystem: FixedStepSystem {
         let mStore = world.store(MoveIntentComponent.self)
         let mvStore = world.store(MovementComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
 
         for e in bodies {
+            if !isActive(e, active) { continue }
             guard var body = pStore[e] else { continue }
             guard let intent = mStore[e] else { continue }
             if body.bodyType == .dynamic || body.bodyType == .kinematic {
@@ -271,6 +282,7 @@ public final class LocomotionProfileSystem: FixedStepSystem {
         let mStore = world.store(MotionProfileComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
 
         func cycleDuration(for profile: MotionProfile) -> Float {
             max(profile.phase?.cycleDuration ?? profile.duration, 0.001)
@@ -306,6 +318,7 @@ public final class LocomotionProfileSystem: FixedStepSystem {
         }
 
         for e in entities {
+            if !isActive(e, active) { continue }
             guard var locomotion = lStore[e],
                   var profile = mStore[e],
                   let body = pStore[e],
@@ -428,8 +441,10 @@ public final class JumpSystem: FixedStepSystem {
         let pStore = world.store(PhysicsBodyComponent.self)
         let mStore = world.store(MoveIntentComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
 
         for e in entities {
+            if !isActive(e, active) { continue }
             guard var body = pStore[e],
                   var intent = mStore[e],
                   var controller = cStore[e] else { continue }
@@ -459,8 +474,10 @@ public final class GravitySystem: FixedStepSystem {
         let bodies = world.query(PhysicsBodyComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
 
         for e in bodies {
+            if !isActive(e, active) { continue }
             guard var body = pStore[e] else { continue }
             if body.bodyType != .dynamic { continue }
             if let controller = cStore[e], controller.grounded, controller.groundedNear {
@@ -1530,10 +1547,12 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
     private func collectAgentStates(bodies: [Entity],
                                     pStore: ComponentStore<PhysicsBodyComponent>,
                                     cStore: ComponentStore<CharacterControllerComponent>,
-                                    aStore: ComponentStore<AgentCollisionComponent>) -> [AgentSweepState] {
+                                    aStore: ComponentStore<AgentCollisionComponent>,
+                                    active: ActiveChunkComponent?) -> [AgentSweepState] {
         var agentStates: [AgentSweepState] = []
         agentStates.reserveCapacity(bodies.count)
         for e in bodies {
+            if !isActive(e, active) { continue }
             guard let body = pStore[e], let controller = cStore[e] else { continue }
             guard let agent = aStore[e], agent.isSolid else { continue }
             let radius = agent.radiusOverride ?? controller.radius
@@ -1766,11 +1785,14 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
         let platformEntities = world.query(PhysicsBodyComponent.self,
                                            ColliderComponent.self,
                                            KinematicPlatformComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
         let agentStates = collectAgentStates(bodies: bodies,
                                              pStore: pStore,
                                              cStore: cStore,
-                                             aStore: aStore)
+                                             aStore: aStore,
+                                             active: active)
         for e in bodies {
+            if !isActive(e, active) { continue }
             guard var body = pStore[e], var controller = cStore[e] else { continue }
             if body.bodyType == .static { continue }
 
@@ -2076,6 +2098,7 @@ public final class AgentSeparationSystem: FixedStepSystem {
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
         let aStore = world.store(AgentCollisionComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
 
         var agents: [Agent] = []
         agents.reserveCapacity(entities.count)
@@ -2084,6 +2107,7 @@ public final class AgentSeparationSystem: FixedStepSystem {
 
         var maxRadius: Float = 0
         for e in entities {
+            if !isActive(e, active) { continue }
             guard let body = pStore[e], let controller = cStore[e] else { continue }
             let agent = aStore[e] ?? AgentCollisionComponent()
             if !agent.isSolid { continue }
@@ -2146,8 +2170,10 @@ public final class PhysicsIntegrateSystem: FixedStepSystem {
         let pStore = world.store(PhysicsBodyComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
         let kStore = world.store(KinematicPlatformComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
 
         for e in bodies {
+            if !isActive(e, active) { continue }
             guard var body = pStore[e] else { continue }
             if cStore.contains(e) { continue }
             if kStore.contains(e) { continue }
@@ -2180,8 +2206,10 @@ public final class PhysicsWritebackSystem: FixedStepSystem {
         let bodies = world.query(PhysicsBodyComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
         let tStore = world.store(TransformComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
 
         for e in bodies {
+            if !isActive(e, active) { continue }
             guard let body = pStore[e], var t = tStore[e] else { continue }
             t.translation = body.positionF
             t.rotation = body.rotation
@@ -2220,6 +2248,64 @@ public final class WorldPositionSyncSystem: FixedStepSystem {
             w.local = local
             wStore[e] = w
         }
+    }
+}
+
+/// Builds a set of entities within a chunk radius around the player.
+public final class ActiveChunkSystem: FixedStepSystem {
+    private var activeEntity: Entity?
+
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = dt
+        guard let player = world.query(PlayerTagComponent.self, WorldPositionComponent.self).first,
+              let playerPos = world.store(WorldPositionComponent.self)[player] else {
+            return
+        }
+
+        let entities = world.query(WorldPositionComponent.self)
+        let wStore = world.store(WorldPositionComponent.self)
+        let staticStore = world.store(StaticMeshComponent.self)
+
+        let active = ensureActiveComponent(world: world)
+        let radius = Int64(max(active.radiusChunks, 0))
+        let center = playerPos.chunk
+
+        var activeEntityIDs: Set<UInt32> = []
+        var activeStaticIDs: Set<UInt32> = []
+        activeEntityIDs.reserveCapacity(entities.count)
+
+        for e in entities {
+            guard let w = wStore[e] else { continue }
+            let dx = abs(w.chunk.x - center.x)
+            let dy = abs(w.chunk.y - center.y)
+            let dz = abs(w.chunk.z - center.z)
+            if max(dx, max(dy, dz)) <= radius {
+                activeEntityIDs.insert(e.id)
+                if staticStore.contains(e) {
+                    activeStaticIDs.insert(e.id)
+                }
+            }
+        }
+
+        var next = active
+        next.centerChunk = center
+        next.activeEntityIDs = activeEntityIDs
+        next.activeStaticEntityIDs = activeStaticIDs
+        world.store(ActiveChunkComponent.self)[activeEntity!] = next
+    }
+
+    private func ensureActiveComponent(world: World) -> ActiveChunkComponent {
+        if let e = activeEntity, world.isAlive(e),
+           let existing = world.store(ActiveChunkComponent.self)[e] {
+            return existing
+        }
+        let e = world.createEntity()
+        let component = ActiveChunkComponent()
+        world.add(e, component)
+        activeEntity = e
+        return component
     }
 }
 

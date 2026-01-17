@@ -73,6 +73,7 @@ enum CharacterFactory {
         t.translation = SIMD3<Float>(0, groundContactY + 8.0, 0)
         world.add(e, t)
         world.add(e, WorldPositionComponent(translation: t.translation))
+        world.add(e, PlayerTagComponent())
         inputSystem.setPlayer(e)
         world.add(e, PhysicsBodyComponent(bodyType: .dynamic,
                                           position: t.translation,

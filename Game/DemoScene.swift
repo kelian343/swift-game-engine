@@ -30,6 +30,7 @@ public final class DemoScene: RenderScene {
     private let physicsIntentSystem = PhysicsIntentSystem()
     private let oscillateMoveSystem = OscillateMoveSystem()
     private let jumpSystem = JumpSystem()
+    private let activeChunkSystem = ActiveChunkSystem()
     private let gravitySystem = GravitySystem()
     private let locomotionProfileSystem = LocomotionProfileSystem()
     private let poseStackSystem = PoseStackSystem()
@@ -50,7 +51,12 @@ public final class DemoScene: RenderScene {
                                                                        agentSeparationSystem: agentSeparationSystem,
                                                                        services: sceneServices)
         self.fixedRunner = FixedStepRunner(
-            preFixed: [spinSystem, oscillateMoveSystem, physicsIntentSystem, jumpSystem, physicsBeginStepSystem],
+            preFixed: [spinSystem,
+                       oscillateMoveSystem,
+                       physicsIntentSystem,
+                       jumpSystem,
+                       physicsBeginStepSystem,
+                       activeChunkSystem],
             fixed: [platformMotionSystem,
                     collisionQueryRefreshSystem,
                     gravitySystem,
