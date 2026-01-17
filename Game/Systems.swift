@@ -489,12 +489,35 @@ public final class GravitySystem: FixedStepSystem {
     }
 }
 
+private struct WorldAABB {
+    var min: SIMD3<Float>
+    var max: SIMD3<Float>
+}
+
+private func meshWorldAABB(mesh: ProceduralMeshDescriptor,
+                           transform: TransformComponent) -> WorldAABB? {
+    let positions = mesh.streams.positions
+    guard !positions.isEmpty else { return nil }
+    let m = transform.modelMatrix
+    var minP = SIMD3<Float>(repeating: Float.greatestFiniteMagnitude)
+    var maxP = SIMD3<Float>(repeating: -Float.greatestFiniteMagnitude)
+    for pLocal in positions {
+        let p = SIMD4<Float>(pLocal.x, pLocal.y, pLocal.z, 1)
+        let wp = simd_mul(m, p)
+        let v = SIMD3<Float>(wp.x, wp.y, wp.z)
+        minP = simd_min(minP, v)
+        maxP = simd_max(maxP, v)
+    }
+    return WorldAABB(min: minP, max: maxP)
+}
+
 private struct PlatformCarry {
     static func computeDelta(position: SIMD3<Float>,
                              controller: CharacterControllerComponent,
                              platformEntities: [Entity],
                              bodies: ComponentStore<PhysicsBodyComponent>,
-                             colliders: ComponentStore<ColliderComponent>) -> SIMD3<Float> {
+                             transforms: ComponentStore<TransformComponent>,
+                             meshes: ComponentStore<StaticMeshComponent>) -> SIMD3<Float> {
         guard !platformEntities.isEmpty else { return .zero }
         let capsuleHalf = controller.halfHeight + controller.radius
         let baseY = position.y - capsuleHalf
@@ -509,14 +532,15 @@ private struct PlatformCarry {
         var pushDelta: SIMD3<Float> = .zero
 
         for pe in platformEntities {
-            guard let pBody = bodies[pe], let pCol = colliders[pe] else { continue }
+            guard let pBody = bodies[pe],
+                  let t = transforms[pe],
+                  let meshComp = meshes[pe] else { continue }
             if pBody.bodyType != .kinematic { continue }
             let pDelta = pBody.positionF - pBody.prevPositionF
             if simd_length_squared(pDelta) < 1e-8 { continue }
 
-            let aabb = ColliderComponent.computeAABB(position: pBody.positionF,
-                                                     rotation: pBody.rotation,
-                                                     collider: pCol)
+            let mesh = meshComp.collisionMesh ?? meshComp.mesh
+            guard let aabb = meshWorldAABB(mesh: mesh, transform: t) else { continue }
             let expandedMin = aabb.min - SIMD3<Float>(repeating: sideTol)
             let expandedMax = aabb.max + SIMD3<Float>(repeating: sideTol)
             let overlap = capMin.x <= expandedMax.x && capMax.x >= expandedMin.x &&
@@ -574,132 +598,6 @@ private struct PlatformCarry {
             return pushDelta
         }
         return .zero
-    }
-}
-
-private struct PlatformPushOut {
-    static func applyPenetrationCorrection(position: inout SIMD3<Float>,
-                                           controller: CharacterControllerComponent,
-                                           platformEntities: [Entity],
-                                           bodies: ComponentStore<PhysicsBodyComponent>,
-                                           colliders: ComponentStore<ColliderComponent>) {
-        for pe in platformEntities {
-            guard let pBody = bodies[pe], let pCol = colliders[pe] else { continue }
-            if pBody.bodyType != .kinematic { continue }
-            let pDelta = pBody.positionF - pBody.prevPositionF
-            if simd_length_squared(pDelta) < 1e-8 { continue }
-            guard case .box = pCol.shape else { continue }
-            let aabb = ColliderComponent.computeAABB(position: pBody.positionF,
-                                                     rotation: pBody.rotation,
-                                                     collider: pCol)
-            let capsuleHalf = controller.halfHeight + controller.radius
-            let baseY = position.y - capsuleHalf
-            let topTol = controller.snapDistance + max(controller.skinWidth, controller.groundSnapSkin) + 0.05
-            let onTop = baseY >= aabb.max.y - topTol && baseY <= aabb.max.y + topTol
-            if onTop {
-                continue
-            }
-            if let (n, depth) = capsuleBoxPenetrationXZ(center: position,
-                                                       halfHeight: controller.halfHeight,
-                                                       radius: controller.radius,
-                                                       boxMin: aabb.min,
-                                                       boxMax: aabb.max) {
-                let moveToward = simd_dot(SIMD3<Float>(pDelta.x, 0, pDelta.z), n)
-                if moveToward > 0 {
-                    position += n * depth
-                }
-            }
-        }
-    }
-
-    static func applyPostMovePushOut(position: inout SIMD3<Float>,
-                                     body: inout PhysicsBodyComponent,
-                                     controller: CharacterControllerComponent,
-                                     platformEntities: [Entity],
-                                     bodies: ComponentStore<PhysicsBodyComponent>,
-                                     colliders: ComponentStore<ColliderComponent>) -> Bool {
-        guard !platformEntities.isEmpty else { return false }
-        let contactRadius = controller.radius + controller.skinWidth
-        let capsuleHalf = controller.halfHeight + controller.radius
-        var blocked = false
-        for pe in platformEntities {
-            guard let pBody = bodies[pe], let pCol = colliders[pe] else { continue }
-            if pBody.bodyType != .kinematic { continue }
-            guard case .box = pCol.shape else { continue }
-            let aabb = ColliderComponent.computeAABB(position: pBody.positionF,
-                                                     rotation: pBody.rotation,
-                                                     collider: pCol)
-            let baseY = position.y - capsuleHalf
-            let topTol = controller.snapDistance + max(controller.skinWidth, controller.groundSnapSkin) + 0.05
-            let onTop = baseY >= aabb.max.y - topTol && baseY <= aabb.max.y + topTol
-            if onTop {
-                continue
-            }
-            if let (n, depth) = capsuleBoxPenetrationXZ(center: position,
-                                                       halfHeight: controller.halfHeight,
-                                                       radius: contactRadius,
-                                                       boxMin: aabb.min,
-                                                       boxMax: aabb.max) {
-                position += n * depth
-                let nD = d3(n)
-                let vInto = simd_dot(body.linearVelocity, nD)
-                if vInto < 0 {
-                    body.linearVelocity -= nD * vInto
-                }
-                blocked = true
-            }
-        }
-        return blocked
-    }
-
-    private static func capsuleBoxPenetrationXZ(center: SIMD3<Float>,
-                                                halfHeight: Float,
-                                                radius: Float,
-                                                boxMin: SIMD3<Float>,
-                                                boxMax: SIMD3<Float>) -> (SIMD3<Float>, Float)? {
-        let segMin = center.y - halfHeight
-        let segMax = center.y + halfHeight
-        if segMax < boxMin.y - radius || segMin > boxMax.y + radius {
-            return nil
-        }
-        let cx = center.x
-        let cz = center.z
-        let closestX = max(boxMin.x, min(cx, boxMax.x))
-        let closestZ = max(boxMin.z, min(cz, boxMax.z))
-        let dx = cx - closestX
-        let dz = cz - closestZ
-        let distSq = dx * dx + dz * dz
-        if distSq > radius * radius {
-            return nil
-        }
-        if distSq > 1e-6 {
-            let dist = sqrt(distSq)
-            let n = SIMD3<Float>(dx / dist, 0, dz / dist)
-            return (n, radius - dist)
-        }
-        let left = cx - boxMin.x
-        let right = boxMax.x - cx
-        let back = cz - boxMin.z
-        let front = boxMax.z - cz
-        var minDist = left
-        var n = SIMD3<Float>(1, 0, 0)
-        if right < minDist {
-            minDist = right
-            n = SIMD3<Float>(-1, 0, 0)
-        }
-        if back < minDist {
-            minDist = back
-            n = SIMD3<Float>(0, 0, 1)
-        }
-        if front < minDist {
-            minDist = front
-            n = SIMD3<Float>(0, 0, -1)
-        }
-        let depth = radius - minDist
-        if depth <= 0 {
-            return nil
-        }
-        return (n, depth)
     }
 }
 
@@ -994,7 +892,6 @@ private struct AgentSweepState {
     let velocity: SIMD3<Float>
     let radius: Float
     let halfHeight: Float
-    let filter: CollisionFilter
 }
 
 private struct CapsuleCapsuleHit {
@@ -1029,7 +926,6 @@ private struct AgentSweepSolver {
                         selfAgent: AgentCollisionComponent?,
                         selfRadius: Float,
                         halfHeight: Float,
-                        selfFilter: CollisionFilter,
                         agentStates: [AgentSweepState],
                         sweep: (SIMD3<Float>, SIMD3<Float>, Float, Float, Entity, SIMD3<Float>, SIMD3<Float>, Float, Float) -> CapsuleCapsuleHit?) -> CapsuleCapsuleHit? {
         guard let selfAgent, selfAgent.isSolid else { return nil }
@@ -1038,7 +934,6 @@ private struct AgentSweepSolver {
         let segmentDt = dt * timeScale
         for other in agentStates {
             if other.entity == selfEntity { continue }
-            if !selfFilter.canCollide(with: other.filter) { continue }
             let otherDelta = other.velocity * segmentDt
             if let hit = sweep(position,
                                remaining,
@@ -1576,8 +1471,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                position: body.positionF,
                                                velocity: body.linearVelocityF,
                                                radius: radius,
-                                               halfHeight: controller.halfHeight,
-                                               filter: agent.filter))
+                                               halfHeight: controller.halfHeight))
         }
         return agentStates
     }
@@ -1591,12 +1485,14 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                     controller: CharacterControllerComponent,
                                     platformEntities: [Entity],
                                     platBodies: ComponentStore<PhysicsBodyComponent>,
-                                    platCols: ComponentStore<ColliderComponent>) {
+                                    platTransforms: ComponentStore<TransformComponent>,
+                                    platMeshes: ComponentStore<StaticMeshComponent>) {
         let platformDelta = PlatformCarry.computeDelta(position: position,
                                                        controller: controller,
                                                        platformEntities: platformEntities,
                                                        bodies: platBodies,
-                                                       colliders: platCols)
+                                                       transforms: platTransforms,
+                                                       meshes: platMeshes)
         if simd_length_squared(platformDelta) > 1e-8 {
             position += platformDelta
         }
@@ -1634,7 +1530,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                        wasGroundedNear: Bool,
                                        selfAgent: AgentCollisionComponent?,
                                        selfRadius: Float,
-                                       selfFilter: CollisionFilter,
                                        agentStates: [AgentSweepState],
                                        cachePolicy: inout any ContactCachePolicy,
                                        query: CollisionQuery,
@@ -1671,7 +1566,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                                     selfAgent: selfAgent,
                                                     selfRadius: selfRadius,
                                                     halfHeight: controller.halfHeight,
-                                                    selfFilter: selfFilter,
                                                     agentStates: agentStates,
                                                     sweep: capsuleCapsuleSweep)
 
@@ -1798,9 +1692,11 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
         let cStore = world.store(CharacterControllerComponent.self)
         let aStore = world.store(AgentCollisionComponent.self)
         let platBodies = world.store(PhysicsBodyComponent.self)
-        let platCols = world.store(ColliderComponent.self)
+        let platTransforms = world.store(TransformComponent.self)
+        let platMeshes = world.store(StaticMeshComponent.self)
         let platformEntities = world.query(PhysicsBodyComponent.self,
-                                           ColliderComponent.self,
+                                           TransformComponent.self,
+                                           StaticMeshComponent.self,
                                            KinematicPlatformComponent.self)
         let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
         let agentStates = collectAgentStates(bodies: bodies,
@@ -1817,13 +1713,13 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             decayContactCache(controller: &controller, cachePolicy: &contactCachePolicy)
             let selfAgent = aStore[e]
             let selfRadius = selfAgent?.radiusOverride ?? controller.radius
-            let selfFilter = selfAgent?.filter ?? .default
             // Apply platform motion carry/push before character sweep.
             applyPlatformDelta(position: &position,
                                controller: controller,
                                platformEntities: platformEntities,
                                platBodies: platBodies,
-                               platCols: platCols)
+                               platTransforms: platTransforms,
+                               platMeshes: platMeshes)
             let wasGrounded = controller.grounded
             let wasGroundedNear = controller.groundedNear
             var remaining = VelocityGate.apply(body: &body,
@@ -1846,7 +1742,6 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                   wasGroundedNear: wasGroundedNear,
                                   selfAgent: selfAgent,
                                   selfRadius: selfRadius,
-                                  selfFilter: selfFilter,
                                   agentStates: agentStates,
                                   cachePolicy: &contactCachePolicy,
                                   query: query,
@@ -1881,7 +1776,6 @@ public final class AgentSeparationSystem: FixedStepSystem {
         var radius: Float
         var halfHeight: Float
         var invWeight: Float
-        var filter: CollisionFilter
         var controller: CharacterControllerComponent
     }
 
@@ -1929,7 +1823,6 @@ public final class AgentSeparationSystem: FixedStepSystem {
                         let neighbor = AgentSeparationGrid.CellCoord(x: cell.x + dx, z: cell.z + dz)
                         guard let list = grid.cells[neighbor] else { continue }
                         for j in list where j > i {
-                            if !a.filter.canCollide(with: agents[j].filter) { continue }
                             let b = agents[j]
                             let aMin = a.position.y - a.halfHeight
                             let aMax = a.position.y + a.halfHeight
@@ -2142,7 +2035,6 @@ public final class AgentSeparationSystem: FixedStepSystem {
                                 radius: radius,
                                 halfHeight: controller.halfHeight,
                                 invWeight: invWeight,
-                                filter: agent.filter,
                                 controller: controller))
             originalPositions.append(body.positionF)
         }

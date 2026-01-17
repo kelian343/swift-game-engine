@@ -420,16 +420,13 @@ public struct AgentCollisionComponent {
     public var radiusOverride: Float?
     public var massWeight: Float
     public var isSolid: Bool
-    public var filter: CollisionFilter
 
     public init(radiusOverride: Float? = nil,
                 massWeight: Float = 1.0,
-                isSolid: Bool = true,
-                filter: CollisionFilter = .default) {
+                isSolid: Bool = true) {
         self.radiusOverride = radiusOverride
         self.massWeight = massWeight
         self.isSolid = isSolid
-        self.filter = filter
     }
 }
 
@@ -634,83 +631,5 @@ public struct SurfaceMaterial: Equatable {
         self.muS = muS
         self.muK = muK
         self.flattenGround = flattenGround
-    }
-}
-
-public struct CollisionLayer: Equatable {
-    public var bits: UInt32
-
-    public static let `default` = CollisionLayer(bits: 1 << 0)
-
-    public init(bits: UInt32) {
-        self.bits = bits
-    }
-}
-
-public struct CollisionFilter: Equatable {
-    public var layer: CollisionLayer
-    public var mask: UInt32
-
-    public static let `default` = CollisionFilter(layer: .default, mask: UInt32.max)
-
-    public init(layer: CollisionLayer = .default, mask: UInt32 = UInt32.max) {
-        self.layer = layer
-        self.mask = mask
-    }
-
-    public func canCollide(with other: CollisionFilter) -> Bool {
-        (layer.bits & other.mask) != 0 && (other.layer.bits & mask) != 0
-    }
-}
-
-public enum ColliderShape: Equatable {
-    case box(halfExtents: SIMD3<Float>)
-    case sphere(radius: Float)
-    /// Capsule aligned to local Y axis (center at origin)
-    case capsule(halfHeight: Float, radius: Float)
-}
-
-public struct ColliderComponent: Equatable {
-    public var shape: ColliderShape
-    public var filter: CollisionFilter
-
-    public init(shape: ColliderShape,
-                filter: CollisionFilter = .default) {
-        self.shape = shape
-        self.filter = filter
-    }
-
-    public struct AABB {
-        public var min: SIMD3<Float>
-        public var max: SIMD3<Float>
-    }
-
-    public static func computeAABB(position: SIMD3<Float>,
-                                   rotation: simd_quatf,
-                                   collider: ColliderComponent) -> AABB {
-        switch collider.shape {
-        case .box(let he):
-            // OBB -> world AABB using |R| * he
-            let r = simd_float3x3(rotation)
-            let absR = simd_float3x3(columns: (
-                simd_abs(r.columns.0),
-                simd_abs(r.columns.1),
-                simd_abs(r.columns.2)
-            ))
-            let worldHe = simd_mul(absR, he)
-            return AABB(min: position - worldHe, max: position + worldHe)
-        case .sphere(let radius):
-            let ext = SIMD3<Float>(repeating: radius)
-            return AABB(min: position - ext, max: position + ext)
-        case .capsule(let halfHeight, let radius):
-            let localA = SIMD3<Float>(0, -halfHeight, 0)
-            let localB = SIMD3<Float>(0, halfHeight, 0)
-            let worldA = position + rotation.act(localA)
-            let worldB = position + rotation.act(localB)
-            let minBase = simd_min(worldA, worldB)
-            let maxBase = simd_max(worldA, worldB)
-            let ext = SIMD3<Float>(repeating: radius)
-            return AABB(min: minBase - ext, max: maxBase + ext)
-        }
     }
 }

@@ -124,7 +124,6 @@ public final class DemoScene: RenderScene {
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
-            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(40, 0.1, 40))))
         }
 
         // --- Kinematic Platforms: elevator + ground mover
@@ -161,7 +160,6 @@ public final class DemoScene: RenderScene {
                                                       alpha: 1.0)
             let matFlat = MaterialFactory.make(device: device, descriptor: platformFlatDesc, label: "PlatformFlatMat")
             let platformScale = SIMD3<Float>(1.5, 0.2, 1.5)
-            let platformHalfExtents = SIMD3<Float>(3.0, 0.4, 3.0)
 
             // Elevator (vertical loop)
             do {
@@ -177,7 +175,6 @@ public final class DemoScene: RenderScene {
                 world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
                                                   position: t.translation,
                                                   rotation: t.rotation))
-                world.add(e, ColliderComponent(shape: .box(halfExtents: platformHalfExtents)))
                 world.add(e, KinematicPlatformComponent(origin: t.translation,
                                                         axis: SIMD3<Float>(0, 1, 0),
                                                         amplitude: 2.0,
@@ -199,7 +196,6 @@ public final class DemoScene: RenderScene {
                 world.add(e, PhysicsBodyComponent(bodyType: .kinematic,
                                                   position: t.translation,
                                                   rotation: t.rotation))
-                world.add(e, ColliderComponent(shape: .box(halfExtents: platformHalfExtents)))
                 world.add(e, KinematicPlatformComponent(origin: t.translation,
                                                         axis: SIMD3<Float>(1, 0, 0),
                                                         amplitude: 4.0,
@@ -240,8 +236,6 @@ public final class DemoScene: RenderScene {
             world.add(e, PhysicsBodyComponent(bodyType: .dynamic,
                                               position: t.translation,
                                               rotation: t.rotation))
-            world.add(e, ColliderComponent(shape: .capsule(halfHeight: capsuleHalfHeight,
-                                                          radius: capsuleRadius)))
             world.add(e, MoveIntentComponent())
             world.add(e, MovementComponent(maxAcceleration: 14.0, maxDeceleration: 28.0))
             world.add(e, CharacterControllerComponent(radius: capsuleRadius,
@@ -299,8 +293,6 @@ public final class DemoScene: RenderScene {
                 world.add(e, PhysicsBodyComponent(bodyType: .dynamic,
                                                   position: t.translation,
                                                   rotation: t.rotation))
-                world.add(e, ColliderComponent(shape: .capsule(halfHeight: npcHalfHeight,
-                                                              radius: npcRadius)))
                 world.add(e, CharacterControllerComponent(radius: npcRadius,
                                                           halfHeight: npcHalfHeight,
                                                           skinWidth: 0.3,
@@ -338,7 +330,6 @@ public final class DemoScene: RenderScene {
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
-            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(3, 3, 3))))
         }
 
         // --- Test Ramp: sloped obstacle
@@ -368,7 +359,6 @@ public final class DemoScene: RenderScene {
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
-            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(4, 2, 4))))
         }
 
         // --- Test Dome: curved top for sliding
@@ -403,7 +393,6 @@ public final class DemoScene: RenderScene {
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
-            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(4, 4, 4))))
         }
 
 
@@ -442,7 +431,6 @@ public final class DemoScene: RenderScene {
             world.add(e, PhysicsBodyComponent(bodyType: .static,
                                               position: t.translation,
                                               rotation: t.rotation))
-            world.add(e, ColliderComponent(shape: .box(halfExtents: SIMD3<Float>(1, 1, 1))))
         }
 
         // --- FPS overlay resources

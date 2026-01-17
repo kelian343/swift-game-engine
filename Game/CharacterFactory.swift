@@ -80,8 +80,6 @@ enum CharacterFactory {
                                           rotation: t.rotation))
         world.add(e, MoveIntentComponent())
         world.add(e, MovementComponent(maxAcceleration: 20.0, maxDeceleration: 36.0))
-        world.add(e, ColliderComponent(shape: .capsule(halfHeight: playerHalfHeight,
-                                                      radius: playerRadius)))
         world.add(e, CharacterControllerComponent(radius: playerRadius,
                                                   halfHeight: playerHalfHeight,
                                                   skinWidth: 0.3,
