@@ -132,22 +132,36 @@ final class InputSystem: System {
         lastJumpPressed = jumpPressed
 
         mStore[player] = intent
+    }
 
-        // Camera follow (simple version, no interpolation)
+    func updateCamera(world: World) {
+        guard let player = player, let camera = camera else { return }
         let tStore = world.store(TransformComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
-        let basePos = pStore[player]?.position ?? tStore[player]?.translation ?? .zero
-
-        if let camera = camera {
-            let target = basePos + SIMD3<Float>(0, cameraHeight, 0)
-            let dir = SIMD3<Float>(
-                sinf(yaw) * cosf(pitch),
-                sinf(pitch),
-                cosf(yaw) * cosf(pitch)
-            )
-            camera.position = target + dir * cameraDistance
-            camera.target = target
-        }
+        let timeStore = world.store(TimeComponent.self)
+        let alpha: Float = {
+            guard let e = world.query(TimeComponent.self).first,
+                  let t = timeStore[e],
+                  t.fixedDelta > 0 else {
+                return 1.0
+            }
+            let a = t.accumulator / t.fixedDelta
+            return min(max(a, 0), 1)
+        }()
+        let basePos: SIMD3<Float> = {
+            if let p = pStore[player] {
+                return p.prevPosition + (p.position - p.prevPosition) * alpha
+            }
+            return tStore[player]?.translation ?? .zero
+        }()
+        let target = basePos + SIMD3<Float>(0, cameraHeight, 0)
+        let dir = SIMD3<Float>(
+            sinf(yaw) * cosf(pitch),
+            sinf(pitch),
+            cosf(yaw) * cosf(pitch)
+        )
+        camera.position = target + dir * cameraDistance
+        camera.target = target
     }
 
     // Same yaw convention as your correct version:

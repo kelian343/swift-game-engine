@@ -446,6 +446,7 @@ public final class DemoScene: RenderScene {
             toneMappingExposure = min(max(toneMappingExposure + inputSystem.exposureDelta * dt, 0.1), 2.0)
         }
         fixedRunner.update(world: world)
+        inputSystem.updateCamera(world: world)
 
         camera.updateView()
 
