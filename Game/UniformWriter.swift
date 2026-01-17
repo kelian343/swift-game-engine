@@ -19,7 +19,8 @@ func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
                    occlusionStrength: Float,
                    exposure: Float,
                    toneMapEnabled: Bool,
-                   cameraPosition: SIMD3<Float>) {
+                   cameraPosition: SIMD3<Float>,
+                   worldOrigin: SIMD3<Float>) {
 
     ptr[0].projectionMatrix = projection
     ptr[0].viewMatrix = view
@@ -33,4 +34,5 @@ func writeUniforms(_ ptr: UnsafeMutablePointer<Uniforms>,
     ptr[0].exposure = exposure
     ptr[0].toneMapEnabled = toneMapEnabled ? 1.0 : 0.0
     ptr[0].cameraPosition = cameraPosition
+    ptr[0].worldOrigin = worldOrigin
 }

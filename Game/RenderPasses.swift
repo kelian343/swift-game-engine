@@ -28,7 +28,8 @@ private func encodeItems(_ items: [RenderItem],
                       occlusionStrength: item.material.occlusionStrength,
                       exposure: item.material.exposure,
                       toneMapEnabled: item.material.toneMapped,
-                      cameraPosition: frame.cameraPosition)
+                      cameraPosition: frame.cameraPosition,
+                      worldOrigin: frame.cameraWorldOrigin)
 
         let tex = item.material.baseColorTexture?.texture ?? frame.fallbackWhite.texture
         let normalTex = item.material.normalTexture?.texture ?? frame.fallbackNormal.texture

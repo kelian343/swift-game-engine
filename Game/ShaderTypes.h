@@ -73,19 +73,23 @@ typedef struct
     float occlusionStrength;
     vector_float3 cameraPosition;
     float pad0;
+    vector_float3 worldOrigin;
+    float pad1;
 } Uniforms;
 
 typedef struct
 {
     matrix_float4x4 invViewProj;
     vector_float3 cameraPosition;
+    float pad0;
+    vector_float3 worldOrigin;
     vector_uint2 imageSize;
     float ambientIntensity;
-    uint32_t pad0;
+    uint32_t pad1;
     uint32_t textureCount;
     uint32_t dirLightCount;
     uint32_t envMipCount;
-    uint32_t pad1;
+    uint32_t pad2;
     vector_float3 envSH0;
     vector_float3 envSH1;
     vector_float3 envSH2;

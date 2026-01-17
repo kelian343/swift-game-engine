@@ -10,13 +10,15 @@ import simd
 struct RTFrameUniformsSwift {
     var invViewProj: matrix_float4x4
     var cameraPosition: SIMD3<Float>
+    var pad0: Float
+    var worldOrigin: SIMD3<Float>
     var imageSize: SIMD2<UInt32>
     var ambientIntensity: Float
-    var pad0: UInt32
+    var pad1: UInt32
     var textureCount: UInt32
     var dirLightCount: UInt32
     var envMipCount: UInt32
-    var pad1: UInt32
+    var pad2: UInt32
     var envSH0: SIMD3<Float>
     var envSH1: SIMD3<Float>
     var envSH2: SIMD3<Float>

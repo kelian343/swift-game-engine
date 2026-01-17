@@ -108,6 +108,7 @@ struct FrameContext {
     let projection: matrix_float4x4
     let viewMatrix: matrix_float4x4
     let cameraPosition: SIMD3<Float>
+    let cameraWorldOrigin: SIMD3<Float>
 }
 
 final class RenderGraphResources {

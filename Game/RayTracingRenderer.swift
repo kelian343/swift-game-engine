@@ -69,16 +69,22 @@ final class RayTracingRenderer {
         let height = max(Int(outputSize.height), 1)
         let (envSH0, envSH1) = RayTracingRenderer.makeHemisphereSH()
 
+        let cameraWorld = WorldPosition.toWorld(chunk: camera.worldChunk, local: camera.worldLocal)
+        let worldOrigin = SIMD3<Float>(Float(cameraWorld.x),
+                                       Float(cameraWorld.y),
+                                       Float(cameraWorld.z))
         var rtFrame = RTFrameUniformsSwift(
             invViewProj: invViewProj,
             cameraPosition: camera.position,
+            pad0: 0,
+            worldOrigin: worldOrigin,
             imageSize: SIMD2<UInt32>(UInt32(width), UInt32(height)),
             ambientIntensity: 0.25,
-            pad0: 0,
+            pad1: 0,
             textureCount: UInt32(geometry?.textures.count ?? 0),
             dirLightCount: UInt32(lights.count),
             envMipCount: ibl.envMipCount,
-            pad1: 0,
+            pad2: 0,
             envSH0: envSH0,
             envSH1: envSH1,
             envSH2: .zero,

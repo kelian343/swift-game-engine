@@ -197,6 +197,11 @@ final class Renderer: NSObject, MTKViewDelegate {
         let compositeItems = makeCompositeItems(size: view.drawableSize,
                                                exposure: scene.toneMappingExposure,
                                                toneMapped: scene.toneMappingEnabled)
+        let cameraWorld = WorldPosition.toWorld(chunk: scene.camera.worldChunk,
+                                               local: scene.camera.worldLocal)
+        let cameraWorldOrigin = SIMD3<Float>(Float(cameraWorld.x),
+                                             Float(cameraWorld.y),
+                                             Float(cameraWorld.z))
         let frame = FrameContext(scene: scene,
                                  items: [],
                                  compositeItems: compositeItems,
@@ -211,7 +216,8 @@ final class Renderer: NSObject, MTKViewDelegate {
                                  fallbackOcclusion: fallbackOcclusion,
                                  projection: overlayProjection,
                                  viewMatrix: overlayView,
-                                 cameraPosition: scene.camera.position)
+                                 cameraPosition: scene.camera.position,
+                                 cameraWorldOrigin: cameraWorldOrigin)
         renderGraph.execute(frame: frame, view: view, commandBuffer: commandBuffer)
 
         commandBuffer.present(drawable)
