@@ -138,6 +138,7 @@ final class InputSystem: System {
         guard let player = player, let camera = camera else { return }
         let tStore = world.store(TransformComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
+        let wStore = world.store(WorldPositionComponent.self)
         let timeStore = world.store(TimeComponent.self)
         let alpha: Float = {
             guard let e = world.query(TimeComponent.self).first,
@@ -148,20 +149,37 @@ final class InputSystem: System {
             let a = t.accumulator / t.fixedDelta
             return min(max(a, 0), 1)
         }()
-        let basePos: SIMD3<Float> = {
-            if let p = pStore[player] {
-                return p.prevPosition + (p.position - p.prevPosition) * alpha
+        let baseWorld: SIMD3<Double> = {
+            if let w = wStore[player] {
+                let prevWorld = WorldPosition.toWorld(chunk: w.prevChunk, local: w.prevLocal)
+                let currWorld = WorldPosition.toWorld(chunk: w.chunk, local: w.local)
+                return prevWorld + (currWorld - prevWorld) * Double(alpha)
             }
-            return tStore[player]?.translation ?? .zero
+            if let p = pStore[player] {
+                let pos = p.prevPosition + (p.position - p.prevPosition) * Double(alpha)
+                return pos
+            }
+            let pos = tStore[player]?.translation ?? .zero
+            return SIMD3<Double>(Double(pos.x), Double(pos.y), Double(pos.z))
         }()
-        let target = basePos + SIMD3<Float>(0, cameraHeight, 0)
+        let targetWorld = baseWorld + SIMD3<Double>(0, Double(cameraHeight), 0)
         let dir = SIMD3<Float>(
             sinf(yaw) * cosf(pitch),
             sinf(pitch),
             cosf(yaw) * cosf(pitch)
         )
-        camera.position = target + dir * cameraDistance
-        camera.target = target
+        let offset = SIMD3<Double>(Double(dir.x) * Double(cameraDistance),
+                                   Double(dir.y) * Double(cameraDistance),
+                                   Double(dir.z) * Double(cameraDistance))
+        let cameraWorld = targetWorld + offset
+        let (chunk, local) = WorldPosition.fromWorld(cameraWorld)
+        camera.worldChunk = chunk
+        camera.worldLocal = local
+        let targetRender = targetWorld - cameraWorld
+        camera.position = .zero
+        camera.target = SIMD3<Float>(Float(targetRender.x),
+                                     Float(targetRender.y),
+                                     Float(targetRender.z))
     }
 
     // Same yaw convention as your correct version:

@@ -15,6 +15,8 @@ public final class Camera {
     public var position = SIMD3<Float>(0, 0, 8)  // camera at +Z looking at origin
     public var target   = SIMD3<Float>(0, 0, 0)
     public var up       = SIMD3<Float>(0, 1, 0)
+    public var worldChunk = SIMD3<Int64>(0, 0, 0)
+    public var worldLocal = SIMD3<Double>(0, 0, 0)
 
     public private(set) var projection = matrix_identity_float4x4
     public private(set) var view = matrix_identity_float4x4

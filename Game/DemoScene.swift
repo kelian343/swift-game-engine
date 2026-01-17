@@ -40,6 +40,7 @@ public final class DemoScene: RenderScene {
     private let collisionQueryRefreshSystem: CollisionQueryRefreshSystem
     private let physicsIntegrateSystem = PhysicsIntegrateSystem()
     private let physicsWritebackSystem = PhysicsWritebackSystem()
+    private let worldPositionSyncSystem = WorldPositionSyncSystem()
     private let fixedRunner: FixedStepRunner
     private let extractSystem = RenderExtractSystem()
 
@@ -58,7 +59,7 @@ public final class DemoScene: RenderScene {
                     physicsIntegrateSystem,
                     locomotionProfileSystem,
                     poseStackSystem],
-            postFixed: [physicsWritebackSystem]
+            postFixed: [physicsWritebackSystem, worldPositionSyncSystem]
         )
     }
 
@@ -108,6 +109,7 @@ public final class DemoScene: RenderScene {
             var t = TransformComponent()
             t.translation = SIMD3<Float>(0, groundY, 0)
             world.add(e, t)
+            world.add(e, WorldPositionComponent(translation: t.translation))
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, StaticMeshComponent(mesh: meshDesc,
                                              material: SurfaceMaterial(muS: 0.9, muK: 0.8)))
@@ -160,6 +162,7 @@ public final class DemoScene: RenderScene {
                 t.translation = SIMD3<Float>(16, -1.0, 0)
                 t.scale = platformScale
                 world.add(e, t)
+                world.add(e, WorldPositionComponent(translation: t.translation))
                 world.add(e, RenderComponent(mesh: mesh, material: matUp))
                 world.add(e, StaticMeshComponent(mesh: meshDesc,
                                                  material: SurfaceMaterial(muS: 0.9, muK: 0.7)))
@@ -181,6 +184,7 @@ public final class DemoScene: RenderScene {
                 t.translation = SIMD3<Float>(-16, -2.0, 12)
                 t.scale = platformScale
                 world.add(e, t)
+                world.add(e, WorldPositionComponent(translation: t.translation))
                 world.add(e, RenderComponent(mesh: mesh, material: matFlat))
                 world.add(e, StaticMeshComponent(mesh: meshDesc,
                                                  material: SurfaceMaterial(muS: 0.9, muK: 0.7)))
@@ -223,6 +227,7 @@ public final class DemoScene: RenderScene {
             let groundContactY = groundY + capsuleRadius + capsuleHalfHeight
             t.translation = SIMD3<Float>(24.0, groundContactY + 2.0, 16.0)
             world.add(e, t)
+            world.add(e, WorldPositionComponent(translation: t.translation))
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, PhysicsBodyComponent(bodyType: .dynamic,
                                               position: t.translation,
@@ -281,6 +286,7 @@ public final class DemoScene: RenderScene {
                 var t = TransformComponent()
                 t.translation = pos
                 world.add(e, t)
+                world.add(e, WorldPositionComponent(translation: t.translation))
                 world.add(e, RenderComponent(mesh: mesh, material: mat))
                 world.add(e, PhysicsBodyComponent(bodyType: .dynamic,
                                                   position: t.translation,
@@ -318,6 +324,7 @@ public final class DemoScene: RenderScene {
             var t = TransformComponent()
             t.translation = SIMD3<Float>(0, 0, -10)
             world.add(e, t)
+            world.add(e, WorldPositionComponent(translation: t.translation))
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, StaticMeshComponent(mesh: meshDesc))
             world.add(e, PhysicsBodyComponent(bodyType: .static,
@@ -344,6 +351,7 @@ public final class DemoScene: RenderScene {
             var t = TransformComponent()
             t.translation = SIMD3<Float>(8, groundY + rampHeight * 0.5, 0)
             world.add(e, t)
+            world.add(e, WorldPositionComponent(translation: t.translation))
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, StaticMeshComponent(mesh: meshDesc,
                                              material: SurfaceMaterial(muS: 0.35,
@@ -380,6 +388,7 @@ public final class DemoScene: RenderScene {
             var t = TransformComponent()
             t.translation = SIMD3<Float>(-10, groundY, -6)
             world.add(e, t)
+            world.add(e, WorldPositionComponent(translation: t.translation))
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, StaticMeshComponent(mesh: meshDesc,
                                              material: SurfaceMaterial(muS: 0.3, muK: 0.2)))
@@ -419,6 +428,7 @@ public final class DemoScene: RenderScene {
             var t = TransformComponent()
             t.translation = SIMD3<Float>(-6, -2, 4)
             world.add(e, t)
+            world.add(e, WorldPositionComponent(translation: t.translation))
             world.add(e, RenderComponent(mesh: mesh, material: mat))
             world.add(e, StaticMeshComponent(mesh: meshDesc))
             world.add(e, PhysicsBodyComponent(bodyType: .static,
@@ -431,7 +441,7 @@ public final class DemoScene: RenderScene {
         fpsOverlaySystem = FPSOverlaySystem(device: device)
 
         // Extract initial draw calls
-        renderItems = extractSystem.extract(world: world)
+        renderItems = extractSystem.extract(world: world, camera: camera)
         sceneServices.rebuildAll(world: world)
 
         // New resources were created -> bump revision once
@@ -451,7 +461,7 @@ public final class DemoScene: RenderScene {
         camera.updateView()
 
         // Render extraction (derived every frame)
-        renderItems = extractSystem.extract(world: world)
+        renderItems = extractSystem.extract(world: world, camera: camera)
         overlayItems = fpsOverlaySystem?.update(dt: dt) ?? []
     }
 

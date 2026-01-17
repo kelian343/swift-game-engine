@@ -44,6 +44,91 @@ public struct TransformComponent {
     }
 }
 
+// MARK: - World Position (Chunk + Local)
+
+public enum WorldPosition {
+    public static let chunkSize: Double = 512.0
+    public static let halfChunkSize: Double = chunkSize * 0.5
+
+    public static func fromWorld(_ world: SIMD3<Double>) -> (SIMD3<Int64>, SIMD3<Double>) {
+        func axis(_ value: Double) -> (Int64, Double) {
+            let shift = Int64(floor((value + halfChunkSize) / chunkSize))
+            let local = value - Double(shift) * chunkSize
+            return (shift, local)
+        }
+
+        let (cx, lx) = axis(world.x)
+        let (cy, ly) = axis(world.y)
+        let (cz, lz) = axis(world.z)
+        return (SIMD3<Int64>(cx, cy, cz), SIMD3<Double>(lx, ly, lz))
+    }
+
+    public static func canonicalize(chunk: inout SIMD3<Int64>, local: inout SIMD3<Double>) {
+        func normalizeAxis(_ value: Double) -> (Int64, Double) {
+            let shift = Int64(floor((value + halfChunkSize) / chunkSize))
+            let local = value - Double(shift) * chunkSize
+            return (shift, local)
+        }
+
+        let (dx, lx) = normalizeAxis(local.x)
+        let (dy, ly) = normalizeAxis(local.y)
+        let (dz, lz) = normalizeAxis(local.z)
+
+        chunk.x += dx
+        chunk.y += dy
+        chunk.z += dz
+        local = SIMD3<Double>(lx, ly, lz)
+    }
+
+    public static func toWorld(chunk: SIMD3<Int64>, local: SIMD3<Double>) -> SIMD3<Double> {
+        SIMD3<Double>(
+            Double(chunk.x) * chunkSize + local.x,
+            Double(chunk.y) * chunkSize + local.y,
+            Double(chunk.z) * chunkSize + local.z
+        )
+    }
+
+    public static func relativePosition(chunk: SIMD3<Int64>,
+                                        local: SIMD3<Double>,
+                                        cameraChunk: SIMD3<Int64>,
+                                        cameraLocal: SIMD3<Double>) -> SIMD3<Float> {
+        let dx = Double(chunk.x - cameraChunk.x) * chunkSize + (local.x - cameraLocal.x)
+        let dy = Double(chunk.y - cameraChunk.y) * chunkSize + (local.y - cameraLocal.y)
+        let dz = Double(chunk.z - cameraChunk.z) * chunkSize + (local.z - cameraLocal.z)
+        return SIMD3<Float>(Float(dx), Float(dy), Float(dz))
+    }
+}
+
+public struct WorldPositionComponent {
+    public var chunk: SIMD3<Int64>
+    public var local: SIMD3<Double>
+    public var prevChunk: SIMD3<Int64>
+    public var prevLocal: SIMD3<Double>
+
+    public init(chunk: SIMD3<Int64> = SIMD3<Int64>(0, 0, 0),
+                local: SIMD3<Double> = SIMD3<Double>(0, 0, 0)) {
+        self.chunk = chunk
+        self.local = local
+        self.prevChunk = chunk
+        self.prevLocal = local
+    }
+
+    public init(world: SIMD3<Double>) {
+        let (chunk, local) = WorldPosition.fromWorld(world)
+        self.chunk = chunk
+        self.local = local
+        self.prevChunk = chunk
+        self.prevLocal = local
+    }
+
+    public init(translation: SIMD3<Float>) {
+        let world = SIMD3<Double>(Double(translation.x),
+                                  Double(translation.y),
+                                  Double(translation.z))
+        self.init(world: world)
+    }
+}
+
 // MARK: - Render
 
 public struct RenderComponent {
@@ -417,12 +502,12 @@ public enum BodyType {
 
 public struct PhysicsBodyComponent {
     public var bodyType: BodyType
-    public var position: SIMD3<Float>
+    public var position: SIMD3<Double>
     public var rotation: simd_quatf
-    public var prevPosition: SIMD3<Float>
+    public var prevPosition: SIMD3<Double>
     public var prevRotation: simd_quatf
-    public var linearVelocity: SIMD3<Float>
-    public var angularVelocity: SIMD3<Float>
+    public var linearVelocity: SIMD3<Double>
+    public var angularVelocity: SIMD3<Double>
     public var mass: Float
     public var inverseMass: Float
 
@@ -433,14 +518,36 @@ public struct PhysicsBodyComponent {
                 angularVelocity: SIMD3<Float> = .zero,
                 mass: Float = 1.0) {
         self.bodyType = bodyType
-        self.position = position
+        self.position = SIMD3<Double>(Double(position.x),
+                                      Double(position.y),
+                                      Double(position.z))
         self.rotation = rotation
-        self.prevPosition = position
+        self.prevPosition = self.position
         self.prevRotation = rotation
-        self.linearVelocity = linearVelocity
-        self.angularVelocity = angularVelocity
+        self.linearVelocity = SIMD3<Double>(Double(linearVelocity.x),
+                                            Double(linearVelocity.y),
+                                            Double(linearVelocity.z))
+        self.angularVelocity = SIMD3<Double>(Double(angularVelocity.x),
+                                             Double(angularVelocity.y),
+                                             Double(angularVelocity.z))
         self.mass = mass
         self.inverseMass = mass > 0 ? 1.0 / mass : 0
+    }
+
+    public var positionF: SIMD3<Float> {
+        SIMD3<Float>(Float(position.x), Float(position.y), Float(position.z))
+    }
+
+    public var prevPositionF: SIMD3<Float> {
+        SIMD3<Float>(Float(prevPosition.x), Float(prevPosition.y), Float(prevPosition.z))
+    }
+
+    public var linearVelocityF: SIMD3<Float> {
+        SIMD3<Float>(Float(linearVelocity.x), Float(linearVelocity.y), Float(linearVelocity.z))
+    }
+
+    public var angularVelocityF: SIMD3<Float> {
+        SIMD3<Float>(Float(angularVelocity.x), Float(angularVelocity.y), Float(angularVelocity.z))
     }
 }
 

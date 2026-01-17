@@ -137,7 +137,7 @@ public final class KinematicPlatformMotionSystem: FixedStepSystem {
             let newPos = k.origin + axis * offset
 
             t.translation = newPos
-            p.position = newPos
+            p.position = d3(newPos)
             p.linearVelocity = .zero
 
             tStore[e] = t
@@ -209,16 +209,18 @@ public final class PhysicsIntentSystem: FixedStepSystem {
             if body.bodyType == .dynamic || body.bodyType == .kinematic {
                 let move = mvStore[e] ?? MovementComponent()
                 if cStore.contains(e) {
-                    let target = SIMD3<Float>(intent.desiredVelocity.x, 0, intent.desiredVelocity.z)
-                    let current = SIMD3<Float>(body.linearVelocity.x, 0, body.linearVelocity.z)
+                    let target = SIMD3<Double>(Double(intent.desiredVelocity.x), 0, Double(intent.desiredVelocity.z))
+                    let current = SIMD3<Double>(body.linearVelocity.x, 0, body.linearVelocity.z)
                     let accel = simd_length(target) >= simd_length(current) ? move.maxAcceleration : move.maxDeceleration
-                    let next = approachVec(current: current, target: target, maxDelta: accel * dt)
-                    body.linearVelocity = SIMD3<Float>(next.x, body.linearVelocity.y, next.z)
+                    let next = approachVecD(current: current, target: target, maxDelta: Double(accel) * Double(dt))
+                    body.linearVelocity = SIMD3<Double>(next.x, body.linearVelocity.y, next.z)
                 } else {
-                    let target = intent.desiredVelocity
+                    let target = d3(intent.desiredVelocity)
                     let current = body.linearVelocity
                     let accel = simd_length(target) >= simd_length(current) ? move.maxAcceleration : move.maxDeceleration
-                    body.linearVelocity = approachVec(current: current, target: target, maxDelta: accel * dt)
+                    body.linearVelocity = approachVecD(current: current,
+                                                       target: target,
+                                                       maxDelta: Double(accel) * Double(dt))
                 }
                 if intent.hasFacingYaw {
                     body.rotation = simd_quatf(angle: intent.desiredFacingYaw,
@@ -308,11 +310,11 @@ public final class LocomotionProfileSystem: FixedStepSystem {
                   var profile = mStore[e],
                   let body = pStore[e],
                   let controller = cStore[e] else { continue }
-            let speed = simd_length(SIMD3<Float>(body.linearVelocity.x, 0, body.linearVelocity.z))
+            let speed = Float(simd_length(SIMD3<Double>(body.linearVelocity.x, 0, body.linearVelocity.z)))
             let isAirborne = !controller.groundedNear
             let nextState: LocomotionState
             if isAirborne {
-                let highFall = body.linearVelocity.y <= -locomotion.fallMinDownSpeed
+                let highFall = body.linearVelocity.y <= -Double(locomotion.fallMinDownSpeed)
                 if locomotion.state == .falling || highFall {
                     nextState = .falling
                 } else {
@@ -395,6 +397,23 @@ private func approachVec(current: SIMD3<Float>, target: SIMD3<Float>, maxDelta: 
     return current + delta / len * maxDelta
 }
 
+private func approachVecD(current: SIMD3<Double>, target: SIMD3<Double>, maxDelta: Double) -> SIMD3<Double> {
+    let delta = target - current
+    let len = simd_length(delta)
+    if len <= maxDelta || len < 0.00001 {
+        return target
+    }
+    return current + delta / len * maxDelta
+}
+
+private func d3(_ v: SIMD3<Float>) -> SIMD3<Double> {
+    SIMD3<Double>(Double(v.x), Double(v.y), Double(v.z))
+}
+
+private func f3(_ v: SIMD3<Double>) -> SIMD3<Float> {
+    SIMD3<Float>(Float(v.x), Float(v.y), Float(v.z))
+}
+
 /// Apply jump impulses for grounded characters.
 public final class JumpSystem: FixedStepSystem {
     public var jumpSpeed: Float
@@ -415,7 +434,7 @@ public final class JumpSystem: FixedStepSystem {
                   var intent = mStore[e],
                   var controller = cStore[e] else { continue }
             if intent.jumpRequested && controller.grounded {
-                body.linearVelocity.y = jumpSpeed
+                body.linearVelocity.y = Double(jumpSpeed)
                 controller.grounded = false
                 pStore[e] = body
                 cStore[e] = controller
@@ -447,7 +466,7 @@ public final class GravitySystem: FixedStepSystem {
             if let controller = cStore[e], controller.grounded, controller.groundedNear {
                 continue
             }
-            body.linearVelocity += gravity * dt
+            body.linearVelocity += d3(gravity) * Double(dt)
             pStore[e] = body
         }
     }
@@ -475,10 +494,10 @@ private struct PlatformCarry {
         for pe in platformEntities {
             guard let pBody = bodies[pe], let pCol = colliders[pe] else { continue }
             if pBody.bodyType != .kinematic { continue }
-            let pDelta = pBody.position - pBody.prevPosition
+            let pDelta = pBody.positionF - pBody.prevPositionF
             if simd_length_squared(pDelta) < 1e-8 { continue }
 
-            let aabb = ColliderComponent.computeAABB(position: pBody.position,
+            let aabb = ColliderComponent.computeAABB(position: pBody.positionF,
                                                      rotation: pBody.rotation,
                                                      collider: pCol)
             let expandedMin = aabb.min - SIMD3<Float>(repeating: sideTol)
@@ -550,10 +569,10 @@ private struct PlatformPushOut {
         for pe in platformEntities {
             guard let pBody = bodies[pe], let pCol = colliders[pe] else { continue }
             if pBody.bodyType != .kinematic { continue }
-            let pDelta = pBody.position - pBody.prevPosition
+            let pDelta = pBody.positionF - pBody.prevPositionF
             if simd_length_squared(pDelta) < 1e-8 { continue }
             guard case .box = pCol.shape else { continue }
-            let aabb = ColliderComponent.computeAABB(position: pBody.position,
+            let aabb = ColliderComponent.computeAABB(position: pBody.positionF,
                                                      rotation: pBody.rotation,
                                                      collider: pCol)
             let capsuleHalf = controller.halfHeight + controller.radius
@@ -590,7 +609,7 @@ private struct PlatformPushOut {
             guard let pBody = bodies[pe], let pCol = colliders[pe] else { continue }
             if pBody.bodyType != .kinematic { continue }
             guard case .box = pCol.shape else { continue }
-            let aabb = ColliderComponent.computeAABB(position: pBody.position,
+            let aabb = ColliderComponent.computeAABB(position: pBody.positionF,
                                                      rotation: pBody.rotation,
                                                      collider: pCol)
             let baseY = position.y - capsuleHalf
@@ -605,9 +624,10 @@ private struct PlatformPushOut {
                                                        boxMin: aabb.min,
                                                        boxMax: aabb.max) {
                 position += n * depth
-                let vInto = simd_dot(body.linearVelocity, n)
+                let nD = d3(n)
+                let vInto = simd_dot(body.linearVelocity, nD)
                 if vInto < 0 {
-                    body.linearVelocity -= n * vInto
+                    body.linearVelocity -= nD * vInto
                 }
                 blocked = true
             }
@@ -722,9 +742,10 @@ private struct DepenetrationResolver {
             }
             if push <= 1e-6 { break }
             position += depenNormal * push
-            let vInto = simd_dot(body.linearVelocity, depenNormal)
+            let depenNormalD = d3(depenNormal)
+            let vInto = simd_dot(body.linearVelocity, depenNormalD)
             if vInto < 0 {
-                body.linearVelocity -= depenNormal * vInto
+                body.linearVelocity -= depenNormalD * vInto
             }
             didResolve = true
             normalSum += depenNormal * maxDepth
@@ -794,8 +815,8 @@ private struct GroundProbe {
         let nearGround = centerHit.toi <= groundNearThreshold
         state.groundedNear = nearGround
         let groundGateVel = body.linearVelocity.y <= 0
-        let vInto = simd_dot(body.linearVelocity, centerHit.normal)
-        let groundGateSpeed = vInto >= -controller.groundSnapMaxSpeed
+        let vInto = simd_dot(body.linearVelocity, d3(centerHit.normal))
+        let groundGateSpeed = vInto >= -Double(controller.groundSnapMaxSpeed)
         let groundGateToi = centerHit.toi <= controller.groundSnapMaxToi
         var canSnap = validGroundPoint && groundGateVel && (nearGround || groundGateSpeed || groundGateToi)
         if wasGroundedNear && centerHit.toi <= controller.snapDistance {
@@ -869,9 +890,9 @@ private struct GroundSnap {
             moveDist = controller.groundSnapMaxStep
         }
         position += down * moveDist
-        let vIntoSnap = simd_dot(body.linearVelocity, centerHit.normal)
+        let vIntoSnap = simd_dot(body.linearVelocity, d3(centerHit.normal))
         if vIntoSnap < 0 {
-            body.linearVelocity -= centerHit.normal * vIntoSnap
+            body.linearVelocity -= d3(centerHit.normal) * vIntoSnap
         }
     }
 }
@@ -904,6 +925,8 @@ private struct SlopeFriction {
         if gTanLen > slopeAccelEps {
             let gNMag = abs(gN)
             let gTanDir = gTan / gTanLen
+            let gTanDirD = d3(gTanDir)
+            let normalD = d3(normal)
             let stickLimit = state.material.muS * gNMag
             let enterSlide = gTanLen > stickLimit * 1.05
             let exitSlide = gTanLen < stickLimit * 0.9
@@ -917,15 +940,15 @@ private struct SlopeFriction {
 
             if !controller.groundSliding && gTanLen <= stickLimit {
                 let v = body.linearVelocity
-                let vTan = v - normal * simd_dot(v, normal)
-                let downhillSpeed = simd_dot(vTan, gTanDir)
+                let vTan = v - normalD * simd_dot(v, normalD)
+                let downhillSpeed = simd_dot(vTan, gTanDirD)
                 if downhillSpeed > 0 {
-                    body.linearVelocity -= gTanDir * downhillSpeed
+                    body.linearVelocity -= gTanDirD * downhillSpeed
                 }
             } else {
                 let slideAccelMag = max(gTanLen - state.material.muK * gNMag, 0)
                 if slideAccelMag > 0 {
-                    body.linearVelocity += gTanDir * slideAccelMag * dt
+                    body.linearVelocity += gTanDirD * Double(slideAccelMag) * Double(dt)
                 }
             }
         }
@@ -955,11 +978,11 @@ private struct VelocityGate {
         if wasGrounded && wasGroundedNear && body.linearVelocity.y < 0 {
             body.linearVelocity.y = 0
         }
-        var remaining = body.linearVelocity * dt
+        var remaining = body.linearVelocity * Double(dt)
         if wasGrounded && wasGroundedNear && remaining.y < 0 {
             remaining.y = 0
         }
-        return remaining
+        return f3(remaining)
     }
 }
 
@@ -1280,9 +1303,9 @@ private struct SlideResolver {
         remaining = leftover
 
         if options.adjustVelocity {
-            let vInto = simd_dot(body.linearVelocity, slideNormal)
+            let vInto = simd_dot(body.linearVelocity, d3(slideNormal))
             if vInto < 0 {
-                body.linearVelocity -= slideNormal * vInto
+                body.linearVelocity -= d3(slideNormal) * vInto
             }
         }
 
@@ -1515,8 +1538,8 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             guard let agent = aStore[e], agent.isSolid else { continue }
             let radius = agent.radiusOverride ?? controller.radius
             agentStates.append(AgentSweepState(entity: e,
-                                               position: body.position,
-                                               velocity: body.linearVelocity,
+                                               position: body.positionF,
+                                               velocity: body.linearVelocityF,
                                                radius: radius,
                                                halfHeight: controller.halfHeight,
                                                filter: agent.filter))
@@ -1581,7 +1604,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                                        cachePolicy: inout any ContactCachePolicy,
                                        query: CollisionQuery,
                                        dt: Float) {
-        let baseMove = body.linearVelocity * dt
+        let baseMove = body.linearVelocityF * dt
         let baseMoveLen = simd_length(baseMove)
         var lastSlideNormal: SIMD3<Float>? = nil
         for _ in 0..<controller.maxSlideIterations {
@@ -1721,7 +1744,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
                            cStore: ComponentStore<CharacterControllerComponent>) {
         var nextBody = body
         var nextController = controller
-        nextBody.position = position
+        nextBody.position = d3(position)
         nextController.grounded = groundState.grounded
         nextController.groundedNear = groundState.groundedNear
         nextController.groundNormal = groundState.grounded ? groundState.normal : SIMD3<Float>(0, 1, 0)
@@ -1751,7 +1774,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             guard var body = pStore[e], var controller = cStore[e] else { continue }
             if body.bodyType == .static { continue }
 
-            var position = body.position
+            var position = body.positionF
             decayContactCache(controller: &controller, cachePolicy: &contactCachePolicy)
             let selfAgent = aStore[e]
             let selfRadius = selfAgent?.radiusOverride ?? controller.radius
@@ -2073,14 +2096,14 @@ public final class AgentSeparationSystem: FixedStepSystem {
             }
             maxRadius = max(maxRadius, radius)
             agents.append(Agent(entity: e,
-                                position: body.position,
-                                velocity: body.linearVelocity,
+                                position: body.positionF,
+                                velocity: body.linearVelocityF,
                                 radius: radius,
                                 halfHeight: controller.halfHeight,
                                 invWeight: invWeight,
                                 filter: agent.filter,
                                 controller: controller))
-            originalPositions.append(body.position)
+            originalPositions.append(body.positionF)
         }
 
         guard agents.count > 1 else { return }
@@ -2106,8 +2129,8 @@ public final class AgentSeparationSystem: FixedStepSystem {
                                                                             body: &body,
                                                                             query: query)
 
-            body.position = position
-            body.linearVelocity = agents[idx].velocity
+            body.position = d3(position)
+            body.linearVelocity = d3(agents[idx].velocity)
             pStore[agent.entity] = body
             cStore[agent.entity] = controller
         }
@@ -2133,12 +2156,12 @@ public final class PhysicsIntegrateSystem: FixedStepSystem {
             case .static:
                 break
             case .kinematic, .dynamic:
-                body.position += body.linearVelocity * dt
+                body.position += body.linearVelocity * Double(dt)
                 let w = body.angularVelocity
                 let wLen = simd_length(w)
                 if wLen > 0.0001 {
                     let axis = w / wLen
-                    let dq = simd_quatf(angle: wLen * dt, axis: axis)
+                    let dq = simd_quatf(angle: Float(wLen * Double(dt)), axis: f3(axis))
                     body.rotation = simd_normalize(dq * body.rotation)
                 }
             }
@@ -2160,9 +2183,42 @@ public final class PhysicsWritebackSystem: FixedStepSystem {
 
         for e in bodies {
             guard let body = pStore[e], var t = tStore[e] else { continue }
-            t.translation = body.position
+            t.translation = body.positionF
             t.rotation = body.rotation
             tStore[e] = t
+        }
+    }
+}
+
+/// Sync chunk/local world positions from current transforms/physics.
+public final class WorldPositionSyncSystem: FixedStepSystem {
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        _ = dt
+        let entities = world.query(WorldPositionComponent.self, TransformComponent.self)
+        guard !entities.isEmpty else { return }
+
+        let wStore = world.store(WorldPositionComponent.self)
+        let tStore = world.store(TransformComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+
+        for e in entities {
+            guard var w = wStore[e], let t = tStore[e] else { continue }
+            w.prevChunk = w.chunk
+            w.prevLocal = w.local
+            let worldPos: SIMD3<Double> = {
+                if let p = pStore[e] {
+                    return p.position
+                }
+                return SIMD3<Double>(Double(t.translation.x),
+                                     Double(t.translation.y),
+                                     Double(t.translation.z))
+            }()
+            let (chunk, local) = WorldPosition.fromWorld(worldPos)
+            w.chunk = chunk
+            w.local = local
+            wStore[e] = w
         }
     }
 }
@@ -2172,7 +2228,7 @@ public final class PhysicsWritebackSystem: FixedStepSystem {
 public final class RenderExtractSystem {
     public init() {}
 
-    public func extract(world: World) -> [RenderItem] {
+    public func extract(world: World, camera: Camera) -> [RenderItem] {
         let tStore = world.store(TransformComponent.self)
         let rStore = world.store(RenderComponent.self)
         let skStore = world.store(SkinnedMeshComponent.self)
@@ -2180,6 +2236,7 @@ public final class RenderExtractSystem {
         let poseStore = world.store(PoseComponent.self)
         let followStore = world.store(FollowTargetComponent.self)
         let pStore = world.store(PhysicsBodyComponent.self)
+        let wStore = world.store(WorldPositionComponent.self)
         let timeStore = world.store(TimeComponent.self)
         let alpha: Float = {
             guard let e = world.query(TimeComponent.self).first,
@@ -2190,6 +2247,10 @@ public final class RenderExtractSystem {
             let a = t.accumulator / t.fixedDelta
             return min(max(a, 0), 1)
         }()
+        let cameraWorld = WorldPosition.toWorld(chunk: camera.worldChunk, local: camera.worldLocal)
+        let cameraWorldFloat = SIMD3<Float>(Float(cameraWorld.x),
+                                            Float(cameraWorld.y),
+                                            Float(cameraWorld.z))
 
         func interpolatedModelMatrix(for e: Entity) -> matrix_float4x4? {
             if let follow = followStore[e] {
@@ -2200,13 +2261,37 @@ public final class RenderExtractSystem {
 
         func interpolatedModelMatrix(forTarget e: Entity) -> matrix_float4x4? {
             guard let t = tStore[e] else { return nil }
-            if let p = pStore[e] {
-                let pos = p.prevPosition + (p.position - p.prevPosition) * alpha
-                let rot = simd_slerp(p.prevRotation, p.rotation, alpha)
-                let interp = TransformComponent(translation: pos, rotation: rot, scale: t.scale)
+            let rot: simd_quatf = {
+                if let p = pStore[e] {
+                    return simd_slerp(p.prevRotation, p.rotation, alpha)
+                }
+                return t.rotation
+            }()
+            if let w = wStore[e] {
+                let prevWorld = WorldPosition.toWorld(chunk: w.prevChunk, local: w.prevLocal)
+                let currWorld = WorldPosition.toWorld(chunk: w.chunk, local: w.local)
+                let interpWorld = prevWorld + (currWorld - prevWorld) * Double(alpha)
+                let renderPos = interpWorld - cameraWorld
+                let interp = TransformComponent(translation: SIMD3<Float>(Float(renderPos.x),
+                                                                          Float(renderPos.y),
+                                                                          Float(renderPos.z)),
+                                                rotation: rot,
+                                                scale: t.scale)
                 return interp.modelMatrix
             }
-            return t.modelMatrix
+            if let p = pStore[e] {
+                let interpWorld = p.prevPosition + (p.position - p.prevPosition) * Double(alpha)
+                let renderPos = interpWorld - cameraWorld
+                let interp = TransformComponent(translation: SIMD3<Float>(Float(renderPos.x),
+                                                                          Float(renderPos.y),
+                                                                          Float(renderPos.z)),
+                                                rotation: rot,
+                                                scale: t.scale)
+                return interp.modelMatrix
+            }
+            var renderT = t
+            renderT.translation -= cameraWorldFloat
+            return renderT.modelMatrix
         }
 
         // ✅ Stable ordering for deterministic draw-call order (picking/debug/sorting friendly)
