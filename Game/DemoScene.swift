@@ -126,6 +126,54 @@ public final class DemoScene: RenderScene {
                                               rotation: t.rotation))
         }
 
+        // --- Static Mesh: 17-Cheese (render-only parts)
+        do {
+            if let asset = StaticMeshLoader.loadStaticMeshAsset(named: "17-Cheese.static") {
+                let materials = MaterialLoader.loadMaterials(named: "17-Cheese.materials", device: device)
+                let fallbackBase = ProceduralTextureGenerator.solid(width: 4,
+                                                                    height: 4,
+                                                                    color: SIMD4<UInt8>(255, 255, 255, 255),
+                                                                    format: .rgba8UnormSrgb)
+                let fallbackMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                              height: 4,
+                                                                              metallic: 0.0,
+                                                                              roughness: 0.5)
+                let fallbackDesc = MaterialDescriptor(baseColor: fallbackBase,
+                                                      metallicRoughness: fallbackMR,
+                                                      metallicFactor: 1.0,
+                                                      roughnessFactor: 1.0,
+                                                      alpha: 1.0)
+                let fallbackMat = MaterialFactory.make(device: device, descriptor: fallbackDesc, label: "CheeseMatFallback")
+
+                for part in asset.parts {
+                    let t = DemoScene.transformFromMatrix(part.transform)
+                    let indices = DemoScene.indicesAsUInt32(part.mesh)
+                    for sub in part.submeshes {
+                        let start = max(sub.start, 0)
+                        let end = min(start + sub.count, indices.count)
+                        if start >= end { continue }
+                        let slice = Array(indices[start..<end])
+                        let maxIndex = slice.max() ?? 0
+                        let indices16: [UInt16]? = maxIndex <= UInt32(UInt16.max) ? slice.map { UInt16($0) } : nil
+                        let indices32: [UInt32]? = indices16 == nil ? slice : nil
+                        let desc = ProceduralMeshDescriptor(topology: .triangles,
+                                                            streams: part.mesh.streams,
+                                                            indices16: indices16,
+                                                            indices32: indices32,
+                                                            name: "\(part.name):\(sub.material)")
+                        let mesh = GPUMesh(device: device, descriptor: desc, label: "Cheese:\(part.name):\(sub.material)")
+                        let mat = materials[sub.material] ?? fallbackMat
+                        let e = world.createEntity()
+                        world.add(e, t)
+                        world.add(e, WorldPositionComponent(translation: t.translation))
+                        world.add(e, RenderComponent(mesh: mesh, material: mat))
+                    }
+                }
+            } else {
+                print("DemoScene: missing static mesh asset: 17-Cheese.static.json")
+            }
+        }
+
         // --- Kinematic Platforms: elevator + ground mover
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 4.0))
@@ -463,5 +511,31 @@ public final class DemoScene: RenderScene {
 
     public func viewportDidChange(size: SIMD2<Float>) {
         fpsOverlaySystem?.viewportDidChange(size: size)
+    }
+
+    private static func transformFromMatrix(_ m: matrix_float4x4) -> TransformComponent {
+        let translation = SIMD3<Float>(m.columns.3.x, m.columns.3.y, m.columns.3.z)
+        let x = SIMD3<Float>(m.columns.0.x, m.columns.0.y, m.columns.0.z)
+        let y = SIMD3<Float>(m.columns.1.x, m.columns.1.y, m.columns.1.z)
+        let z = SIMD3<Float>(m.columns.2.x, m.columns.2.y, m.columns.2.z)
+        let sx = simd_length(x)
+        let sy = simd_length(y)
+        let sz = simd_length(z)
+        let scale = SIMD3<Float>(sx, sy, sz)
+        let rx = sx > 0 ? x / sx : SIMD3<Float>(1, 0, 0)
+        let ry = sy > 0 ? y / sy : SIMD3<Float>(0, 1, 0)
+        let rz = sz > 0 ? z / sz : SIMD3<Float>(0, 0, 1)
+        let rotMat = matrix_float3x3(columns: (rx, ry, rz))
+        let rotation = simd_quatf(rotMat)
+        return TransformComponent(translation: translation,
+                                  rotation: rotation,
+                                  scale: scale)
+    }
+
+    private static func indicesAsUInt32(_ mesh: ProceduralMeshDescriptor) -> [UInt32] {
+        if let i16 = mesh.indices16 {
+            return i16.map { UInt32($0) }
+        }
+        return mesh.indices32 ?? []
     }
 }
