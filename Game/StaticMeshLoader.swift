@@ -13,6 +13,7 @@ struct StaticMeshPart {
     let transform: matrix_float4x4
     let mesh: ProceduralMeshDescriptor
     let submeshes: [StaticMeshSubmesh]
+    let collisionHulls: [ProceduralMeshDescriptor]
 }
 
 struct StaticMeshAsset {
@@ -110,12 +111,14 @@ enum StaticMeshLoader {
             let submeshes = submeshesJSON.map {
                 StaticMeshSubmesh(start: $0.start, count: $0.count, material: $0.material)
             }
+            let collisionHulls = buildCollisionHulls(entry.collisionHulls)
 
             let transform = entry.transform.count == 16 ? matrixFromArrayRowMajor(entry.transform) : matrix_identity_float4x4
             parts.append(StaticMeshPart(name: entry.name,
                                         transform: transform,
                                         mesh: desc,
-                                        submeshes: submeshes))
+                                        submeshes: submeshes,
+                                        collisionHulls: collisionHulls))
         }
 
         return StaticMeshAsset(parts: parts)
@@ -129,6 +132,37 @@ enum StaticMeshLoader {
             SIMD4<Float>(values[3], values[7], values[11], values[15])
         ))
     }
+
+    private static func buildCollisionHulls(_ hulls: [StaticMeshHullJSON]?) -> [ProceduralMeshDescriptor] {
+        guard let hulls = hulls, !hulls.isEmpty else { return [] }
+        var descriptors: [ProceduralMeshDescriptor] = []
+        descriptors.reserveCapacity(hulls.count)
+        for hull in hulls {
+            let vCount = hull.positions.count / 3
+            guard vCount > 0,
+                  hull.positions.count == vCount * 3 else { continue }
+            guard !hull.indices.isEmpty else { continue }
+            var positions: [SIMD3<Float>] = []
+            positions.reserveCapacity(vCount)
+            for i in 0..<vCount {
+                let pi = i * 3
+                positions.append(SIMD3<Float>(hull.positions[pi],
+                                              hull.positions[pi + 1],
+                                              hull.positions[pi + 2]))
+            }
+            let streams = VertexStreams(positions: positions)
+            let maxIndex = hull.indices.max() ?? 0
+            let indices16: [UInt16]? = maxIndex <= UInt32(UInt16.max) ? hull.indices.map { UInt16($0) } : nil
+            let indices32: [UInt32]? = indices16 == nil ? hull.indices : nil
+            let desc = ProceduralMeshDescriptor(topology: .triangles,
+                                                streams: streams,
+                                                indices16: indices16,
+                                                indices32: indices32,
+                                                name: "CollisionHull")
+            descriptors.append(desc)
+        }
+        return descriptors
+    }
 }
 
 private struct StaticMeshJSON: Codable {
@@ -140,6 +174,7 @@ private struct StaticMeshEntryJSON: Codable {
     let name: String
     let transform: [Float]
     let mesh: StaticMeshDataJSON
+    let collisionHulls: [StaticMeshHullJSON]?
 }
 
 private struct StaticMeshDataJSON: Codable {
@@ -154,4 +189,9 @@ private struct StaticMeshSubmeshJSON: Codable {
     let start: Int
     let count: Int
     let material: String
+}
+
+private struct StaticMeshHullJSON: Codable {
+    let positions: [Float]
+    let indices: [UInt32]
 }

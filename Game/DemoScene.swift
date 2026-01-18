@@ -144,6 +144,21 @@ public final class DemoScene: RenderScene {
                                                       roughnessFactor: 1.0,
                                                       alpha: 1.0)
                 let fallbackMat = MaterialFactory.make(device: device, descriptor: fallbackDesc, label: "CheeseMatFallback")
+                let collisionBase = ProceduralTextureGenerator.solid(width: 4,
+                                                                     height: 4,
+                                                                     color: SIMD4<UInt8>(80, 180, 255, 255),
+                                                                     format: .rgba8UnormSrgb)
+                let collisionMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                               height: 4,
+                                                                               metallic: 0.0,
+                                                                               roughness: 0.5)
+                let collisionDesc = MaterialDescriptor(baseColor: collisionBase,
+                                                       metallicRoughness: collisionMR,
+                                                       metallicFactor: 0.0,
+                                                       roughnessFactor: 1.0,
+                                                       alpha: 0.25,
+                                                       unlit: true)
+                let collisionMat = MaterialFactory.make(device: device, descriptor: collisionDesc, label: "CheeseCollisionMat")
 
                 for part in asset.parts {
                     let t = DemoScene.transformFromMatrix(part.transform)
@@ -167,6 +182,21 @@ public final class DemoScene: RenderScene {
                         world.add(e, t)
                         world.add(e, WorldPositionComponent(translation: t.translation))
                         world.add(e, RenderComponent(mesh: mesh, material: mat))
+                    }
+
+                    for (i, hull) in part.collisionHulls.enumerated() {
+                        let hullMesh = GPUMesh(device: device, descriptor: hull, label: "CheeseHull:\(part.name):\(i)")
+                        let e = world.createEntity()
+                        world.add(e, t)
+                        world.add(e, WorldPositionComponent(translation: t.translation))
+                        world.add(e, RenderComponent(mesh: hullMesh, material: collisionMat))
+                        world.add(e, StaticMeshComponent(mesh: hull,
+                                                         material: SurfaceMaterial(muS: 0.6, muK: 0.5),
+                                                         dirty: false,
+                                                         collides: true))
+                        world.add(e, PhysicsBodyComponent(bodyType: .static,
+                                                          position: t.translation,
+                                                          rotation: t.rotation))
                     }
                 }
             } else {

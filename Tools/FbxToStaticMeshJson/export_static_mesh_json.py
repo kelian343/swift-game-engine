@@ -4,6 +4,9 @@ import sys
 
 import bpy
 
+MAX_HULLS_PER_PART = 4
+TARGET_FACES_PER_HULL = 64
+
 
 def _clear_scene():
     bpy.ops.object.select_all(action="SELECT")
@@ -44,6 +47,76 @@ def _matrix_to_row_major(mat):
         mat[2][0], mat[2][1], mat[2][2], mat[2][3],
         mat[3][0], mat[3][1], mat[3][2], mat[3][3],
     ]
+
+def _set_active(obj):
+    bpy.context.view_layer.objects.active = obj
+    obj.select_set(True)
+
+
+def _mesh_positions_indices(mesh):
+    if hasattr(mesh, "calc_loop_triangles"):
+        mesh.calc_loop_triangles()
+    positions = []
+    indices = []
+    for v in mesh.vertices:
+        positions.extend([v.co.x, v.co.y, v.co.z])
+    for tri in mesh.loop_triangles:
+        indices.extend([int(tri.vertices[0]), int(tri.vertices[1]), int(tri.vertices[2])])
+    return positions, indices
+
+
+def _build_collision_hulls(mesh_obj):
+    collision = []
+    scene = bpy.context.scene
+
+    tmp = mesh_obj.copy()
+    tmp.data = mesh_obj.data.copy()
+    scene.collection.objects.link(tmp)
+
+    bpy.ops.object.select_all(action="DESELECT")
+    _set_active(tmp)
+    bpy.ops.object.mode_set(mode="EDIT")
+    bpy.ops.mesh.select_all(action="SELECT")
+    bpy.ops.mesh.separate(type="LOOSE")
+    bpy.ops.object.mode_set(mode="OBJECT")
+
+    parts = [obj for obj in bpy.context.selected_objects if obj.type == "MESH"]
+    if not parts:
+        parts = [tmp]
+
+    if len(parts) > MAX_HULLS_PER_PART:
+        parts.sort(key=lambda o: len(o.data.vertices), reverse=True)
+        print(f"Collision hulls capped to {MAX_HULLS_PER_PART} (had {len(parts)}): {mesh_obj.name}")
+        parts = parts[:MAX_HULLS_PER_PART]
+
+    for part in parts:
+        bpy.ops.object.select_all(action="DESELECT")
+        _set_active(part)
+        bpy.ops.object.mode_set(mode="EDIT")
+        bpy.ops.mesh.select_all(action="SELECT")
+        bpy.ops.mesh.convex_hull(use_existing_faces=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+        face_count = len(part.data.polygons)
+        if face_count > TARGET_FACES_PER_HULL:
+            ratio = max(min(TARGET_FACES_PER_HULL / max(face_count, 1), 1.0), 0.01)
+            mod = part.modifiers.new(name="Decimate", type="DECIMATE")
+            mod.ratio = ratio
+            bpy.ops.object.modifier_apply(modifier=mod.name)
+
+        positions, indices = _mesh_positions_indices(part.data)
+        if positions and indices:
+            collision.append({"positions": positions, "indices": indices})
+
+    for part in parts:
+        bpy.ops.object.select_all(action="DESELECT")
+        _set_active(part)
+        bpy.ops.object.delete(use_global=False)
+        for block in bpy.data.meshes:
+            if block.users == 0:
+                bpy.data.meshes.remove(block, do_unlink=True)
+
+    return collision
 
 
 def main():
@@ -136,6 +209,7 @@ def main():
                 "indices": indices,
                 "submeshes": submeshes,
             },
+            "collisionHulls": _build_collision_hulls(mesh_obj),
         })
 
     payload = {
