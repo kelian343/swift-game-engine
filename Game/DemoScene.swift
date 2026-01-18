@@ -185,9 +185,11 @@ public final class DemoScene: RenderScene {
                     }
 
                     for (i, hull) in part.collisionHulls.enumerated() {
+                        let hullMesh = GPUMesh(device: device, descriptor: hull, label: "CheeseHull:\(part.name):\(i)")
                         let e = world.createEntity()
                         world.add(e, t)
                         world.add(e, WorldPositionComponent(translation: t.translation))
+                        world.add(e, RenderComponent(mesh: hullMesh, material: collisionMat))
                         world.add(e, StaticMeshComponent(mesh: hull,
                                                          material: SurfaceMaterial(muS: 0.6, muK: 0.5),
                                                          dirty: false,
@@ -264,9 +266,11 @@ public final class DemoScene: RenderScene {
                     }
 
                     for (i, hull) in part.collisionHulls.enumerated() {
+                        let hullMesh = GPUMesh(device: device, descriptor: hull, label: "SemlaHull:\(part.name):\(i)")
                         let e = world.createEntity()
                         world.add(e, t)
                         world.add(e, WorldPositionComponent(translation: t.translation))
+                        world.add(e, RenderComponent(mesh: hullMesh, material: collisionMat))
                         world.add(e, StaticMeshComponent(mesh: hull,
                                                          material: SurfaceMaterial(muS: 0.6, muK: 0.5),
                                                          dirty: false,

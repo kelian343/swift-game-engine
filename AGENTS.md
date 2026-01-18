@@ -63,3 +63,5 @@
 - MaterialLoader now loads texture files at runtime when paths exist (no baked defaults).
 - Collision system now supports layers/masks on StaticMeshComponent and CharacterControllerComponent for selective collision.
 - Added CPU/GPU perf logging for update, RT encode, render graph, draw/tri counts, and GPU time.
+- Added Semla static mesh/material JSON import, with runtime UV V-flip support in static mesh export.
+- Semla textures manually copied into Game/ and wired in Semla.materials.json; AO optional and can be skipped.
