@@ -4,8 +4,8 @@ import sys
 
 import bpy
 
-MAX_HULLS_PER_PART = 4
-TARGET_FACES_PER_HULL = 64
+MAX_HULLS_PER_PART = 2
+TARGET_FACES_PER_HULL = 24
 
 
 def _clear_scene():

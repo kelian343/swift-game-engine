@@ -288,7 +288,7 @@ public final class DemoScene: RenderScene {
 
         // --- Static Mesh: Ornate Mirror (render + collision debug)
         do {
-            if let asset = StaticMeshLoader.loadStaticMeshAsset(named: "ornate-mirror.static") {
+            if let asset = StaticMeshLoader.loadStaticMeshAsset(named: "ornate_mirror.static") {
                 let materials = MaterialLoader.loadMaterials(named: "ornate-mirror.materials", device: device)
                 let mirrorLayer: UInt32 = 1 << 4
                 let fallbackBase = ProceduralTextureGenerator.solid(width: 4,
@@ -368,7 +368,7 @@ public final class DemoScene: RenderScene {
                     }
                 }
             } else {
-                print("DemoScene: missing static mesh asset: ornate-mirror.static.json")
+                print("DemoScene: missing static mesh asset: ornate_mirror.static.json")
             }
         }
 

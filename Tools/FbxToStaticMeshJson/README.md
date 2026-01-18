@@ -12,4 +12,4 @@ Notes
 - Each FBX mesh becomes a separate entry in "meshes" with its own transform.
 - Vertex data is stored in the mesh's local space; transform preserves the original placement.
 - Collision hulls are generated per mesh via loose-part split + convex hull + decimate.
-- Defaults: max hulls per part = 4, target faces per hull = 64 (edit in script if needed).
+- Defaults: max hulls per part = 2, target faces per hull = 24 (edit in script if needed).
