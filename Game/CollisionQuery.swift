@@ -84,66 +84,78 @@ public final class CollisionQuery {
 
     public func raycast(origin: SIMD3<Float>,
                         direction: SIMD3<Float>,
-                        maxDistance: Float) -> RaycastHit? {
+                        maxDistance: Float,
+                        mask: UInt32 = CollisionLayer.all) -> RaycastHit? {
         CollisionQueries.raycast(world: &snapshot,
                                  origin: origin,
                                  direction: direction,
-                                 maxDistance: maxDistance)
+                                 maxDistance: maxDistance,
+                                 mask: mask)
     }
 
     public func capsuleCast(from: SIMD3<Float>,
                             delta: SIMD3<Float>,
                             radius: Float,
-                            halfHeight: Float) -> CapsuleCastHit? {
+                            halfHeight: Float,
+                            mask: UInt32 = CollisionLayer.all) -> CapsuleCastHit? {
         CollisionQueries.capsuleCast(world: &snapshot,
                                      from: from,
                                      delta: delta,
                                      radius: radius,
-                                     halfHeight: halfHeight)
+                                     halfHeight: halfHeight,
+                                     mask: mask)
     }
 
     public func capsuleCastBlocking(from: SIMD3<Float>,
                                     delta: SIMD3<Float>,
                                     radius: Float,
-                                    halfHeight: Float) -> CapsuleCastHit? {
+                                    halfHeight: Float,
+                                    mask: UInt32 = CollisionLayer.all) -> CapsuleCastHit? {
         CollisionQueries.capsuleCastBlocking(world: &snapshot,
                                              from: from,
                                              delta: delta,
                                              radius: radius,
-                                             halfHeight: halfHeight)
+                                             halfHeight: halfHeight,
+                                             mask: mask)
     }
 
     public func capsuleCastGround(from: SIMD3<Float>,
                                   delta: SIMD3<Float>,
                                   radius: Float,
                                   halfHeight: Float,
-                                  minNormalY: Float) -> CapsuleCastHit? {
+                                  minNormalY: Float,
+                                  mask: UInt32 = CollisionLayer.all) -> CapsuleCastHit? {
         CollisionQueries.capsuleCastGround(world: &snapshot,
                                            from: from,
                                            delta: delta,
                                            radius: radius,
                                            halfHeight: halfHeight,
-                                           minNormalY: minNormalY)
+                                           minNormalY: minNormalY,
+                                           mask: mask)
     }
 
     public func capsuleOverlap(from: SIMD3<Float>,
                                radius: Float,
-                               halfHeight: Float) -> CapsuleOverlapHit? {
+                               halfHeight: Float,
+                               mask: UInt32 = CollisionLayer.all) -> CapsuleOverlapHit? {
         CollisionQueries.capsuleOverlap(world: &snapshot,
                                         from: from,
                                         radius: radius,
-                                        halfHeight: halfHeight)
+                                        halfHeight: halfHeight,
+                                        mask: mask)
     }
 
     public func capsuleOverlapAll(from: SIMD3<Float>,
                                   radius: Float,
                                   halfHeight: Float,
-                                  maxHits: Int = 8) -> [CapsuleOverlapHit] {
+                                  maxHits: Int = 8,
+                                  mask: UInt32 = CollisionLayer.all) -> [CapsuleOverlapHit] {
         CollisionQueries.capsuleOverlapAll(world: &snapshot,
                                            from: from,
                                            radius: radius,
                                            halfHeight: halfHeight,
-                                           maxHits: max(1, maxHits))
+                                           maxHits: max(1, maxHits),
+                                           mask: mask)
     }
 }
 
@@ -191,24 +203,38 @@ public struct CollisionQueries {
     public static func raycast(world: inout CollisionWorldSnapshot,
                                origin: SIMD3<Float>,
                                direction: SIMD3<Float>,
-                               maxDistance: Float) -> RaycastHit? {
-        world.staticMesh.raycast(origin: origin, direction: direction, maxDistance: maxDistance)
+                               maxDistance: Float,
+                               mask: UInt32) -> RaycastHit? {
+        world.staticMesh.raycast(origin: origin,
+                                 direction: direction,
+                                 maxDistance: maxDistance,
+                                 mask: mask)
     }
 
     public static func capsuleCast(world: inout CollisionWorldSnapshot,
                                    from: SIMD3<Float>,
                                    delta: SIMD3<Float>,
                                    radius: Float,
-                                   halfHeight: Float) -> CapsuleCastHit? {
-        world.staticMesh.capsuleCast(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
+                                   halfHeight: Float,
+                                   mask: UInt32) -> CapsuleCastHit? {
+        world.staticMesh.capsuleCast(from: from,
+                                     delta: delta,
+                                     radius: radius,
+                                     halfHeight: halfHeight,
+                                     mask: mask)
     }
 
     public static func capsuleCastBlocking(world: inout CollisionWorldSnapshot,
                                            from: SIMD3<Float>,
                                            delta: SIMD3<Float>,
                                            radius: Float,
-                                           halfHeight: Float) -> CapsuleCastHit? {
-        world.staticMesh.capsuleCastBlocking(from: from, delta: delta, radius: radius, halfHeight: halfHeight)
+                                           halfHeight: Float,
+                                           mask: UInt32) -> CapsuleCastHit? {
+        world.staticMesh.capsuleCastBlocking(from: from,
+                                             delta: delta,
+                                             radius: radius,
+                                             halfHeight: halfHeight,
+                                             mask: mask)
     }
 
     public static func capsuleCastGround(world: inout CollisionWorldSnapshot,
@@ -216,30 +242,38 @@ public struct CollisionQueries {
                                          delta: SIMD3<Float>,
                                          radius: Float,
                                          halfHeight: Float,
-                                         minNormalY: Float) -> CapsuleCastHit? {
+                                         minNormalY: Float,
+                                         mask: UInt32) -> CapsuleCastHit? {
         world.staticMesh.capsuleCastGround(from: from,
                                            delta: delta,
                                            radius: radius,
                                            halfHeight: halfHeight,
-                                           minNormalY: minNormalY)
+                                           minNormalY: minNormalY,
+                                           mask: mask)
     }
 
     public static func capsuleOverlap(world: inout CollisionWorldSnapshot,
                                       from: SIMD3<Float>,
                                       radius: Float,
-                                      halfHeight: Float) -> CapsuleOverlapHit? {
-        world.staticMesh.capsuleOverlap(from: from, radius: radius, halfHeight: halfHeight)
+                                      halfHeight: Float,
+                                      mask: UInt32) -> CapsuleOverlapHit? {
+        world.staticMesh.capsuleOverlap(from: from,
+                                        radius: radius,
+                                        halfHeight: halfHeight,
+                                        mask: mask)
     }
 
     public static func capsuleOverlapAll(world: inout CollisionWorldSnapshot,
                                          from: SIMD3<Float>,
                                          radius: Float,
                                          halfHeight: Float,
-                                         maxHits: Int) -> [CapsuleOverlapHit] {
+                                         maxHits: Int,
+                                         mask: UInt32) -> [CapsuleOverlapHit] {
         world.staticMesh.capsuleOverlapAll(from: from,
                                            radius: radius,
                                            halfHeight: halfHeight,
-                                           maxHits: max(1, maxHits))
+                                           maxHits: max(1, maxHits),
+                                           mask: mask)
     }
 }
 
@@ -288,6 +322,7 @@ private struct TriangleMeshSet {
     var indices: [UInt32] = []
     var triangleAABBs: [StaticTriMesh.AABB] = []
     var triangleMaterials: [SurfaceMaterial] = []
+    var triangleLayers: [UInt32] = []
     var slices: [Entity: StaticTriMesh.MeshSlice] = [:]
     var bvh: StaticTriMesh.BVH? = nil
 
@@ -300,6 +335,7 @@ private struct TriangleMeshSet {
         indices.removeAll(keepingCapacity: true)
         triangleAABBs.removeAll(keepingCapacity: true)
         triangleMaterials.removeAll(keepingCapacity: true)
+        triangleLayers.removeAll(keepingCapacity: true)
         slices.removeAll(keepingCapacity: true)
 
         let areaEps: Float = 1e-10
@@ -331,6 +367,7 @@ private struct TriangleMeshSet {
             } else {
                 triSource = Array(repeating: m.material, count: triCount)
             }
+            let triLayer = m.collisionLayer
 
             let indexStart = indices.count
             let triStart = triangleAABBs.count
@@ -357,6 +394,7 @@ private struct TriangleMeshSet {
                 let maxP = simd_max(p0, simd_max(p1, p2))
                 triangleAABBs.append(StaticTriMesh.AABB(min: minP, max: maxP))
                 triangleMaterials.append(triSource[triLocal])
+                triangleLayers.append(triLayer)
                 tri += 3
                 triLocal += 1
             }
@@ -729,70 +767,82 @@ public struct StaticTriMesh {
 
     public func raycast(origin: SIMD3<Float>,
                         direction: SIMD3<Float>,
-                        maxDistance: Float) -> RaycastHit? {
+                        maxDistance: Float,
+                        mask: UInt32) -> RaycastHit? {
         let staticHit = raycastBVH(origin: origin,
                                    direction: direction,
                                    maxDistance: maxDistance,
                                    set: staticSet,
-                                   triangleIndexOffset: 0)
+                                   triangleIndexOffset: 0,
+                                   mask: mask)
         let dynamicHit = raycastBVH(origin: origin,
                                     direction: direction,
                                     maxDistance: maxDistance,
                                     set: dynamicSet,
-                                    triangleIndexOffset: staticSet.triangleAABBs.count)
+                                    triangleIndexOffset: staticSet.triangleAABBs.count,
+                                    mask: mask)
         return chooseNearest(staticHit, dynamicHit)
     }
 
     public mutating func capsuleCast(from: SIMD3<Float>,
                                      delta: SIMD3<Float>,
                                      radius: Float,
-                                     halfHeight: Float) -> CapsuleCastHit? {
+                                     halfHeight: Float,
+                                     mask: UInt32) -> CapsuleCastHit? {
         capsuleCastCombined(from: from,
                             delta: delta,
                             radius: radius,
                             halfHeight: halfHeight,
                             blockingOnly: false,
-                            minNormalY: nil)
+                            minNormalY: nil,
+                            mask: mask)
     }
 
     public mutating func capsuleCastBlocking(from: SIMD3<Float>,
                                              delta: SIMD3<Float>,
                                              radius: Float,
-                                             halfHeight: Float) -> CapsuleCastHit? {
+                                             halfHeight: Float,
+                                             mask: UInt32) -> CapsuleCastHit? {
         capsuleCastCombined(from: from,
                             delta: delta,
                             radius: radius,
                             halfHeight: halfHeight,
                             blockingOnly: true,
-                            minNormalY: nil)
+                            minNormalY: nil,
+                            mask: mask)
     }
 
     public mutating func capsuleCastGround(from: SIMD3<Float>,
                                            delta: SIMD3<Float>,
                                            radius: Float,
                                            halfHeight: Float,
-                                           minNormalY: Float) -> CapsuleCastHit? {
+                                           minNormalY: Float,
+                                           mask: UInt32) -> CapsuleCastHit? {
         capsuleCastCombined(from: from,
                             delta: delta,
                             radius: radius,
                             halfHeight: halfHeight,
                             blockingOnly: false,
-                            minNormalY: minNormalY)
+                            minNormalY: minNormalY,
+                            mask: mask)
     }
 
     public func capsuleOverlap(from: SIMD3<Float>,
                                radius: Float,
-                               halfHeight: Float) -> CapsuleOverlapHit? {
+                               halfHeight: Float,
+                               mask: UInt32) -> CapsuleOverlapHit? {
         let staticHit = capsuleOverlapBVH(from: from,
                                           radius: radius,
                                           halfHeight: halfHeight,
                                           set: staticSet,
-                                          triangleIndexOffset: 0)
+                                          triangleIndexOffset: 0,
+                                          mask: mask)
         let dynamicHit = capsuleOverlapBVH(from: from,
                                            radius: radius,
                                            halfHeight: halfHeight,
                                            set: dynamicSet,
-                                           triangleIndexOffset: staticSet.triangleAABBs.count)
+                                           triangleIndexOffset: staticSet.triangleAABBs.count,
+                                           mask: mask)
         if let a = staticHit, let b = dynamicHit {
             return a.depth >= b.depth ? a : b
         }
@@ -802,14 +852,16 @@ public struct StaticTriMesh {
     public func capsuleOverlapAll(from: SIMD3<Float>,
                                   radius: Float,
                                   halfHeight: Float,
-                                  maxHits: Int) -> [CapsuleOverlapHit] {
+                                  maxHits: Int,
+                                  mask: UInt32) -> [CapsuleOverlapHit] {
         var hits: [CapsuleOverlapHit] = []
         let staticHits = capsuleOverlapBVHAll(from: from,
                                               radius: radius,
                                               halfHeight: halfHeight,
                                               set: staticSet,
                                               triangleIndexOffset: 0,
-                                              maxHits: maxHits)
+                                              maxHits: maxHits,
+                                              mask: mask)
         hits.append(contentsOf: staticHits)
         let remaining = max(0, maxHits - hits.count)
         if remaining > 0 {
@@ -818,7 +870,8 @@ public struct StaticTriMesh {
                                                    halfHeight: halfHeight,
                                                    set: dynamicSet,
                                                    triangleIndexOffset: staticSet.triangleAABBs.count,
-                                                   maxHits: remaining)
+                                                   maxHits: remaining,
+                                                   mask: mask)
             hits.append(contentsOf: dynamicHits)
         }
         if hits.count > maxHits {
@@ -864,7 +917,8 @@ private extension StaticTriMesh {
                             direction: SIMD3<Float>,
                             maxDistance: Float,
                             set: TriangleMeshSet,
-                            triangleIndexOffset: Int) -> RaycastHit? {
+                            triangleIndexOffset: Int,
+                            mask: UInt32) -> RaycastHit? {
         guard let bvh = set.bvh, bvh.root >= 0 else { return nil }
         let eps: Float = 1e-6
         var closestT = maxDistance
@@ -885,6 +939,9 @@ private extension StaticTriMesh {
                 let end = start + node.count
                 for i in start..<end {
                     let triIndex = bvh.triOrder[i]
+                    if (set.triangleLayers[triIndex] & mask) == 0 {
+                        continue
+                    }
                     let base = triIndex * 3
                     if base + 2 >= set.indices.count { continue }
                     let i0 = Int(set.indices[base])
@@ -925,7 +982,8 @@ private extension StaticTriMesh {
                                               radius: Float,
                                               halfHeight: Float,
                                               blockingOnly: Bool,
-                                              minNormalY: Float?) -> CapsuleCastHit? {
+                                              minNormalY: Float?,
+                                              mask: UInt32) -> CapsuleCastHit? {
         let len = simd_length(delta)
         if len < 1e-6 { return nil }
         resetStats()
@@ -936,7 +994,8 @@ private extension StaticTriMesh {
                                        set: staticSet,
                                        triangleIndexOffset: 0,
                                        blockingOnly: blockingOnly,
-                                       minNormalY: minNormalY)
+                                       minNormalY: minNormalY,
+                                       mask: mask)
         let dynamicHit = capsuleCastBVH(from: from,
                                         delta: delta,
                                         radius: radius,
@@ -944,7 +1003,8 @@ private extension StaticTriMesh {
                                         set: dynamicSet,
                                         triangleIndexOffset: staticSet.triangleAABBs.count,
                                         blockingOnly: blockingOnly,
-                                        minNormalY: minNormalY)
+                                        minNormalY: minNormalY,
+                                        mask: mask)
         return chooseNearest(staticHit, dynamicHit)
     }
 
@@ -955,7 +1015,8 @@ private extension StaticTriMesh {
                                          set: TriangleMeshSet,
                                          triangleIndexOffset: Int,
                                          blockingOnly: Bool,
-                                         minNormalY: Float?) -> CapsuleCastHit? {
+                                         minNormalY: Float?,
+                                         mask: UInt32) -> CapsuleCastHit? {
         guard let bvh = set.bvh, bvh.root >= 0 else { return nil }
         let len = simd_length(delta)
         if len < 1e-6 { return nil }
@@ -993,6 +1054,9 @@ private extension StaticTriMesh {
                 let end = start + node.count
                 for i in start..<end {
                     let triIndex = bvh.triOrder[i]
+                    if (set.triangleLayers[triIndex] & mask) == 0 {
+                        continue
+                    }
                     let triBounds = set.triangleAABBs[triIndex]
                     if triBounds.max.x < minP.x || triBounds.min.x > maxP.x ||
                         triBounds.max.y < minP.y || triBounds.min.y > maxP.y ||
@@ -1056,7 +1120,8 @@ private extension StaticTriMesh {
                                    radius: Float,
                                    halfHeight: Float,
                                    set: TriangleMeshSet,
-                                   triangleIndexOffset: Int) -> CapsuleOverlapHit? {
+                                   triangleIndexOffset: Int,
+                                   mask: UInt32) -> CapsuleOverlapHit? {
         guard let bvh = set.bvh, bvh.root >= 0 else { return nil }
         let up = SIMD3<Float>(0, 1, 0)
         let a0 = from + up * halfHeight
@@ -1083,6 +1148,9 @@ private extension StaticTriMesh {
                 let end = start + node.count
                 for i in start..<end {
                     let triIndex = bvh.triOrder[i]
+                    if (set.triangleLayers[triIndex] & mask) == 0 {
+                        continue
+                    }
                     let triBounds = set.triangleAABBs[triIndex]
                     if triBounds.max.x < minP.x || triBounds.min.x > maxP.x ||
                         triBounds.max.y < minP.y || triBounds.min.y > maxP.y ||
@@ -1135,7 +1203,8 @@ private extension StaticTriMesh {
                                       halfHeight: Float,
                                       set: TriangleMeshSet,
                                       triangleIndexOffset: Int,
-                                      maxHits: Int) -> [CapsuleOverlapHit] {
+                                      maxHits: Int,
+                                      mask: UInt32) -> [CapsuleOverlapHit] {
         guard let bvh = set.bvh, bvh.root >= 0 else { return [] }
         let up = SIMD3<Float>(0, 1, 0)
         let a0 = from + up * halfHeight
@@ -1162,6 +1231,9 @@ private extension StaticTriMesh {
                 let end = start + node.count
                 for i in start..<end {
                     let triIndex = bvh.triOrder[i]
+                    if (set.triangleLayers[triIndex] & mask) == 0 {
+                        continue
+                    }
                     let triBounds = set.triangleAABBs[triIndex]
                     if triBounds.max.x < minP.x || triBounds.min.x > maxP.x ||
                         triBounds.max.y < minP.y || triBounds.min.y > maxP.y ||

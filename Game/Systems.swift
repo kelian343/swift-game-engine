@@ -621,7 +621,8 @@ private struct DepenetrationResolver {
             let hits = query.capsuleOverlapAll(from: position,
                                                radius: radius,
                                                halfHeight: halfHeight,
-                                               maxHits: 8)
+                                               maxHits: 8,
+                                               mask: controller.collisionMask)
             if hits.isEmpty {
                 break
             }
@@ -717,7 +718,8 @@ private struct GroundProbe {
                                            delta: snapDelta,
                                            radius: controller.radius,
                                            halfHeight: controller.halfHeight,
-                                           minNormalY: controller.minGroundDot)
+                                           minNormalY: controller.minGroundDot,
+                                           mask: controller.collisionMask)
         }()
 
         if controller.fallProbeDistance > 0 {
@@ -727,7 +729,8 @@ private struct GroundProbe {
                                                      delta: fallDelta,
                                                      radius: controller.radius,
                                                      halfHeight: controller.halfHeight,
-                                                     minNormalY: controller.minGroundDot) {
+                                                     minNormalY: controller.minGroundDot,
+                                                     mask: controller.collisionMask) {
                 state.distance = fallHit.toi
             }
         }
@@ -777,7 +780,8 @@ private struct GroundProbe {
                                                       delta: snapDelta,
                                                       radius: controller.radius,
                                                       halfHeight: controller.halfHeight,
-                                                      minNormalY: controller.minGroundDot)
+                                                      minNormalY: controller.minGroundDot,
+                                                      mask: controller.collisionMask)
                     if let hit,
                        hit.toi <= centerHit.toi + combineTol {
                         if simd_dot(hit.triangleNormal, centerHit.triangleNormal) > 0.98 {
@@ -1276,7 +1280,7 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
         self.contactCachePolicy = contactCachePolicy
     }
 
-    public func setQuery(_ query: CollisionQuery) {
+    public func setQuery(_ query: CollisionQuery?) {
         self.query = query
     }
 
@@ -1544,7 +1548,8 @@ public final class KinematicMoveStopSystem: FixedStepSystem {
             var staticHit = query.capsuleCastBlocking(from: position,
                                                       delta: remaining,
                                                       radius: controller.radius,
-                                                      halfHeight: controller.halfHeight)
+                                                      halfHeight: controller.halfHeight,
+                                                      mask: controller.collisionMask)
             if var sHit = staticHit,
                sHit.normal.y < controller.minGroundDot,
                controller.sideContactFrames > 0,
@@ -1873,7 +1878,8 @@ public final class AgentSeparationSystem: FixedStepSystem {
                                    let hit = query.capsuleCastBlocking(from: agents[i].position,
                                                                        delta: moveA,
                                                                        radius: a.radius,
-                                                                       halfHeight: a.halfHeight),
+                                                                       halfHeight: a.halfHeight,
+                                                                       mask: a.controller.collisionMask),
                                    hit.toi <= a.controller.skinWidth,
                                    hit.normal.y < a.controller.minGroundDot {
                                     blockedA = true
@@ -1883,7 +1889,8 @@ public final class AgentSeparationSystem: FixedStepSystem {
                                    let hit = query.capsuleCastBlocking(from: agents[j].position,
                                                                        delta: moveB,
                                                                        radius: b.radius,
-                                                                       halfHeight: b.halfHeight),
+                                                                       halfHeight: b.halfHeight,
+                                                                       mask: b.controller.collisionMask),
                                    hit.toi <= b.controller.skinWidth,
                                    hit.normal.y < b.controller.minGroundDot {
                                     blockedB = true
@@ -1934,7 +1941,8 @@ public final class AgentSeparationSystem: FixedStepSystem {
                     if let hit = query.capsuleCastBlocking(from: position,
                                                            delta: remaining,
                                                            radius: agent.radius,
-                                                           halfHeight: agent.halfHeight) {
+                                                           halfHeight: agent.halfHeight,
+                                                           mask: controller.collisionMask) {
                         let options = SlideResolver.SlideOptions.agentSeparation
                             let done = SlideResolver.resolveHit(remaining: &remaining,
                                                                 len: segLen,
@@ -1964,7 +1972,8 @@ public final class AgentSeparationSystem: FixedStepSystem {
                                                          delta: snapDelta,
                                                          radius: agent.radius,
                                                          halfHeight: agent.halfHeight,
-                                                         minNormalY: controller.minGroundDot),
+                                                         minNormalY: controller.minGroundDot,
+                                                         mask: controller.collisionMask),
                        hit.toi <= controller.snapDistance {
                         let rawMove = max(hit.toi - controller.groundSnapSkin, 0)
                         let moveDist = min(rawMove, controller.groundSnapMaxStep)
@@ -1996,7 +2005,7 @@ public final class AgentSeparationSystem: FixedStepSystem {
         self.heightMargin = heightMargin
     }
 
-    public func setQuery(_ query: CollisionQuery) {
+    public func setQuery(_ query: CollisionQuery?) {
         self.query = query
     }
 

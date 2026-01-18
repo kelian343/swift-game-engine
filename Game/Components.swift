@@ -44,6 +44,11 @@ public struct TransformComponent {
     }
 }
 
+public enum CollisionLayer {
+    public static let all: UInt32 = 0xFFFF_FFFF
+    public static let defaultLayer: UInt32 = 1 << 0
+}
+
 // MARK: - World Position (Chunk + Local)
 
 public enum WorldPosition {
@@ -322,19 +327,22 @@ public struct StaticMeshComponent {
     public var triangleMaterials: [SurfaceMaterial]?
     public var dirty: Bool
     public var collides: Bool
+    public var collisionLayer: UInt32
 
     public init(mesh: ProceduralMeshDescriptor,
                 collisionMesh: ProceduralMeshDescriptor? = nil,
                 material: SurfaceMaterial = .default,
                 triangleMaterials: [SurfaceMaterial]? = nil,
                 dirty: Bool = false,
-                collides: Bool = true) {
+                collides: Bool = true,
+                collisionLayer: UInt32 = CollisionLayer.defaultLayer) {
         self.mesh = mesh
         self.collisionMesh = collisionMesh
         self.material = material
         self.triangleMaterials = triangleMaterials
         self.dirty = dirty
         self.collides = collides
+        self.collisionLayer = collisionLayer
     }
 
     public mutating func markDirty() {
@@ -367,6 +375,7 @@ public struct CharacterControllerComponent {
     public var grounded: Bool
     public var groundedNear: Bool
     public var groundDistance: Float
+    public var collisionMask: UInt32
 
     public init(radius: Float = 1.5,
                 halfHeight: Float = 1.0,
@@ -391,7 +400,8 @@ public struct CharacterControllerComponent {
                 contactManifoldFrames: Int = 0,
                 grounded: Bool = false,
                 groundedNear: Bool = false,
-                groundDistance: Float = Float.greatestFiniteMagnitude) {
+                groundDistance: Float = Float.greatestFiniteMagnitude,
+                collisionMask: UInt32 = CollisionLayer.all) {
         self.radius = radius
         self.halfHeight = halfHeight
         self.skinWidth = skinWidth
@@ -416,6 +426,7 @@ public struct CharacterControllerComponent {
         self.grounded = grounded
         self.groundedNear = groundedNear
         self.groundDistance = groundDistance
+        self.collisionMask = collisionMask
     }
 }
 
