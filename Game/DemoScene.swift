@@ -356,6 +356,7 @@ public final class DemoScene: RenderScene {
                         let e = world.createEntity()
                         world.add(e, t)
                         world.add(e, WorldPositionComponent(translation: t.translation))
+                        world.add(e, RenderComponent(mesh: hullMesh, material: collisionMat))
                         world.add(e, StaticMeshComponent(mesh: hull,
                                                          material: SurfaceMaterial(muS: 0.6, muK: 0.5),
                                                          dirty: false,

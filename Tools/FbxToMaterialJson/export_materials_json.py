@@ -87,6 +87,74 @@ def _copy_used_textures(texture_dir, dest_dir, materials):
         shutil.copy2(src, dst)
 
 
+def _scan_textures(texture_dir):
+    if not texture_dir or not os.path.isdir(texture_dir):
+        return []
+    results = []
+    for name in sorted(os.listdir(texture_dir)):
+        path = os.path.join(texture_dir, name)
+        if not os.path.isfile(path):
+            continue
+        results.append((name, name.lower()))
+    return results
+
+
+def _find_texture_by_keywords(textures, keywords):
+    for name, lower in textures:
+        for key in keywords:
+            if key in lower:
+                return name
+    return ""
+
+
+def _autofill_from_textures(materials, texture_dir):
+    textures = _scan_textures(texture_dir)
+    if not textures:
+        return
+
+    base_color = _find_texture_by_keywords(textures, ["basecolor", "base_color", "albedo", "diffuse"])
+    normal = _find_texture_by_keywords(textures, ["normal", "norm"])
+    roughness = _find_texture_by_keywords(textures, ["roughness", "rough"])
+    metallic = _find_texture_by_keywords(textures, ["metallic", "metalness"])
+    occlusion = _find_texture_by_keywords(textures, ["occlusion", "ambientocclusion", "_ao", "-ao", " ao"])
+    emissive = _find_texture_by_keywords(textures, ["emissive", "emission", "glow"])
+    packed = _find_texture_by_keywords(textures, [
+        "ao_metallic_roughness",
+        "metallic_roughness",
+        "occlusionroughnessmetallic",
+        "orm",
+        "arm",
+        "rma",
+    ])
+
+    for mat in materials:
+        if not mat.get("baseColorTexture") and base_color:
+            mat["baseColorTexture"] = base_color
+        if not mat.get("normalTexture") and normal:
+            mat["normalTexture"] = normal
+        if not mat.get("emissiveTexture") and emissive:
+            mat["emissiveTexture"] = emissive
+
+        if not mat.get("metallicRoughnessTexture"):
+            if packed:
+                mat["metallicRoughnessTexture"] = packed
+                mat["metallicChannel"] = mat.get("metallicChannel") or "B"
+                mat["roughnessChannel"] = mat.get("roughnessChannel") or "G"
+                if not mat.get("occlusionTexture"):
+                    mat["occlusionTexture"] = packed
+                mat["occlusionChannel"] = mat.get("occlusionChannel") or "R"
+            elif metallic and not roughness:
+                mat["metallicRoughnessTexture"] = metallic
+            elif roughness and not metallic:
+                mat["metallicRoughnessTexture"] = roughness
+            elif metallic and roughness:
+                mat["metallicRoughnessTexture"] = metallic
+
+        if not mat.get("occlusionTexture") and occlusion:
+            mat["occlusionTexture"] = occlusion
+            mat["occlusionChannel"] = mat.get("occlusionChannel") or "R"
+
+
 def _resolve_texture_source(path, base_dir, texture_dir):
     if not path:
         return ""
@@ -292,6 +360,7 @@ def main():
             continue
         seen.add(mat.name)
         materials.append(_extract_material(mat, base_dir, textures_dir, output_dir))
+    _autofill_from_textures(materials, textures_dir)
     _copy_used_textures(textures_dir, output_dir, materials)
 
     payload = {"version": 1, "materials": materials}
