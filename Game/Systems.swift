@@ -211,6 +211,7 @@ public final class PhysicsIntentSystem: FixedStepSystem {
         let mStore = world.store(MoveIntentComponent.self)
         let mvStore = world.store(MovementComponent.self)
         let cStore = world.store(CharacterControllerComponent.self)
+        let dStore = world.store(DodgeActionComponent.self)
         let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
 
         for e in bodies {
@@ -219,7 +220,12 @@ public final class PhysicsIntentSystem: FixedStepSystem {
             guard let intent = mStore[e] else { continue }
             if body.bodyType == .dynamic || body.bodyType == .kinematic {
                 let move = mvStore[e] ?? MovementComponent()
-                if cStore.contains(e) {
+                let dodgeActive = dStore[e]?.active ?? false
+                if dodgeActive {
+                    body.linearVelocity = SIMD3<Double>(Double(intent.desiredVelocity.x),
+                                                        body.linearVelocity.y,
+                                                        Double(intent.desiredVelocity.z))
+                } else if cStore.contains(e) {
                     let target = SIMD3<Double>(Double(intent.desiredVelocity.x), 0, Double(intent.desiredVelocity.z))
                     let current = SIMD3<Double>(body.linearVelocity.x, 0, body.linearVelocity.z)
                     let accel = simd_length(target) >= simd_length(current) ? move.maxAcceleration : move.maxDeceleration
@@ -461,6 +467,130 @@ public final class JumpSystem: FixedStepSystem {
         }
     }
 }
+
+/// Advance action animation time.
+public final class ActionAnimationSystem: FixedStepSystem {
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        guard dt > 0 else { return }
+        let entities = world.query(ActionAnimationComponent.self)
+        let aStore = world.store(ActionAnimationComponent.self)
+        let dStore = world.store(DodgeActionComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
+
+        for e in entities {
+            if !isActive(e, active) { continue }
+            guard var action = aStore[e], action.active else { continue }
+            let cycle = max(action.profile.phase?.cycleDuration ?? action.profile.duration, 0.001)
+            let capTime: Float = {
+                if let dodge = dStore[e] {
+                    let end = dodge.endTime > 0 ? dodge.endTime : dodge.duration
+                    return max(min(end, cycle), 0.001)
+                }
+                return cycle
+            }()
+            if !action.exiting {
+                action.time += dt * action.playbackRate
+                if action.loop {
+                    action.time = action.time.truncatingRemainder(dividingBy: capTime)
+                } else if action.time >= capTime {
+                    action.time = capTime
+                    action.exiting = true
+                }
+            }
+            if action.exiting {
+                let halfLife = max(action.blendOutHalfLife, 0.001)
+                let decay = pow(0.5, dt / halfLife)
+                action.weight *= decay
+                if action.weight <= 0.001 {
+                    action.weight = 0
+                    action.active = false
+                    action.exiting = false
+                }
+            } else {
+                let blendIn = max(action.blendInTime, 0.001)
+                action.weight = min(action.weight + dt / blendIn, 1.0)
+            }
+            aStore[e] = action
+        }
+    }
+}
+
+/// Drive a timed dodge with a speed curve while playing the action animation.
+public final class DodgeSystem: FixedStepSystem {
+    public init() {}
+
+    public func fixedUpdate(world: World, dt: Float) {
+        guard dt > 0 else { return }
+        let entities = world.query(MoveIntentComponent.self,
+                                   DodgeActionComponent.self,
+                                   PhysicsBodyComponent.self)
+        let mStore = world.store(MoveIntentComponent.self)
+        let dStore = world.store(DodgeActionComponent.self)
+        let aStore = world.store(ActionAnimationComponent.self)
+        let pStore = world.store(PhysicsBodyComponent.self)
+        let active = world.query(ActiveChunkComponent.self).first.flatMap { world.store(ActiveChunkComponent.self)[$0] }
+
+        for e in entities {
+            if !isActive(e, active) { continue }
+            guard var intent = mStore[e],
+                  var dodge = dStore[e],
+                  let body = pStore[e] else {
+                continue
+            }
+
+            if intent.dodgeRequested && !dodge.active {
+                let forward = simd_act(body.rotation, SIMD3<Float>(0, 0, -1))
+                let back = simd_normalize(SIMD3<Float>(-forward.x, 0, -forward.z))
+                let yaw = atan2f(-forward.x, -forward.z)
+                dodge.active = true
+                dodge.time = 0
+                dodge.direction = back
+                dodge.facingYaw = yaw
+                if var action = aStore[e] {
+                    action.active = true
+                    action.time = 0
+                    action.weight = 0
+                    action.exiting = false
+                    aStore[e] = action
+                }
+            }
+
+            if dodge.active {
+                dodge.time += dt
+                let duration = max(dodge.duration, 0.001)
+                let windowStart = max(0, min(dodge.startTime, duration))
+                let windowEnd = max(windowStart, min(dodge.endTime, duration))
+                let windowLen = max(windowEnd - windowStart, 0.001)
+                var speed: Float = 0
+                if dodge.time >= windowStart && dodge.time <= windowEnd {
+                    let t = (dodge.time - windowStart) / windowLen
+                    // Smootherstep derivative: softer accel/decel for a floaty feel.
+                    let t2 = t * t
+                    let velFrac = 30 * t2 * (1 - 2 * t + t2)
+                    speed = (dodge.distance / windowLen) * velFrac
+                }
+                let velocity = dodge.direction * speed
+                intent.desiredVelocity = SIMD3<Float>(velocity.x, 0, velocity.z)
+                intent.desiredFacingYaw = dodge.facingYaw
+                intent.hasFacingYaw = true
+                intent.jumpRequested = false
+                if dodge.time >= duration {
+                    dodge.active = false
+                }
+            }
+
+            if intent.dodgeRequested {
+                intent.dodgeRequested = false
+            }
+
+            mStore[e] = intent
+            dStore[e] = dodge
+        }
+    }
+}
+
 
 /// Apply constant gravity acceleration to physics bodies.
 public final class GravitySystem: FixedStepSystem {

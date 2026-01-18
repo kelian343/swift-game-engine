@@ -602,15 +602,82 @@ public struct MoveIntentComponent {
     public var desiredFacingYaw: Float
     public var hasFacingYaw: Bool
     public var jumpRequested: Bool
+    public var dodgeRequested: Bool
 
     public init(desiredVelocity: SIMD3<Float> = .zero,
                 desiredFacingYaw: Float = 0,
                 hasFacingYaw: Bool = false,
-                jumpRequested: Bool = false) {
+                jumpRequested: Bool = false,
+                dodgeRequested: Bool = false) {
         self.desiredVelocity = desiredVelocity
         self.desiredFacingYaw = desiredFacingYaw
         self.hasFacingYaw = hasFacingYaw
         self.jumpRequested = jumpRequested
+        self.dodgeRequested = dodgeRequested
+    }
+}
+
+public struct ActionAnimationComponent {
+    public var profile: MotionProfile
+    public var time: Float
+    public var playbackRate: Float
+    public var loop: Bool
+    public var inPlace: Bool
+    public var active: Bool
+    public var weight: Float
+    public var blendInTime: Float
+    public var blendOutHalfLife: Float
+    public var exiting: Bool
+
+    public init(profile: MotionProfile,
+                time: Float = 0,
+                playbackRate: Float = 1,
+                loop: Bool = false,
+                inPlace: Bool = true,
+                active: Bool = false,
+                weight: Float = 0,
+                blendInTime: Float = 0.08,
+                blendOutHalfLife: Float = 0.12,
+                exiting: Bool = false) {
+        self.profile = profile
+        self.time = time
+        self.playbackRate = playbackRate
+        self.loop = loop
+        self.inPlace = inPlace
+        self.active = active
+        self.weight = weight
+        self.blendInTime = blendInTime
+        self.blendOutHalfLife = blendOutHalfLife
+        self.exiting = exiting
+    }
+}
+
+public struct DodgeActionComponent {
+    public var active: Bool
+    public var time: Float
+    public var duration: Float
+    public var distance: Float
+    public var startTime: Float
+    public var endTime: Float
+    public var direction: SIMD3<Float>
+    public var facingYaw: Float
+
+    public init(active: Bool = false,
+                time: Float = 0,
+                duration: Float = 0.35,
+                distance: Float = 3.0,
+                startTime: Float = 0,
+                endTime: Float = 0,
+                direction: SIMD3<Float> = .zero,
+                facingYaw: Float = 0) {
+        self.active = active
+        self.time = time
+        self.duration = duration
+        self.distance = distance
+        self.startTime = startTime
+        self.endTime = endTime
+        self.direction = direction
+        self.facingYaw = facingYaw
     }
 }
 

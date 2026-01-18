@@ -30,6 +30,8 @@ public final class DemoScene: RenderScene {
     private let physicsIntentSystem = PhysicsIntentSystem()
     private let oscillateMoveSystem = OscillateMoveSystem()
     private let jumpSystem = JumpSystem()
+    private let actionAnimationSystem = ActionAnimationSystem()
+    private let dodgeSystem = DodgeSystem()
     private let activeChunkSystem = ActiveChunkSystem()
     private let physicsLocalizeSystem = PhysicsLocalizeSystem()
     private let gravitySystem = GravitySystem()
@@ -56,6 +58,7 @@ public final class DemoScene: RenderScene {
                        oscillateMoveSystem,
                        activeChunkSystem,
                        physicsLocalizeSystem,
+                       dodgeSystem,
                        physicsIntentSystem,
                        jumpSystem,
                        physicsBeginStepSystem],
@@ -66,6 +69,7 @@ public final class DemoScene: RenderScene {
                     agentSeparationSystem,
                     physicsIntegrateSystem,
                     locomotionProfileSystem,
+                    actionAnimationSystem,
                     poseStackSystem],
             postFixed: [physicsWritebackSystem, worldPositionSyncSystem]
         )

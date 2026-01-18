@@ -20,6 +20,7 @@ final class InputSystem: System {
     // Character facing (driven by LEFT stick direction)
     private var facingYaw: Float = 0
     private var lastJumpPressed: Bool = false
+    private var lastDodgePressed: Bool = false
     public private(set) var exposureDelta: Float = 0
 
     var lookSpeed: Float = 2.5      // used for right stick rotation + pitch
@@ -74,12 +75,15 @@ final class InputSystem: System {
         }
         let mStore = world.store(MoveIntentComponent.self)
         let mvStore = world.store(MovementComponent.self)
+        let dStore = world.store(DodgeActionComponent.self)
         guard let pad = controller?.extendedGamepad else {
             mStore[player] = MoveIntentComponent()
             lastJumpPressed = false
+            lastDodgePressed = false
             exposureDelta = 0
             return
         }
+        let dodgeActive = dStore[player]?.active ?? false
 
         // RAW axes
         let rawLX = pad.leftThumbstick.xAxis.value
@@ -87,6 +91,7 @@ final class InputSystem: System {
         let rawRX = pad.rightThumbstick.xAxis.value
         let rawRY = pad.rightThumbstick.yAxis.value
         let jumpPressed = pad.buttonA.isPressed
+        let dodgePressed = pad.buttonB.isPressed
         exposureDelta = 0
 
         // Match the "correct version" axis sign convention
@@ -110,7 +115,7 @@ final class InputSystem: System {
         let moveLen = simd_length(move)
 
         var intent = mStore[player] ?? MoveIntentComponent()
-        if moveLen > deadzone {
+        if !dodgeActive && moveLen > deadzone {
             let movement = mvStore[player] ?? MovementComponent()
             let dir = move / moveLen
             let runThreshold = max(movement.runThreshold, deadzone)
@@ -122,14 +127,23 @@ final class InputSystem: System {
             facingYaw = approachAngle(current: facingYaw, target: targetYaw, maxDelta: turnSpeed * dt)
             intent.desiredFacingYaw = facingYaw
             intent.hasFacingYaw = true
-        } else {
+        } else if !dodgeActive {
             intent.desiredVelocity = .zero
             intent.hasFacingYaw = false
+        } else {
+            // Keep facing fixed during dodge; movement handled by dodge system.
+            intent.desiredVelocity = .zero
+            intent.desiredFacingYaw = facingYaw
+            intent.hasFacingYaw = true
         }
         if jumpPressed && !lastJumpPressed {
             intent.jumpRequested = true
         }
+        if dodgePressed && !lastDodgePressed {
+            intent.dodgeRequested = true
+        }
         lastJumpPressed = jumpPressed
+        lastDodgePressed = dodgePressed
 
         mStore[player] = intent
     }

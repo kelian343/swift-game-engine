@@ -23,10 +23,12 @@ enum CharacterFactory {
         let idlePath = Bundle.main.path(forResource: "Idle.motionProfile", ofType: "json")
         let runPath = Bundle.main.path(forResource: "Running.motionProfile", ofType: "json")
         let fallPath = Bundle.main.path(forResource: "FallingIdle.motionProfile", ofType: "json")
+        let dodgeBackwardPath = Bundle.main.path(forResource: "StandingDodgeBackward.motionProfile", ofType: "json")
         let walkProfile = walkPath.flatMap { MotionProfileLoader.load(path: $0) }
         let idleProfile = idlePath.flatMap { MotionProfileLoader.load(path: $0) }
         let runProfile = runPath.flatMap { MotionProfileLoader.load(path: $0) }
         let fallProfile = fallPath.flatMap { MotionProfileLoader.load(path: $0) }
+        let dodgeBackwardProfile = dodgeBackwardPath.flatMap { MotionProfileLoader.load(path: $0) }
         if walkProfile == nil && enableMotionProfile {
             print("Failed to load motion profile at:", walkPath ?? "missing bundle resource")
         }
@@ -38,6 +40,9 @@ enum CharacterFactory {
         }
         if fallProfile == nil && enableMotionProfile {
             print("Failed to load motion profile at:", fallPath ?? "missing bundle resource")
+        }
+        if dodgeBackwardProfile == nil && enableMotionProfile {
+            print("Failed to load motion profile at:", dodgeBackwardPath ?? "missing bundle resource")
         }
         guard let skinnedAsset = SkinnedMeshLoader.loadSkinnedMeshAsset(named: "YBot.skinned",
                                                                         skeleton: skeleton) else {
@@ -100,6 +105,21 @@ enum CharacterFactory {
                                                     runExitSpeed: 5.0,
                                                     fallMinDropHeight: 50.0,
                                                     state: .idle))
+        }
+        if enableMotionProfile, let dodgeBackwardProfile {
+            let fps = max(dodgeBackwardProfile.sample_fps, 1)
+            let startTime: Float = 0
+            let endTime = Float(34) / Float(fps)
+            world.add(e, ActionAnimationComponent(profile: dodgeBackwardProfile,
+                                                  playbackRate: 1.0,
+                                                  loop: false,
+                                                  inPlace: true,
+                                                  blendInTime: 0.08,
+                                                  blendOutHalfLife: 0.18))
+            world.add(e, DodgeActionComponent(duration: endTime,
+                                              distance: 8.0,
+                                              startTime: startTime,
+                                              endTime: endTime))
         }
         world.add(e, SkinnedMeshGroupComponent(meshes: skinnedAsset.meshes,
                                                materials: submeshMaterials))
