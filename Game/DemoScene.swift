@@ -185,11 +185,9 @@ public final class DemoScene: RenderScene {
                     }
 
                     for (i, hull) in part.collisionHulls.enumerated() {
-                        let hullMesh = GPUMesh(device: device, descriptor: hull, label: "CheeseHull:\(part.name):\(i)")
                         let e = world.createEntity()
                         world.add(e, t)
                         world.add(e, WorldPositionComponent(translation: t.translation))
-                        world.add(e, RenderComponent(mesh: hullMesh, material: collisionMat))
                         world.add(e, StaticMeshComponent(mesh: hull,
                                                          material: SurfaceMaterial(muS: 0.6, muK: 0.5),
                                                          dirty: false,
@@ -201,6 +199,86 @@ public final class DemoScene: RenderScene {
                 }
             } else {
                 print("DemoScene: missing static mesh asset: 17-Cheese.static.json")
+            }
+        }
+
+        // --- Static Mesh: Semla (render + collision debug)
+        do {
+            if let asset = StaticMeshLoader.loadStaticMeshAsset(named: "Semla.static") {
+                let materials = MaterialLoader.loadMaterials(named: "Semla.materials", device: device)
+                let semlaLayer: UInt32 = 1 << 3
+                let fallbackBase = ProceduralTextureGenerator.solid(width: 4,
+                                                                    height: 4,
+                                                                    color: SIMD4<UInt8>(255, 255, 255, 255),
+                                                                    format: .rgba8UnormSrgb)
+                let fallbackMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                              height: 4,
+                                                                              metallic: 0.0,
+                                                                              roughness: 0.5)
+                let fallbackDesc = MaterialDescriptor(baseColor: fallbackBase,
+                                                      metallicRoughness: fallbackMR,
+                                                      metallicFactor: 1.0,
+                                                      roughnessFactor: 1.0,
+                                                      alpha: 1.0)
+                let fallbackMat = MaterialFactory.make(device: device, descriptor: fallbackDesc, label: "SemlaMatFallback")
+                let collisionBase = ProceduralTextureGenerator.solid(width: 4,
+                                                                     height: 4,
+                                                                     color: SIMD4<UInt8>(120, 220, 180, 255),
+                                                                     format: .rgba8UnormSrgb)
+                let collisionMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                               height: 4,
+                                                                               metallic: 0.0,
+                                                                               roughness: 0.5)
+                let collisionDesc = MaterialDescriptor(baseColor: collisionBase,
+                                                       metallicRoughness: collisionMR,
+                                                       metallicFactor: 0.0,
+                                                       roughnessFactor: 1.0,
+                                                       alpha: 0.25,
+                                                       unlit: true)
+                let collisionMat = MaterialFactory.make(device: device, descriptor: collisionDesc, label: "SemlaCollisionMat")
+
+                let semlaOffset = SIMD3<Float>(18, 0, 10)
+                for part in asset.parts {
+                    var t = DemoScene.transformFromMatrix(part.transform)
+                    t.translation += semlaOffset
+                    let indices = DemoScene.indicesAsUInt32(part.mesh)
+                    for sub in part.submeshes {
+                        let start = max(sub.start, 0)
+                        let end = min(start + sub.count, indices.count)
+                        if start >= end { continue }
+                        let slice = Array(indices[start..<end])
+                        let maxIndex = slice.max() ?? 0
+                        let indices16: [UInt16]? = maxIndex <= UInt32(UInt16.max) ? slice.map { UInt16($0) } : nil
+                        let indices32: [UInt32]? = indices16 == nil ? slice : nil
+                        let desc = ProceduralMeshDescriptor(topology: .triangles,
+                                                            streams: part.mesh.streams,
+                                                            indices16: indices16,
+                                                            indices32: indices32,
+                                                            name: "\(part.name):\(sub.material)")
+                        let mesh = GPUMesh(device: device, descriptor: desc, label: "Semla:\(part.name):\(sub.material)")
+                        let mat = materials[sub.material] ?? fallbackMat
+                        let e = world.createEntity()
+                        world.add(e, t)
+                        world.add(e, WorldPositionComponent(translation: t.translation))
+                        world.add(e, RenderComponent(mesh: mesh, material: mat))
+                    }
+
+                    for (i, hull) in part.collisionHulls.enumerated() {
+                        let e = world.createEntity()
+                        world.add(e, t)
+                        world.add(e, WorldPositionComponent(translation: t.translation))
+                        world.add(e, StaticMeshComponent(mesh: hull,
+                                                         material: SurfaceMaterial(muS: 0.6, muK: 0.5),
+                                                         dirty: false,
+                                                         collides: true,
+                                                         collisionLayer: semlaLayer))
+                        world.add(e, PhysicsBodyComponent(bodyType: .static,
+                                                          position: t.translation,
+                                                          rotation: t.rotation))
+                    }
+                }
+            } else {
+                print("DemoScene: missing static mesh asset: Semla.static.json")
             }
         }
 

@@ -53,3 +53,13 @@
 - Skeleton data for Mixamo Y Bot is now assetized as YBot.skeleton.json and loaded at runtime (no hardcoded skeleton arrays).
 - Skeleton JSON schema now supports rigProfile definitions and per-semantic alias overrides to map bones without code changes.
 - Skeleton root rules are JSON-driven (auto/zero/keep) with root rotation fix specified per asset.
+
+## 2026-03-09 Update (Static Mesh + Collision + Perf)
+- Added offline FBX static mesh exporter (FbxToStaticMeshJson) that outputs multi-mesh JSON with per-mesh transforms.
+- Static mesh JSON now includes simplified collision hulls per part (loose parts -> convex hull -> decimate), with tunable max hulls and face limits.
+- Added runtime StaticMeshLoader that returns per-part ProceduralMeshDescriptor + submesh materials + collision hulls.
+- DemoScene loads 17-Cheese.static.json, spawns per-part render meshes, and visualizes collision hulls with transparent meshes.
+- FBX material export now parses node networks and emits texture paths + channel hints.
+- MaterialLoader now loads texture files at runtime when paths exist (no baked defaults).
+- Collision system now supports layers/masks on StaticMeshComponent and CharacterControllerComponent for selective collision.
+- Added CPU/GPU perf logging for update, RT encode, render graph, draw/tri counts, and GPU time.

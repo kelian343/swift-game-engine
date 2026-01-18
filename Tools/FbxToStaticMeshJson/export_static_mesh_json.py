@@ -21,11 +21,21 @@ def _clear_scene():
 
 def _parse_args():
     if "--" not in sys.argv:
-        raise SystemExit("Usage: blender -b -P export_static_mesh_json.py -- <input.fbx> <output.json>")
+        raise SystemExit("Usage: blender -b -P export_static_mesh_json.py -- <input.fbx> <output.json> [--flip-v|--no-flip-v]")
     argv = sys.argv[sys.argv.index("--") + 1:]
-    if len(argv) != 2:
-        raise SystemExit("Usage: blender -b -P export_static_mesh_json.py -- <input.fbx> <output.json>")
-    return argv[0], argv[1]
+    if len(argv) < 2:
+        raise SystemExit("Usage: blender -b -P export_static_mesh_json.py -- <input.fbx> <output.json> [--flip-v|--no-flip-v]")
+    input_path = argv[0]
+    output_path = argv[1]
+    flip_v = True
+    for arg in argv[2:]:
+        if arg == "--flip-v":
+            flip_v = True
+        elif arg == "--no-flip-v":
+            flip_v = False
+        else:
+            raise SystemExit(f"Unknown argument: {arg}")
+    return input_path, output_path, flip_v
 
 
 def _find_meshes():
@@ -120,7 +130,7 @@ def _build_collision_hulls(mesh_obj):
 
 
 def main():
-    input_path, output_path = _parse_args()
+    input_path, output_path, flip_v = _parse_args()
     if not os.path.exists(input_path):
         raise SystemExit(f"FBX not found: {input_path}")
 
@@ -165,6 +175,8 @@ def main():
                 loop = mesh.loops[li]
                 v = mesh.vertices[loop.vertex_index]
                 uv = uv_layer.data[li].uv if uv_layer else (0.0, 0.0)
+                if flip_v:
+                    uv = (uv[0], 1.0 - uv[1])
                 p = v.co
                 n = loop.normal if hasattr(loop, "normal") else v.normal
                 if n.length > 0:
