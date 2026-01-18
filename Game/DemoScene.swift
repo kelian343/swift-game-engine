@@ -286,6 +286,91 @@ public final class DemoScene: RenderScene {
             }
         }
 
+        // --- Static Mesh: Ornate Mirror (render + collision debug)
+        do {
+            if let asset = StaticMeshLoader.loadStaticMeshAsset(named: "ornate-mirror.static") {
+                let materials = MaterialLoader.loadMaterials(named: "ornate-mirror.materials", device: device)
+                let mirrorLayer: UInt32 = 1 << 4
+                let fallbackBase = ProceduralTextureGenerator.solid(width: 4,
+                                                                    height: 4,
+                                                                    color: SIMD4<UInt8>(255, 255, 255, 255),
+                                                                    format: .rgba8UnormSrgb)
+                let fallbackMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                              height: 4,
+                                                                              metallic: 0.0,
+                                                                              roughness: 0.5)
+                let fallbackDesc = MaterialDescriptor(baseColor: fallbackBase,
+                                                      metallicRoughness: fallbackMR,
+                                                      metallicFactor: 1.0,
+                                                      roughnessFactor: 1.0,
+                                                      alpha: 1.0)
+                let fallbackMat = MaterialFactory.make(device: device, descriptor: fallbackDesc, label: "MirrorMatFallback")
+                let collisionBase = ProceduralTextureGenerator.solid(width: 4,
+                                                                     height: 4,
+                                                                     color: SIMD4<UInt8>(200, 160, 255, 255),
+                                                                     format: .rgba8UnormSrgb)
+                let collisionMR = ProceduralTextureGenerator.metallicRoughness(width: 4,
+                                                                               height: 4,
+                                                                               metallic: 0.0,
+                                                                               roughness: 0.5)
+                let collisionDesc = MaterialDescriptor(baseColor: collisionBase,
+                                                       metallicRoughness: collisionMR,
+                                                       metallicFactor: 0.0,
+                                                       roughnessFactor: 1.0,
+                                                       alpha: 0.25,
+                                                       unlit: true)
+                let collisionMat = MaterialFactory.make(device: device, descriptor: collisionDesc, label: "MirrorCollisionMat")
+
+                let mirrorOffset = SIMD3<Float>(-10, 1, 4)
+                for part in asset.parts {
+                    var t = DemoScene.transformFromMatrix(part.transform)
+                    let upright = simd_quatf(angle: .pi * 0.5, axis: SIMD3<Float>(1, 0, 0))
+                    let flip = simd_quatf(angle: .pi, axis: SIMD3<Float>(1, 0, 0))
+                    t.rotation = simd_mul(t.rotation, simd_mul(upright, flip))
+                    t.scale *= 8.0
+                    t.translation += mirrorOffset
+                    let indices = DemoScene.indicesAsUInt32(part.mesh)
+                    for sub in part.submeshes {
+                        let start = max(sub.start, 0)
+                        let end = min(start + sub.count, indices.count)
+                        if start >= end { continue }
+                        let slice = Array(indices[start..<end])
+                        let maxIndex = slice.max() ?? 0
+                        let indices16: [UInt16]? = maxIndex <= UInt32(UInt16.max) ? slice.map { UInt16($0) } : nil
+                        let indices32: [UInt32]? = indices16 == nil ? slice : nil
+                        let desc = ProceduralMeshDescriptor(topology: .triangles,
+                                                            streams: part.mesh.streams,
+                                                            indices16: indices16,
+                                                            indices32: indices32,
+                                                            name: "\(part.name):\(sub.material)")
+                        let mesh = GPUMesh(device: device, descriptor: desc, label: "Mirror:\(part.name):\(sub.material)")
+                        let mat = materials[sub.material] ?? fallbackMat
+                        let e = world.createEntity()
+                        world.add(e, t)
+                        world.add(e, WorldPositionComponent(translation: t.translation))
+                        world.add(e, RenderComponent(mesh: mesh, material: mat))
+                    }
+
+                    for (i, hull) in part.collisionHulls.enumerated() {
+                        let hullMesh = GPUMesh(device: device, descriptor: hull, label: "MirrorHull:\(part.name):\(i)")
+                        let e = world.createEntity()
+                        world.add(e, t)
+                        world.add(e, WorldPositionComponent(translation: t.translation))
+                        world.add(e, StaticMeshComponent(mesh: hull,
+                                                         material: SurfaceMaterial(muS: 0.6, muK: 0.5),
+                                                         dirty: false,
+                                                         collides: true,
+                                                         collisionLayer: mirrorLayer))
+                        world.add(e, PhysicsBodyComponent(bodyType: .static,
+                                                          position: t.translation,
+                                                          rotation: t.rotation))
+                    }
+                }
+            } else {
+                print("DemoScene: missing static mesh asset: ornate-mirror.static.json")
+            }
+        }
+
         // --- Kinematic Platforms: elevator + ground mover
         do {
             let meshDesc = ProceduralMeshes.box(BoxParams(size: 4.0))
